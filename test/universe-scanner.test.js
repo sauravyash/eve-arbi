@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ingestOrders, mergeRegion, pairsForType, buildScanContext, rangeCode, REGION, TOP_LEVELS } from '../universe-scanner.js';
+import { ingestOrders, mergeRegion, pairsForType, buildScanContext, rangeCode, REGION, TOP_LEVELS } from '../public/js/scan/universe-scanner.js';
 
 const ord = (o) => ({ type_id: 34, min_volume: 1, volume_remain: 10, range: 'region', ...o });
 

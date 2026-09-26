@@ -9,6 +9,7 @@ import { buildGraph, jumpsFrom, jumpsBetween, systemInfo } from './galaxy.js';
 import { parseFuzzwork, isNpcStation } from './market-merge.js';
 import { contractProfit, lpOfferValue, BLUEPRINT_CATEGORY } from './contract-value.js';
 import { createMe } from './me.js';
+import { scanClient, tabNote } from './scan-client.js';
 import { secBand, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 
@@ -49,6 +50,7 @@ const save = () => { LS.set('contracts.settings', settings); writeUrl(settings, 
 
 const cs = { status: null, result: null, poll: null, xLimit: PAGE, cLimit: PAGE, open: null, xMemo: null, cMemo: null };
 const us = { result: null, loading: null, backMemo: null };
+const conScan = scanClient('cscan'), uniScan = scanClient('uscan');
 const lp = { corps: null, byName: new Map(), offers: null, corpId: null, prices: {}, vol: new Map(), status: '', ver: 0 };
 let graph = null, types = null, stations = null;
 const byName = new Map(); // lower-case system name → system ID
@@ -110,15 +112,15 @@ const settingsKey = () => [settings.home, settings.flag, settings.tax, settings.
 // ---------------------------------------------------------------------------
 async function loadResult() {
   try {
-    const res = await fetch('/api/cscan/result');
-    if (res.ok) { cs.result = await res.json(); cs.xMemo = cs.cMemo = null; us.backMemo = null; }
+    const r = await conScan.result();
+    if (r) { cs.result = r; cs.xMemo = cs.cMemo = null; us.backMemo = null; }
   } catch { /* keep the previous result */ }
   renderAll();
 }
 
 async function poll() {
   clearTimeout(cs.poll);
-  try { cs.status = await (await fetch('/api/cscan')).json(); } catch { /* server restarting */ }
+  try { cs.status = await conScan.status(); } catch { /* server restarting */ }
   const st = cs.status?.state;
   if (st === 'running') cs.poll = setTimeout(poll, 1500);
   else if (st === 'done' && cs.status.result?.finishedAt !== cs.result?.finishedAt) await loadResult();
@@ -129,9 +131,9 @@ async function startScan() {
   const minPrice = parseAmount(settings.minPrice || DEFAULTS.minPrice);
   if (minPrice == null) { $('minPrice').classList.add('bad'); return; }
   $('scanBtn').disabled = true;
-  const force = cs.result && cs.result.scope === settings.scope && cs.result.minPrice === minPrice ? '&force=1' : '';
+  const force = cs.result && cs.result.scope === settings.scope && cs.result.minPrice === minPrice ? '1' : undefined;
   try {
-    cs.status = await (await fetch(`/api/cscan?scope=${settings.scope}&minPrice=${minPrice}${force}`, { method: 'POST' })).json();
+    cs.status = await conScan.start({ scope: settings.scope, minPrice, force });
   } catch { /* shown by poll */ }
   poll();
 }
@@ -151,7 +153,7 @@ function renderStatus() {
   if (running) bar.firstElementChild.style.width = `${st.total ? Math.round(st.done / st.total * 100) : 0}%`;
   const r = cs.result;
   let msg;
-  if (running) msg = (PHASE[st.phase] || (() => 'Scanning…'))(st);
+  if (running) msg = (PHASE[st.phase] || (() => 'Scanning…'))(st) + tabNote();
   else if (st?.state === 'error') msg = `Scan failed: ${st.error}`;
   else if (r) {
     const fresh = r.expiresAt > Date.now();
@@ -286,7 +288,7 @@ function itemsDetail(row) {
 // Courier contracts + market backhaul
 // ---------------------------------------------------------------------------
 async function loadUscan() {
-  us.loading ||= fetch('/api/uscan/result').then(r => (r.ok ? r.json() : null)).catch(() => null)
+  us.loading ||= uniScan.result().catch(() => null)
     .then(r => { us.result = r; us.backMemo = null; cs.cMemo = null; renderCourier(); return r; });
   return us.loading;
 }

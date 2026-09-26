@@ -1,0 +1,23 @@
+// Cloudflare Workers config for the hosted site (see "Hosting on Cloudflare" in the README).
+// Build command: npm run build:map   (creates public/data/*.json from the SDE)
+// Deploy command: npx wrangler deploy
+{
+  "name": "eve-arbi",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-09-01",
+  // sso.js uses node:crypto (PKCE) and Buffer.
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/sso/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "SESSIONS", "class_name": "Session" }]
+  },
+  // SQLite-backed Durable Objects are available on the Workers free plan.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
+  // EVE_CLIENT_ID, EVE_CALLBACK_URL and CONTACT are set in the dashboard; keep them on deploy.
+  "keep_vars": true,
+  "observability": { "enabled": true }
+}

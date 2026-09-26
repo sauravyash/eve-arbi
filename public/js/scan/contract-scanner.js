@@ -4,7 +4,7 @@
 // 1. Contract lists: GET /contracts/public/{region}/ for every region (~100 pages in total).
 // 2. Contents: GET /contracts/public/items/{id}/ once per contract in scope (the chosen regions,
 //    at least `minPrice` ISK paid or received). A contract's items never change, so they're kept
-//    in .cache/contract-items.json and only new contracts are fetched on later scans.
+//    in the store (.cache/contract-items.json on the server, IndexedDB in the browser) and only new contracts are fetched on later scans.
 //    ESI allows ~40 of these a second; the first scan of the hub regions takes a few minutes.
 // 3. Market: every order in the five hub regions (/markets/{region}/orders/, ~900 pages), kept
 //    only for item types that appear in a contract: the buy orders a seller at the hub station
@@ -12,10 +12,13 @@
 // 4. Each contract is valued at every hub (public/js/contract-value.js); the page applies tax and
 //    picks the hub.
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import path from 'node:path';
-import { HUBS, buyOrderReachesHub } from './public/js/arbitrage.js';
-import { compactItems, valueAtHub } from './public/js/contract-value.js';
+// Runs in node (server.js) or a browser Web Worker (scan-worker.js): it only needs
+//   fetchUpstream(name, url) → {status, body, pages, expiresAt, …}  (see server.js)
+//   data(name)  → parsed public/data/{name}.json ('types', 'universe', 'stations')
+//   store       → {get(key), put(key, value)} for results that survive restarts
+
+import { HUBS, buyOrderReachesHub } from '../arbitrage.js';
+import { compactItems, valueAtHub } from '../contract-value.js';
 
 const ESI = 'https://esi.evetech.net/latest/';
 const RETRIES = 3;
@@ -31,15 +34,18 @@ export const DEFAULT_MIN_PRICE = 20_000_000;
 // A few contracts answer 200 with an empty body every time; treat them as having nothing to value.
 const parseItems = (body) => { try { return JSON.parse(body); } catch { return []; } };
 
-export function createContractScanner({ fetchUpstream, typesFile, universeFile, stationsFile, cacheFile, itemsFile, log = console.log }) {
+export const STORE_KEY = 'contract-scan';
+const ITEMS_KEY = 'contract-items';
+
+export function createContractScanner({ fetchUpstream, data, store, log = console.log }) {
   let status = { state: 'idle', phase: null, done: 0, total: 0, warnings: [] };
   let result = null;
   let running = null;
   const items = new Map(); // contractId → compact rows (see contract-value.js), [] when gone/empty
 
   const ready = Promise.all([
-    readFile(cacheFile, 'utf8').then(txt => { result = JSON.parse(txt); log(`Contract scan: loaded cached result from ${new Date(result.finishedAt).toLocaleString()}`); }),
-    readFile(itemsFile, 'utf8').then(txt => { for (const [id, rows] of JSON.parse(txt)) items.set(id, rows); }),
+    Promise.resolve(store.get(STORE_KEY)).then(r => { if (!r) return; result = r; log(`Contract scan: loaded cached result from ${new Date(result.finishedAt).toLocaleString()}`); }),
+    Promise.resolve(store.get(ITEMS_KEY)).then(list => { for (const [id, rows] of list || []) items.set(id, rows); }),
   ].map(p => p.catch(() => {})));
 
   let errorPause = 0;
@@ -91,9 +97,9 @@ export function createContractScanner({ fetchUpstream, typesFile, universeFile, 
   async function scan({ scope, minPrice }) {
     await ready;
     const startedAt = Date.now();
-    const universe = JSON.parse(await readFile(universeFile, 'utf8'));
-    const stations = JSON.parse(await readFile(stationsFile, 'utf8').catch(() => '{}'));
-    const types = JSON.parse(await readFile(typesFile, 'utf8').catch(() => '{}'));
+    const universe = await data('universe');
+    const stations = await data('stations').catch(() => ({}));
+    const types = await data('types').catch(() => ({}));
     // Structures aren't in the SDE; their systems come from market orders seen in step 3.
     const structureSystems = new Map();
     const systemOf = (loc) => stations[loc]?.[1] ?? structureSystems.get(loc) ?? null;
@@ -216,17 +222,16 @@ export function createContractScanner({ fetchUpstream, typesFile, universeFile, 
     status = { ...status, state: 'done', phase: null, finishedAt };
     log(`Contract scan: ${listed.length} contracts listed, ${wanted.length} in scope (${fetched} newly fetched), `
       + `${contracts.length} worth taking at some hub, ${couriers.length} couriers in ${((finishedAt - startedAt) / 1000).toFixed(0)}s`);
-    await mkdir(path.dirname(cacheFile), { recursive: true });
-    await writeFile(cacheFile, JSON.stringify(result)).catch(e => log(`Contract scan: couldn't write cache (${e.message})`));
+    await Promise.resolve(store.put(STORE_KEY, result)).catch(e => log(`Contract scan: couldn't write cache (${e.message})`));
   }
 
   async function saveItems(live) {
-    await mkdir(path.dirname(itemsFile), { recursive: true });
     const keep = [...items].filter(([id]) => live.has(id));
-    await writeFile(itemsFile, JSON.stringify(keep)).catch(e => log(`Contract scan: couldn't save items (${e.message})`));
+    await Promise.resolve(store.put(ITEMS_KEY, keep)).catch(e => log(`Contract scan: couldn't save items (${e.message})`));
   }
 
   return {
+    ready,
     status() {
       return {
         ...status,
@@ -242,6 +247,7 @@ export function createContractScanner({ fetchUpstream, typesFile, universeFile, 
       minPrice = Number.isFinite(minPrice) && minPrice >= 0 ? minPrice : DEFAULT_MIN_PRICE;
       const same = result && result.scope === scope && result.minPrice === minPrice;
       if (!force && same && result.expiresAt > Date.now()) return { started: false, reason: 'fresh' };
+      status = { state: 'running', phase: 'lists', done: 0, total: 0, warnings: [], startedAt: Date.now() }; // before the first await, so a poll right after start() sees it
       running = scan({ scope, minPrice })
         .catch(e => { status = { ...status, state: 'error', phase: null, error: e.message }; log(`Contract scan failed: ${e.message}`); })
         .finally(() => { running = null; });

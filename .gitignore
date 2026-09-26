@@ -6,3 +6,5 @@ sso.config.json
 public/data/
 node_modules/
 .claude/
+.wrangler/
+.dev.vars

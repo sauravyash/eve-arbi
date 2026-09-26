@@ -8,10 +8,13 @@
 // once its pages are in, collapsed to the best TOP_LEVELS price levels per station (and, for buy
 // orders, per range) before it joins the universe-wide book. Only that trimmed book is kept.
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import path from 'node:path';
-import { buildGraph } from './public/js/galaxy.js';
-import { buildRangeContext, pairsForType, rangeCode, REGION, MIN_PROFIT } from './public/js/ranges.js';
+// Runs in node (server.js) or a browser Web Worker (scan-worker.js): it only needs
+//   fetchUpstream(name, url) → {status, body, pages, expiresAt, …}  (see server.js)
+//   data(name)  → parsed public/data/{name}.json ('types', 'universe', 'stations')
+//   store       → {get(key), put(key, value)} for results that survive restarts
+
+import { buildGraph } from '../galaxy.js';
+import { buildRangeContext, pairsForType, rangeCode, REGION, MIN_PROFIT } from '../ranges.js';
 
 export { pairsForType, rangeCode, REGION, MIN_PROFIT };
 export const buildScanContext = (universe, stations) => buildRangeContext(buildGraph(universe), stations);
@@ -53,13 +56,15 @@ export function mergeRegion(book, scratch) {
   }
 }
 
-export function createUniverseScanner({ fetchUpstream, typesFile, universeFile, stationsFile, cacheFile, log = console.log }) {
+export const STORE_KEY = 'universe-scan';
+
+export function createUniverseScanner({ fetchUpstream, data, store, log = console.log }) {
   let status = { state: 'idle', done: 0, total: 0, regions: 0, regionsDone: 0, warnings: [] };
   let result = null;
   let running = null;
 
-  const ready = readFile(cacheFile, 'utf8')
-    .then(txt => { result = JSON.parse(txt); log(`Universe scan: loaded cached result from ${new Date(result.finishedAt).toLocaleString()}`); })
+  const ready = Promise.resolve(store.get(STORE_KEY))
+    .then(r => { if (!r) return; result = r; log(`Universe scan: loaded cached result from ${new Date(result.finishedAt).toLocaleString()}`); })
     .catch(() => {});
 
   async function fetchPage(regionId, page) {
@@ -98,8 +103,8 @@ export function createUniverseScanner({ fetchUpstream, typesFile, universeFile, 
   async function scan() {
     await ready;
     const startedAt = Date.now();
-    const universe = JSON.parse(await readFile(universeFile, 'utf8'));
-    const stations = JSON.parse(await readFile(stationsFile, 'utf8').catch(() => '{}'));
+    const universe = await data('universe');
+    const stations = await data('stations').catch(() => ({}));
     const ctx = buildScanContext(universe, stations);
     const regions = universe.regions;
     // One page-1 request per region is counted up front; the rest are added as X-Pages arrive.
@@ -115,13 +120,13 @@ export function createUniverseScanner({ fetchUpstream, typesFile, universeFile, 
 
     status.state = 'computing';
     const computeStart = Date.now();
-    const types = JSON.parse(await readFile(typesFile, 'utf8').catch(() => '{}'));
+    const types = await data('types').catch(() => ({}));
     const candidates = [];
     let locations = 0, k = 0;
     for (const [typeId, entry] of book) {
       locations += entry.asks.length + entry.bids.length;
       candidates.push(...pairsForType(typeId, entry, ctx));
-      if (++k % 500 === 0) await new Promise(r => setImmediate(r)); // keep the server responsive
+      if (++k % 500 === 0) await new Promise(r => setTimeout(r, 0)); // stay responsive
     }
     const usedTypes = {};
     for (const c of candidates) usedTypes[c.t] ||= types[c.t] || [`Type ${c.t}`, 0];
@@ -136,11 +141,11 @@ export function createUniverseScanner({ fetchUpstream, typesFile, universeFile, 
     log(`Universe scan: ${result.pages} pages, ${result.regions} regions, ${book.size} items, ${candidates.length} hauls `
       + `(${candidates.filter(c => c.x).length} via ranged buy orders) in ${((finishedAt - startedAt) / 1000).toFixed(0)}s `
       + `(matching ${((finishedAt - computeStart) / 1000).toFixed(1)}s)`);
-    await mkdir(path.dirname(cacheFile), { recursive: true });
-    await writeFile(cacheFile, JSON.stringify(result)).catch(e => log(`Universe scan: couldn't write cache (${e.message})`));
+    await Promise.resolve(store.put(STORE_KEY, result)).catch(e => log(`Universe scan: couldn't write cache (${e.message})`));
   }
 
   return {
+    ready,
     status() {
       return {
         ...status,
@@ -153,6 +158,7 @@ export function createUniverseScanner({ fetchUpstream, typesFile, universeFile, 
       if (running) return { started: false, reason: 'running' };
       // A cached result from before range matching is treated as stale.
       if (!force && result?.rangeAware && result.expiresAt > Date.now()) return { started: false, reason: 'fresh' };
+      status = { state: 'running', done: 0, total: 0, regions: 0, regionsDone: 0, warnings: [], startedAt: Date.now() }; // before the first await, so a poll right after start() sees it
       running = scan()
         .catch(e => { status = { ...status, state: 'error', error: e.message }; log(`Universe scan failed: ${e.message}`); })
         .finally(() => { running = null; });

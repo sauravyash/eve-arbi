@@ -1,4 +1,5 @@
 import { HUBS, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
+import { scanClient, tabNote } from './scan-client.js';
 import { GalaxyMap } from './map.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { isNpcStation } from './market-merge.js';
@@ -749,7 +750,7 @@ function renderScan() {
   if (!r || !scan.rows.length) {
     body.innerHTML = `<tr class="empty"><td colspan="13">${
       r ? 'Nothing matches these filters.'
-        : busy ? 'Scanning every order in the five hub regions — about a minute.' : 'Run a market scan to rank every item.'}</td></tr>`;
+        : busy ? `Scanning every order in the five hub regions — about a minute${tabNote()}.` : 'Run a market scan to rank every item.'}</td></tr>`;
     more.hidden = true;
     return;
   }
@@ -799,15 +800,17 @@ function renderScan() {
   }));
 }
 
+const hubScan = scanClient('scan'), uniScan = scanClient('uscan');
+
 async function loadScanResult() {
-  try { scan.result = (await getJson('/api/scan/result')).data; }
-  catch { /* 404: no scan yet */ }
+  try { scan.result = (await hubScan.result()) ?? scan.result; }
+  catch { /* keep the previous result */ }
   render();
 }
 
 async function pollScan() {
   clearTimeout(scan.polling);
-  try { scan.status = (await getJson('/api/scan')).data; }
+  try { scan.status = await hubScan.status(); }
   catch (e) { scan.status = { state: 'error', error: e.message }; }
   const busy = ['running', 'computing'].includes(scan.status.state);
   if (busy) scan.polling = setTimeout(pollScan, 1500);
@@ -819,7 +822,7 @@ async function pollScan() {
 async function startScan() {
   scan.notice = null;
   try {
-    const res = (await getJson('/api/scan', { method: 'POST' })).data;
+    const res = await hubScan.start();
     scan.status = res;
     if (!res.started && res.reason === 'fresh') {
       const at = new Date(res.result.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -860,14 +863,14 @@ const trip = { result: null, status: null, poll: null, graph: null, catalog: nul
 const tripFlag = () => (settings.flag === 'secure' ? 'secure' : 'shortest');
 
 async function tripLoadResult() {
-  try { trip.result = (await getJson('/api/uscan/result')).data; trip.memo = null; }
-  catch { /* 404: no universe scan yet */ }
+  try { trip.result = (await uniScan.result()) ?? trip.result; trip.memo = null; }
+  catch { /* keep the previous result */ }
   render();
 }
 
 async function tripPoll() {
   clearTimeout(trip.poll);
-  try { trip.status = (await getJson('/api/uscan')).data; }
+  try { trip.status = await uniScan.status(); }
   catch (e) { trip.status = { state: 'error', error: e.message }; }
   const busy = ['running', 'computing'].includes(trip.status.state);
   if (busy) trip.poll = setTimeout(tripPoll, 1500);
@@ -876,7 +879,7 @@ async function tripPoll() {
 }
 
 async function tripStartScan() {
-  try { trip.status = (await getJson('/api/uscan', { method: 'POST' })).data; }
+  try { trip.status = await uniScan.start(); }
   catch (e) { trip.status = { state: 'error', error: e.message }; }
   tripPoll();
 }
@@ -979,7 +982,7 @@ function renderTrips() {
 
   const body = $('tripBody');
   let trips = [];
-  if (busy) label.textContent = st.state === 'computing' ? 'Matching stations…' : `Scanning every region: ${st.done}/${st.total || '…'} pages`;
+  if (busy) label.textContent = st.state === 'computing' ? 'Matching stations…' : `Scanning every region: ${st.done}/${st.total || '…'} pages${tabNote()}`;
   else if (st?.state === 'error') label.textContent = `Universe scan failed: ${st.error}`;
   else if (!r) label.textContent = 'Needs a universe scan (a few minutes)';
   else {

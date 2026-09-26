@@ -11,8 +11,6 @@
 //   gets the results (name, location, ship, balance, orders).
 
 import crypto from 'node:crypto';
-import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
-import path from 'node:path';
 
 const AUTHORIZE = 'https://login.eveonline.com/v2/oauth/authorize';
 const TOKEN = 'https://login.eveonline.com/v2/oauth/token';
@@ -59,19 +57,43 @@ export function readToken(jwt, clientId, now = Date.now()) {
   return { characterId: Number(m[1]), name: c.name, scopes: [].concat(c.scp || []), expiresAt: c.exp * 1000 };
 }
 
-export function createSso({ clientId, callbackUrl, tokenFile, userAgent, scopes = SCOPES, log = console.log }) {
-  const pending = new Map(); // state → {verifier, returnTo, created}
+// Where a login is kept: {get, put, delete} by key ('session', 'pending'), e.g. Durable Object
+// storage (worker/). With just a tokenFile, the session is a file and pending logins stay in memory.
+function fileStore(tokenFile) {
+  const mem = new Map();
+  const fs = import('node:fs/promises');
+  return {
+    async get(k) {
+      if (k !== 'session') return mem.get(k);
+      try { return JSON.parse(await (await fs).readFile(tokenFile, 'utf8')); } catch { return undefined; }
+    },
+    async put(k, v) {
+      if (k !== 'session') { mem.set(k, v); return; }
+      const f = await fs;
+      await f.mkdir(tokenFile.replace(/[\\/][^\\/]*$/, ''), { recursive: true });
+      await f.writeFile(tokenFile, JSON.stringify(v), { mode: 0o600 });
+    },
+    async delete(k) {
+      if (k !== 'session') { mem.delete(k); return; }
+      await (await fs).rm(tokenFile, { force: true });
+    },
+  };
+}
+
+export function createSso({ clientId, callbackUrl, tokenFile, store = fileStore(tokenFile), userAgent, scopes = SCOPES, log = console.log }) {
+  const pending = new Map(); // state → {verifier, returnTo, created}; mirrored to store 'pending'
   let session = null;        // {characterId, name, scopes, accessToken, refreshToken, expiresAt}
   let refreshing = null;
   const cache = new Map();   // ESI path → {expires, value}
 
-  const ready = readFile(tokenFile, 'utf8')
-    .then(txt => { session = JSON.parse(txt); log(`EVE SSO: signed in as ${session.name}`); })
-    .catch(() => {});
+  const ready = Promise.all([
+    Promise.resolve(store.get('session')).then(s => { if (s) { session = s; log(`EVE SSO: signed in as ${session.name}`); } }),
+    Promise.resolve(store.get('pending')).then(p => { for (const [k, v] of Object.entries(p || {})) pending.set(k, v); }),
+  ]).catch(() => {});
+  const savePending = () => store.put('pending', Object.fromEntries(pending));
 
   const save = async () => {
-    await mkdir(path.dirname(tokenFile), { recursive: true });
-    await writeFile(tokenFile, JSON.stringify(session), { mode: 0o600 });
+    await store.put('session', session);
   };
 
   async function tokenRequest(form) {
@@ -102,7 +124,7 @@ export function createSso({ clientId, callbackUrl, tokenFile, userAgent, scopes 
       .then(adopt)
       .catch(async (e) => { // refresh token revoked or expired: sign out cleanly
         log(`EVE SSO: refresh failed (${e.message}) — signed out`);
-        session = null; await rm(tokenFile, { force: true });
+        session = null; await store.delete('session');
         throw Object.assign(new Error('Your EVE login expired — sign in again'), { status: 401 });
       })
       .finally(() => { refreshing = null; });
@@ -169,6 +191,7 @@ export function createSso({ clientId, callbackUrl, tokenFile, userAgent, scopes 
       const verifier = b64url(crypto.randomBytes(32));
       const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
       pending.set(state, { verifier, returnTo: /^\/[\w./-]*$/.test(returnTo) ? returnTo : '/', created: now });
+      savePending(); // not awaited so loginUrl stays synchronous; Durable Objects persist it before replying
       const q = new URLSearchParams({
         response_type: 'code', redirect_uri: callbackUrl, client_id: clientId, scope: scopes.join(' '),
         code_challenge: challenge, code_challenge_method: 'S256', state,
@@ -178,8 +201,10 @@ export function createSso({ clientId, callbackUrl, tokenFile, userAgent, scopes 
 
     // CCP redirected back: check state, swap the code for tokens.
     async finishLogin({ code, state }) {
+      await ready;
       const p = pending.get(state);
       pending.delete(state);
+      await savePending();
       if (!code || !p || Date.now() - p.created > PENDING_TTL) throw Object.assign(new Error('Login expired or was not started here — try again'), { status: 400 });
       const claims = await adopt(await tokenRequest({ grant_type: 'authorization_code', code, code_verifier: p.verifier }));
       log(`EVE SSO: signed in as ${claims.name}`);
@@ -233,7 +258,7 @@ export function createSso({ clientId, callbackUrl, tokenFile, userAgent, scopes 
       await ready;
       const s = session;
       session = null; cache.clear();
-      await rm(tokenFile, { force: true });
+      await store.delete('session');
       if (s?.refreshToken && clientId) { // best effort: tell CCP to forget the token too
         fetch(REVOKE, {
           method: 'POST',

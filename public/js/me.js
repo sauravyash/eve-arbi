@@ -94,7 +94,7 @@ export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk 
     const s = me.status;
     if (!s) { el.innerHTML = ''; return; }
     if (!s.configured) {
-      el.innerHTML = `<span class="me-off" title="Register an application at developers.eveonline.com with callback ${esc(s.callbackUrl)}, then put its Client ID in sso.config.json. See “Signing in” in the README.">EVE login not set up</span>`;
+      el.innerHTML = `<span class="me-off" title="${esc(s.hint || `Register an application at developers.eveonline.com with callback ${s.callbackUrl}, then put its Client ID in sso.config.json. See “Signing in” in the README.`)}">EVE login not set up</span>`;
       return;
     }
     if (!s.loggedIn) {

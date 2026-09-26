@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "build:map": "node scripts/build-universe.js",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "cf:dev": "npx wrangler dev",
+    "cf:deploy": "npx wrangler deploy"
   },
   "engines": {
     "node": ">=18"

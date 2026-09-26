@@ -3,9 +3,12 @@
 // hub station, and finds every item that can be bought at one hub and sold into buy orders at
 // another for a profit. Runs on demand only; results are reused until ESI's cache expires.
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import path from 'node:path';
-import { HUBS, buyOrderReachesHub, levels, matchSteps } from './public/js/arbitrage.js';
+// Runs in node (server.js) or a browser Web Worker (scan-worker.js): it only needs
+//   fetchUpstream(name, url) → {status, body, pages, expiresAt, …}  (see server.js)
+//   data(name)  → parsed public/data/{name}.json ('types', 'universe', 'stations')
+//   store       → {get(key), put(key, value)} for results that survive restarts
+
+import { HUBS, buyOrderReachesHub, levels, matchSteps } from '../arbitrage.js';
 
 const ESI = 'https://esi.evetech.net/latest/';
 const MIN_PROFIT = 100_000;   // ISK, before tax/caps — drops noise, client filters further
@@ -14,13 +17,15 @@ const RETRIES = 3;
 
 const RANGE = { station: 'STATION', solarsystem: 'SOLARSYSTEM', region: 'REGION' };
 
-export function createScanner({ fetchUpstream, typesFile, cacheFile, log = console.log }) {
+export const STORE_KEY = 'market-scan';
+
+export function createScanner({ fetchUpstream, data, store, log = console.log }) {
   let status = { state: 'idle', done: 0, total: 0, warnings: [] };
   let result = null;
   let running = null;
 
-  const ready = readFile(cacheFile, 'utf8')
-    .then(txt => { result = JSON.parse(txt); log(`Market scan: loaded cached result from ${new Date(result.finishedAt).toLocaleString()}`); })
+  const ready = Promise.resolve(store.get(STORE_KEY))
+    .then(r => { if (!r) return; result = r; log(`Market scan: loaded cached result from ${new Date(result.finishedAt).toLocaleString()}`); })
     .catch(() => {});
 
   async function fetchPage(regionId, page) {
@@ -82,7 +87,7 @@ export function createScanner({ fetchUpstream, typesFile, cacheFile, log = conso
     }));
 
     status.state = 'computing';
-    const types = JSON.parse(await readFile(typesFile, 'utf8').catch(() => '{}'));
+    const types = await data('types').catch(() => ({}));
     const candidates = [];
     const typeIds = new Set(HUBS.flatMap(h => [...books[h.id].keys()]));
     for (const t of typeIds) {
@@ -112,11 +117,11 @@ export function createScanner({ fetchUpstream, typesFile, cacheFile, log = conso
     };
     status = { state: 'done', done: status.total, total: status.total, warnings: status.warnings, startedAt, finishedAt };
     log(`Market scan: ${result.pages} pages, ${typeIds.size} items seen, ${candidates.length} profitable routes in ${((finishedAt - startedAt) / 1000).toFixed(0)}s`);
-    await mkdir(path.dirname(cacheFile), { recursive: true });
-    await writeFile(cacheFile, JSON.stringify(result)).catch(e => log(`Market scan: couldn't write cache (${e.message})`));
+    await Promise.resolve(store.put(STORE_KEY, result)).catch(e => log(`Market scan: couldn't write cache (${e.message})`));
   }
 
   return {
+    ready,
     status() {
       return {
         ...status,
@@ -128,6 +133,7 @@ export function createScanner({ fetchUpstream, typesFile, cacheFile, log = conso
       await ready;
       if (running) return { started: false, reason: 'running' };
       if (!force && result && result.expiresAt > Date.now()) return { started: false, reason: 'fresh' };
+      status = { state: 'running', done: 0, total: 0, warnings: [], startedAt: Date.now() }; // before the first await, so a poll right after start() sees it
       running = scan()
         .catch(e => { status = { ...status, state: 'error', error: e.message }; log(`Market scan failed: ${e.message}`); })
         .finally(() => { running = null; });

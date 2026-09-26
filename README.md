@@ -119,7 +119,7 @@ How it's kept safe (`sso.js`):
   - **Sell at B** = best buy order a seller docked at B's station can fill: orders in that
     station, non-`STATION`-range orders in the system, or `REGION`-range orders in the region.
     In *relist* mode it's the lowest sell order at B instead.
-- **Whole-market scan** (`scanner.js`, `POST /api/scan`) pulls every order in the five hub regions
+- **Whole-market scan** (`public/js/scan/hub-scanner.js`, `POST /api/scan`) pulls every order in the five hub regions
   from ESI's bulk `/markets/{region}/orders/` endpoint. That's about 900 pages (~1 minute),
   well inside ESI's market-order rate limit of 12,000 requests per 15 minutes. EVE Tycoon's
   per-item endpoint would need ~19,500 requests for the same coverage.
@@ -179,7 +179,7 @@ structure in New Eden, not just Jita/Amarr/Dodixie/Rens/Hek, and ranks station-t
 
 ### Universe scan
 
-The *Universe scan* panel (`universe-scanner.js`, `POST /api/uscan`) finds hauls for **every item**,
+The *Universe scan* panel (`public/js/scan/universe-scanner.js`, `POST /api/uscan`) finds hauls for **every item**,
 not just your watchlist.
 - **Coverage:** it pulls every order in all 67 known-space regions from ESI's bulk
   `/markets/{region}/orders/` endpoint. That's ~1,600 pages; a full scan took 98 s in testing,
@@ -267,7 +267,7 @@ A third page that prices public contracts and NPC LP stores against the live hub
 controls at the top (home, route, tax, cargo, max investment, *Sell at* hub, *Value items by*)
 apply to all three tabs, and follow your character like the other pages.
 
-- **Item contracts** (`contract-scanner.js`, `POST /api/cscan`): public item-exchange contracts (and
+- **Item contracts** (`public/js/scan/contract-scanner.js`, `POST /api/cscan`): public item-exchange contracts (and
   auction buyouts, if ticked) whose contents are worth more than the asking price.
   - *Scan contracts* lists every public contract in every region (~100 ESI pages), then opens
     each one in the chosen regions (*Hub regions* or *All known space*) that pays or asks at
@@ -294,6 +294,34 @@ apply to all three tabs, and follow your character like the other pages.
   can absorb what you redeem. LP-store blueprints are copies and are left unpriced.
 - **Not available:** ESI has no public data for agent missions or the in-game *Opportunities*
   window (Corporation projects, Freelance jobs), so those can't be scanned.
+
+## Hosting on Cloudflare
+
+The same pages also run as a Cloudflare Worker (`wrangler.jsonc`, `worker/index.js`), on the free
+plan. Differences from `npm start`:
+
+- **Scans run in your browser.** Workers can't hold a scan (128 MB memory, 10 ms CPU on the free
+  plan), so `public/js/scan-client.js` runs the same scanners in a Web Worker, calling ESI directly
+  (it allows CORS). Results are kept in IndexedDB. A scan stops if you close or reload its tab;
+  contract contents already opened are kept, so the next scan picks up where it left off.
+- **The proxy** (`/api/{tycoon,esi,…}`) is the Worker: EVE Tycoon, Goonmetrics, Adam4EVE and
+  Mokaam send no CORS headers. It caches in the isolate's memory and, on a custom domain, in
+  Cloudflare's cache (the Cache API does nothing on `workers.dev`).
+- **Sign-in is per browser.** Each browser gets an HttpOnly session cookie and its own `Session`
+  Durable Object that holds its EVE tokens; the page only sees results, as locally.
+
+Setup, in the Cloudflare dashboard (Workers → Create → Import a repository):
+1. **Build command:** `npm run build:map` (builds `public/data/` from the SDE).
+   **Deploy command:** `npx wrangler deploy`.
+2. After the first deploy, under *Settings → Variables and secrets*, add:
+   - `EVE_CLIENT_ID`: the Client ID of an EVE application whose callback URL is
+     `https://<your worker>.workers.dev/sso/callback` (register a separate app from your local one).
+     Without it the site works, just without sign-in.
+   - `CONTACT` (optional): contact for the User-Agent sent to community APIs.
+   - `EVE_CALLBACK_URL` (optional): only if the callback differs from this site's `/sso/callback`.
+   `keep_vars` in `wrangler.jsonc` keeps them across deploys.
+
+Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to test sign-in).
 
 ## Using it
 

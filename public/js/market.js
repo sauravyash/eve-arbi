@@ -8,6 +8,7 @@ import { buildGraph, jumpsFrom, jumpsBetween, systemInfo } from './galaxy.js';
 import { SHIP_CATEGORY } from './trips.js';
 import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges.js';
 import { createMe } from './me.js';
+import { scanClient, tabNote } from './scan-client.js';
 import { normalizeMyOrder, orderStanding, expiresAt } from './orders.js';
 import { secBand, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
@@ -869,11 +870,12 @@ function removeItem(typeId) {
 // Universe scan (server-side, see universe-scanner.js)
 // ---------------------------------------------------------------------------
 const us = { status: null, result: null, poll: null, limit: 50, memo: null };
+const uniScan = scanClient('uscan');
 
 async function usLoadResult() {
   try {
-    const res = await fetch('/api/uscan/result');
-    if (res.ok) { us.result = await res.json(); us.memo = null; }
+    const r = await uniScan.result();
+    if (r) { us.result = r; us.memo = null; }
   } catch { /* keep the previous result */ }
   await loadStations();
   renderUscan();
@@ -881,7 +883,7 @@ async function usLoadResult() {
 
 async function usPoll() {
   clearTimeout(us.poll);
-  try { us.status = await (await fetch('/api/uscan')).json(); } catch { /* server restarting */ }
+  try { us.status = await uniScan.status(); } catch { /* server restarting */ }
   const st = us.status?.state;
   if (st === 'running' || st === 'computing') us.poll = setTimeout(usPoll, 1500);
   else if (st === 'done' && us.status.result?.finishedAt !== us.result?.finishedAt) await usLoadResult();
@@ -890,7 +892,7 @@ async function usPoll() {
 
 async function usStart() {
   $('usBtn').disabled = true;
-  try { us.status = await (await fetch('/api/uscan', { method: 'POST' })).json(); } catch { /* shown by poll */ }
+  try { us.status = await uniScan.start(); } catch { /* shown by poll */ }
   usPoll();
 }
 
@@ -954,7 +956,7 @@ function renderUscanStatus() {
   if (running) bar.firstElementChild.style.width = `${st.total ? Math.round(st.done / st.total * 100) : 0}%`;
   const r = us.result;
   let msg = '';
-  if (st?.state === 'running') msg = `Scanning ${st.regionsDone}/${st.regions} regions · ${st.done}/${st.total} pages…`;
+  if (st?.state === 'running') msg = `Scanning ${st.regionsDone}/${st.regions} regions · ${st.done}/${st.total} pages…${tabNote()}`;
   else if (st?.state === 'computing') msg = 'Matching every station pair…';
   else if (st?.state === 'error') msg = `Scan failed: ${st.error}`;
   else if (r) {

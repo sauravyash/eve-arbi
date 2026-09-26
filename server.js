@@ -4,14 +4,14 @@
 // and backs off on 429/420 using Retry-After.
 
 import http from 'node:http';
-import { readFile, access } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { buildUniverse, buildTypes, buildStations, OUT_FILE as UNIVERSE_FILE, TYPES_FILE, STATIONS_FILE } from './scripts/build-universe.js';
-import { createScanner } from './scanner.js';
-import { createUniverseScanner } from './universe-scanner.js';
-import { createContractScanner } from './contract-scanner.js';
+import { createScanner } from './public/js/scan/hub-scanner.js';
+import { createUniverseScanner } from './public/js/scan/universe-scanner.js';
+import { createContractScanner } from './public/js/scan/contract-scanner.js';
 import { createSso } from './sso.js';
 
 const PORT = Number(process.env.PORT) || 8000;
@@ -161,22 +161,27 @@ async function serveStatic(req, res, pathname) {
   } catch { send(res, 404, 'Not found'); }
 }
 
-// --- whole-market scan ---------------------------------------------------------
-const scanner = createScanner({
-  fetchUpstream, typesFile: TYPES_FILE, cacheFile: path.join(APP_DIR, '.cache', 'market-scan.json'),
-});
+// --- scans (public/js/scan/*; the Cloudflare build runs the same code in the browser) ----------
+// Static data from public/data, results kept as .cache/{key}.json so they survive restarts.
+const DATA_FILES = { types: TYPES_FILE, universe: UNIVERSE_FILE, stations: STATIONS_FILE };
+const data = async (name) => JSON.parse(await readFile(DATA_FILES[name], 'utf8'));
+const CACHE_DIR = path.join(APP_DIR, '.cache');
+const store = {
+  get: (key) => readFile(path.join(CACHE_DIR, `${key}.json`), 'utf8').then(JSON.parse, () => undefined),
+  put: async (key, value) => {
+    await mkdir(CACHE_DIR, { recursive: true });
+    await writeFile(path.join(CACHE_DIR, `${key}.json`), JSON.stringify(value));
+  },
+};
+
+// Whole-market scan: the five hubs.
+const scanner = createScanner({ fetchUpstream, data, store });
 
 // Universe-wide scan: every region, every station (see universe-scanner.js).
-const universeScanner = createUniverseScanner({
-  fetchUpstream, typesFile: TYPES_FILE, universeFile: UNIVERSE_FILE, stationsFile: STATIONS_FILE,
-  cacheFile: path.join(APP_DIR, '.cache', 'universe-scan.json'),
-});
+const universeScanner = createUniverseScanner({ fetchUpstream, data, store });
 
 // Public contracts valued against the hub markets (see contract-scanner.js).
-const contractScanner = createContractScanner({
-  fetchUpstream, typesFile: TYPES_FILE, universeFile: UNIVERSE_FILE, stationsFile: STATIONS_FILE,
-  cacheFile: path.join(APP_DIR, '.cache', 'contract-scan.json'), itemsFile: path.join(APP_DIR, '.cache', 'contract-items.json'),
-});
+const contractScanner = createContractScanner({ fetchUpstream, data, store });
 
 async function scanApi(req, res, sub, search, scanner) {
   const json = (status, obj) => send(res, status, JSON.stringify(obj), { 'Content-Type': 'application/json' });
@@ -253,7 +258,8 @@ async function ssoApi(req, res, u) {
     }
     return json(404, { error: 'Not found' });
   } catch (e) {
-    if (u.pathname.startsWith('/sso/')) return page(e.status || 502, 'Sign-in failed', String(e.message).replace(/[<>&]/g, ''));
+    if (u.pathname === '/api/config') send(res, 200, JSON.stringify({ serverScans: true }), { 'Content-Type': 'application/json' });
+    else if (u.pathname.startsWith('/sso/')) return page(e.status || 502, 'Sign-in failed', String(e.message).replace(/[<>&]/g, ''));
     return json(e.status || 502, { error: e.message });
   }
 }
@@ -264,7 +270,8 @@ http.createServer(async (req, res) => {
   const scanMatch = u.pathname.match(/^\/api\/(scan|uscan|cscan)(\/result)?$/);
   const scanners = { scan: scanner, uscan: universeScanner, cscan: contractScanner };
   try {
-    if (u.pathname.startsWith('/sso/') || u.pathname === '/api/me' || u.pathname.startsWith('/api/me/')) await ssoApi(req, res, u);
+    if (u.pathname === '/api/config') send(res, 200, JSON.stringify({ serverScans: true }), { 'Content-Type': 'application/json' });
+    else if (u.pathname.startsWith('/sso/') || u.pathname === '/api/me' || u.pathname.startsWith('/api/me/')) await ssoApi(req, res, u);
     else if (scanMatch) await scanApi(req, res, scanMatch[2] || '', u.searchParams, scanners[scanMatch[1]]);
     else if (m) await proxy(req, res, m[1], m[2] + u.search);
     else await serveStatic(req, res, u.pathname);
