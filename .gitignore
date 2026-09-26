@@ -1,0 +1,8 @@
+# Runtime caches, including .cache/sso.json (EVE login tokens) — never commit
+.cache/
+# Your EVE app's Client ID; copy sso.config.example.json
+sso.config.json
+# Built from the SDE on first start (npm run build:map)
+public/data/
+node_modules/
+.claude/

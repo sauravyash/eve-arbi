@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contracts · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="market.css">
+  <link rel="stylesheet" href="contracts.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Contracts &amp; Opportunities</h1>
+        <p class="sub">Public contracts and LP stores, priced against the live hub markets</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Pages">
+      <a href="index.html">Hub arbitrage</a>
+      <a href="market.html">Market watch</a>
+      <a href="contracts.html" aria-current="page">Contracts</a>
+    </nav>
+  </header>
+
+  <section class="controls" aria-label="Settings">
+    <label>Home system
+      <input id="home" type="text" list="systemList" autocomplete="off" spellcheck="false">
+      <datalist id="systemList"></datalist>
+    </label>
+    <label>Route
+      <select id="flag">
+        <option value="secure">High-sec only</option>
+        <option value="shortest">Shortest (any sec)</option>
+      </select>
+    </label>
+    <label>Sales tax % <input id="tax" type="number" min="0" max="100" step="0.01" inputmode="decimal"></label>
+    <label>Cargo m³ <input id="cargo" type="text" inputmode="decimal" placeholder="Unlimited"></label>
+    <label title="Most ISK to spend on one contract">Max investment <input id="budget" type="text" placeholder="Unlimited"></label>
+    <label>Sell at
+      <select id="sellHub"></select>
+    </label>
+    <label title="Instant: sell into the buy orders at the hub (the book is walked). Relist: put up sell orders at the hub's lowest price — more ISK, but slower and with broker fees.">Value items by
+      <select id="mode">
+        <option value="instant">Instant sell (buy orders)</option>
+        <option value="relist">Relist (lowest sell order)</option>
+      </select>
+    </label>
+    <div class="checks">
+      <label class="inline check"><input id="structures" type="checkbox"> Player structures</label>
+    </div>
+  </section>
+
+  <div class="ct-tabs-bar">
+    <div class="tabs" role="tablist" aria-label="Opportunity type" id="tabs">
+      <button type="button" role="tab" id="tab-items" aria-controls="panel-items" data-tab="items">Item contracts</button>
+      <button type="button" role="tab" id="tab-courier" aria-controls="panel-courier" data-tab="courier">Courier</button>
+      <button type="button" role="tab" id="tab-lp" aria-controls="panel-lp" data-tab="lp">LP stores (missions)</button>
+    </div>
+    <span id="scanStatus" class="scan-status" role="status" aria-live="polite"></span>
+    <label class="inline" title="Which regions to open item contracts in. Courier contracts are always listed everywhere.">Item regions
+      <select id="scope">
+        <option value="hubs">Hub regions (5)</option>
+        <option value="all">All known space</option>
+      </select>
+    </label>
+    <label class="inline" title="Only contracts paying or asking at least this much are opened. Lower = more contracts, longer first scan.">Min price
+      <input id="minPrice" type="text" class="small-in" placeholder="20m">
+    </label>
+    <button id="scanBtn" class="btn small primary" type="button">Scan contracts</button>
+  </div>
+  <div id="scanProgress" class="progress ct-progress" hidden><i></i></div>
+
+  <main class="mw-layout">
+    <!-- Item exchange + auctions -->
+    <section class="panel" id="panel-items" role="tabpanel" aria-labelledby="tab-items">
+      <div class="scan-filters">
+        <label>Min profit <input id="xMinProfit" type="text" placeholder="0"></label>
+        <label>Hide margin above % <input id="xMaxMargin" type="number" min="0" step="1" placeholder="No limit"></label>
+        <label>Max total jumps <input id="xMaxJumps" type="number" min="0" step="1" placeholder="No limit"></label>
+        <label>Rank by
+          <select id="xRank">
+            <option value="profit">Total profit</option>
+            <option value="perJump">ISK per jump (home → contract → hub)</option>
+            <option value="margin">Margin %</option>
+          </select>
+        </label>
+        <label class="grow">Search <input id="xQuery" type="search" placeholder="Item or contract title"></label>
+        <label class="inline check sc-check"><input id="xPriced" type="checkbox"> Fully priced only</label>
+        <label class="inline check sc-check"><input id="xAuctions" type="checkbox"> Auctions</label>
+      </div>
+      <div class="table-wrap">
+        <table class="routes scan-table ct-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Contract</th><th class="l">Pick up at</th><th>Jumps</th><th>m³</th>
+            <th>You pay</th><th>Market value</th><th>Profit</th><th>Margin</th><th>ISK/jump</th><th>Expires</th>
+          </tr></thead>
+          <tbody id="xBody"></tbody>
+        </table>
+      </div>
+      <div class="scan-foot">
+        <p class="hint">Every public item-exchange contract (and, if ticked, auction buyouts) in the chosen regions, opened and priced at the
+          hub you sell at. Profit = market value after tax + any ISK the contract pays you − its price − the cost of items it asks for.
+          Jumps = home → contract → hub. Blueprint copies and items with no market at the hub can't be priced; untick <i>Fully priced only</i>
+          to see those too. Click a row for its items. Check the contract in game before accepting — they can change or be scams.</p>
+        <button id="xMore" class="btn small ghost" type="button" hidden>Show more</button>
+      </div>
+    </section>
+
+    <!-- Courier -->
+    <section class="panel" id="panel-courier" role="tabpanel" aria-labelledby="tab-courier" hidden>
+      <div class="scan-filters">
+        <label>Min reward <input id="cMinReward" type="text" placeholder="0"></label>
+        <label title="Collateral you'd have to put up">Max collateral <input id="cMaxCollateral" type="text" placeholder="Max investment"></label>
+        <label>Max total jumps <input id="cMaxJumps" type="number" min="0" step="1" placeholder="No limit"></label>
+        <label title="Look for a market haul that starts this close to the drop-off">Backhaul within <input id="cBackJumps" type="number" min="0" step="1"></label>
+        <label>Rank by
+          <select id="cRank">
+            <option value="perJump">ISK per jump (incl. from home)</option>
+            <option value="withBack">ISK per jump incl. backhaul</option>
+            <option value="reward">Reward</option>
+            <option value="perM3">Reward per m³</option>
+          </select>
+        </label>
+        <label class="inline check sc-check"><input id="cFits" type="checkbox"> Fits my cargo</label>
+      </div>
+      <div class="table-wrap">
+        <table class="routes scan-table ct-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Pick up</th><th class="l">Deliver to</th><th>Jumps</th><th>m³</th><th>Reward</th>
+            <th>Collateral</th><th>Days</th><th>ISK/jump</th><th class="l">Best backhaul from drop-off</th>
+          </tr></thead>
+          <tbody id="cBody"></tbody>
+        </table>
+      </div>
+      <div class="scan-foot">
+        <p id="cHint" class="hint">Public courier contracts across New Eden. ISK/jump divides the reward by the trip from home to the pickup
+          plus the delivery. <b>Backhaul</b> links each delivery to the market: the best haul from the Market watch <i>Universe scan</i> that
+          starts near the drop-off, so the flight home earns too (its profit uses your tax, cargo and budget).</p>
+        <button id="cMore" class="btn small ghost" type="button" hidden>Show more</button>
+      </div>
+    </section>
+
+    <!-- LP stores -->
+    <section class="panel" id="panel-lp" role="tabpanel" aria-labelledby="tab-lp" hidden>
+      <div class="scan-filters">
+        <label class="grow">Corporation
+          <input id="lpCorp" type="text" list="corpList" autocomplete="off" spellcheck="false" placeholder="e.g. Federation Navy">
+          <datalist id="corpList"></datalist>
+        </label>
+        <label title="Your LP with this corporation, to see how many times each offer can be redeemed">My LP <input id="lpHave" type="text" placeholder="Any"></label>
+        <label>Rank by
+          <select id="lpRank">
+            <option value="perLp">ISK per LP</option>
+            <option value="profit">Profit per redemption</option>
+          </select>
+        </label>
+        <label class="inline check sc-check"><input id="lpHideBp" type="checkbox"> Hide blueprints</label>
+        <span id="lpStatus" class="scan-status" role="status" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="routes scan-table ct-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Offer</th><th>LP</th><th>ISK</th><th>Required items</th><th>Sells for</th>
+            <th>Profit</th><th>ISK/LP</th><th>Hub volume/day</th><th>Redeem ×</th>
+          </tr></thead>
+          <tbody id="lpBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">Missions pay in loyalty points; this is where they meet the market. Each offer is priced at the hub you sell at (Fuzzwork
+        station aggregates): revenue after tax − ISK cost − required items bought at the lowest sell order, divided by LP.
+        <i>Hub volume/day</i> is the item's average daily trade in that hub's region over the last week, so you can tell whether the market
+        can absorb what you redeem.</p>
+      <p class="hint note">ESI has no public data for agent missions or the in-game <i>Opportunities</i> window (Corporation projects,
+        Freelance jobs), so they can't be scanned. LP stores are the market side of mission running, and courier contracts cover the
+        hauling side.</p>
+    </section>
+  </main>
+
+  <script type="module" src="js/contracts.js"></script>
+</body>
+</html>

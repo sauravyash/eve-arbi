@@ -1,0 +1,15 @@
+{
+  "name": "eve-arbi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local EVE Online hub-to-hub hauling arbitrage visualizer (read-only market data).",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "build:map": "node scripts/build-universe.js",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

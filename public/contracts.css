@@ -1,0 +1,30 @@
+/* Contracts page — builds on styles.css and market.css. */
+.ct-tabs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 24px 0; }
+.ct-tabs-bar .scan-status { margin-left: auto; font-size: 12px; color: var(--muted); }
+.ct-tabs-bar .scan-status.warn { color: var(--amber); }
+.ct-tabs-bar input.small-in { width: 80px; background: var(--bg); color: var(--text); border: 1px solid var(--line-2); border-radius: 7px; padding: 4px 7px; font: inherit; font-size: 12.5px; }
+.ct-tabs-bar input.bad { border-color: var(--red); }
+.ct-progress { margin: 8px 24px 0; }
+@media (max-width: 1000px) { .ct-tabs-bar { padding-left: 12px; padding-right: 12px; } .ct-progress { margin: 8px 12px 0; } }
+
+.ct-table td { vertical-align: middle; }
+.ct-table td.item { max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+.ct-table td.item img { vertical-align: middle; margin-right: 8px; border-radius: 4px; background: var(--bg); }
+.ct-table td.item small, .ct-table td small.sub { display: block; color: var(--faint); font-size: 10.5px; font-family: system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; }
+.ct-table td small.warn { color: var(--amber); }
+.ct-table tr.open { background: rgba(45,212,191,.08); box-shadow: inset 3px 0 0 var(--teal); }
+.ct-table tr.items-row { cursor: default; }
+.ct-table tr.items-row:hover { background: none; }
+.ct-table tr.items-row > td { padding: 4px 10px 14px 34px; white-space: normal; }
+.ct-items { width: auto; min-width: 560px; }
+.ct-items td { padding: 4px 10px; font-size: 12px; }
+.ct-items tr.want td { color: var(--amber); }
+.ct-items tr.bpc td { color: var(--faint); }
+.ct-meta { font: 12px system-ui, sans-serif; color: var(--muted); margin: 0 0 6px; }
+.ct-meta code { font-family: var(--mono); color: var(--text); }
+.back { line-height: 1.25; font-family: system-ui, sans-serif; font-size: 12.5px; white-space: normal; min-width: 200px; }
+.back b { font-family: var(--mono); color: var(--up); }
+.back small { display: block; color: var(--faint); font-size: 10.5px; }
+.hint.note { border-left: 2px solid var(--line-2); padding-left: 10px; }
+.scan-filters #lpCorp { width: 100%; }
+.scan-filters input[type=checkbox] { width: auto; }
