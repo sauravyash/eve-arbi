@@ -53,7 +53,11 @@ function db() {
   return dbP ||= new Promise((resolve, reject) => {
     const req = indexedDB.open('eve-arbi', 1);
     req.onupgradeneeded = () => req.result.createObjectStore('kv');
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      // Let another tab upgrade or delete the database instead of blocking it.
+      req.result.onversionchange = () => { req.result.close(); dbP = null; };
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
   });
 }
@@ -73,7 +77,18 @@ const store = {
 const log = (...a) => console.debug('[scan]', ...a);
 const FACTORIES = { scan: createScanner, uscan: createUniverseScanner, cscan: createContractScanner };
 const scanners = {};
-const scannerFor = (kind) => (scanners[kind] ||= FACTORIES[kind]({ fetchUpstream, data, store, log }));
+// The hosted site can share contract contents between visitors (worker/index.js, D1).
+const config = fetch(new URL('/api/config', self.location)).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+async function sharedItems(contracts) {
+  const res = await fetch(new URL('/api/contract-items', self.location), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contracts }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+const scannerFor = async (kind) => (scanners[kind] ||= FACTORIES[kind]({
+  fetchUpstream, data, store, log, ...((await config).sharedContracts && kind === 'cscan' && { sharedItems }),
+}));
 
 const OPS = {
   async status(s) { await s.ready; return s.status(); },
@@ -91,7 +106,7 @@ const OPS = {
 self.onmessage = async ({ data: { id, kind, op, opts } }) => {
   try {
     if (!FACTORIES[kind] || !OPS[op]) throw new Error(`Unknown scan request ${kind}/${op}`);
-    self.postMessage({ id, value: await OPS[op](scannerFor(kind), opts) });
+    self.postMessage({ id, value: await OPS[op](await scannerFor(kind), opts) });
   } catch (e) {
     self.postMessage({ id, error: e.message || String(e) });
   }

@@ -15,6 +15,9 @@
   "durable_objects": {
     "bindings": [{ "name": "SESSIONS", "class_name": "Session" }]
   },
+  // Contract contents shared between visitors (/api/contract-items). No database_id: the first
+  // deploy creates the database (Wrangler automatic provisioning), including Git-connected builds.
+  "d1_databases": [{ "binding": "CONTRACTS_DB", "database_name": "eve-arbi-contracts" }],
   // SQLite-backed Durable Objects are available on the Workers free plan.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
   // EVE_CLIENT_ID, EVE_CALLBACK_URL and CONTACT are set in the dashboard; keep them on deploy.

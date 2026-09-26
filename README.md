@@ -307,6 +307,12 @@ plan. Differences from `npm start`:
 - **The proxy** (`/api/{tycoon,esi,…}`) is the Worker: EVE Tycoon, Goonmetrics, Adam4EVE and
   Mokaam send no CORS headers. It caches in the isolate's memory and, on a custom domain, in
   Cloudflare's cache (the Cache API does nothing on `workers.dev`).
+- **Contract contents are shared** (D1, `/api/contract-items`). A contract's items never change, so
+  once anyone's scan has opened a contract, everyone else gets it from the database: after the
+  first visitor, opening ~2,000 contracts takes seconds instead of minutes. The Worker fetches
+  missing contracts from ESI itself, so the database only ever holds CCP's data. Free-plan use: one
+  row per contract (tens of MB), a few thousand writes a day, ~50 row reads per 50 contracts.
+  Expired contracts are pruned as it goes. The first deploy creates the database automatically.
 - **Sign-in is per browser.** Each browser gets an HttpOnly session cookie and its own `Session`
   Durable Object that holds its EVE tokens; the page only sees results, as locally.
 

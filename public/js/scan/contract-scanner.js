@@ -27,6 +27,9 @@ const ITEM_PARALLEL = 16;
 const MAX_BID_LEVELS = 40;       // buy-order price levels kept per item per hub
 const MAX_ITEM_ROWS = 60;        // item rows sent to the page per contract (the value uses all)
 const ERROR_FLOOR = 25;          // pause when ESI's error budget drops this low
+const SHARED_BATCH = 50;         // contracts per shared-cache request (worker/index.js)
+const SHARED_PARALLEL = 16;      // the Worker opens 6 ESI connections per request
+const SHARED_ROUNDS = 8;         // re-asks for contracts the cache is still opening
 const RANGE = { station: 'STATION', solarsystem: 'SOLARSYSTEM', region: 'REGION' };
 export const SCOPES = { hubs: 'Hub regions', all: 'All known space' };
 export const DEFAULT_MIN_PRICE = 20_000_000;
@@ -37,7 +40,12 @@ const parseItems = (body) => { try { return JSON.parse(body); } catch { return [
 export const STORE_KEY = 'contract-scan';
 const ITEMS_KEY = 'contract-items';
 
-export function createContractScanner({ fetchUpstream, data, store, log = console.log }) {
+/**
+ * @param {object} o
+ * @param {(contracts: [number, number][]) => Promise<{items, pending, direct}>} [o.sharedItems]
+ *   a shared contract-contents cache (worker/index.js /api/contract-items), tried before ESI
+ */
+export function createContractScanner({ fetchUpstream, data, store, sharedItems = null, log = console.log }) {
   let status = { state: 'idle', phase: null, done: 0, total: 0, warnings: [] };
   let result = null;
   let running = null;
@@ -123,8 +131,13 @@ export function createContractScanner({ fetchUpstream, data, store, log = consol
     const wanted = listed.filter(inScope);
     const missing = wanted.filter(([c]) => !items.has(c.contract_id));
     status = { ...status, phase: 'items', done: 0, total: missing.length };
-    let fetched = 0, sinceSave = 0;
-    await pool(missing, ITEM_PARALLEL, async ([c]) => {
+    let fetched = 0, shared = 0, sinceSave = 0;
+    const got = async (id, rows) => {
+      items.set(id, rows); // [] for 204/403/404: accepted, deleted or not visible — nothing to value
+      status.done++;
+      if (++sinceSave >= 2000) { sinceSave = 0; await saveItems(new Set(listed.map(([x]) => x.contract_id))); }
+    };
+    const fetchOne = async ([c]) => {
       try {
         const rows = [];
         const r = await get(`${ESI}contracts/public/items/${c.contract_id}/`, 'esic');
@@ -135,13 +148,35 @@ export function createContractScanner({ fetchUpstream, data, store, log = consol
             if (rp.status === 200) rows.push(...compactItems(parseItems(rp.body)));
           }
         }
-        items.set(c.contract_id, rows); // 204/403/404: accepted, deleted or not visible — nothing to value
         fetched++;
-        if (++sinceSave >= 2000) { sinceSave = 0; await saveItems(new Set(listed.map(([x]) => x.contract_id))); }
+        await got(c.contract_id, rows);
       } catch (e) {
+        status.done++;
         if (status.warnings.length < 50) status.warnings.push(`Contract ${c.contract_id}: items failed (${e.message})`);
-      } finally { status.done++; }
-    });
+      }
+    };
+    // With a shared cache (the hosted site's D1), ask it first, 100 contracts at a time; it opens the
+    // ones nobody has yet. Whatever it can't supply is fetched from ESI directly.
+    let direct = missing;
+    if (sharedItems) {
+      direct = [];
+      const byId = new Map(missing.map(x => [x[0].contract_id, x]));
+      const batches = [];
+      for (let i = 0; i < missing.length; i += SHARED_BATCH) batches.push(missing.slice(i, i + SHARED_BATCH));
+      await pool(batches, SHARED_PARALLEL, async (batch) => {
+        let ask = batch.map(([c]) => [c.contract_id, Date.parse(c.date_expired)]);
+        for (let round = 0; ask.length && round < SHARED_ROUNDS; round++) {
+          let r;
+          try { r = await sharedItems(ask); } catch { break; }
+          for (const [id, rows] of Object.entries(r.items || {})) { shared++; await got(Number(id), rows); }
+          for (const id of r.direct || []) if (byId.has(id)) direct.push(byId.get(id));
+          const again = new Set(r.pending || []);
+          ask = ask.filter(([id]) => again.has(id));
+        }
+        for (const [id] of ask) direct.push(byId.get(id)); // the cache kept failing: go direct
+      });
+    }
+    await pool(direct, ITEM_PARALLEL, fetchOne);
     // Forget contracts that are no longer listed.
     const live = new Set(listed.map(([c]) => c.contract_id));
     for (const id of items.keys()) if (!live.has(id)) items.delete(id);
@@ -216,11 +251,11 @@ export function createContractScanner({ fetchUpstream, data, store, log = consol
     result = {
       startedAt, finishedAt, scope, minPrice,
       expiresAt: Number.isFinite(expiresAt) ? Math.max(expiresAt, finishedAt + 120_000) : finishedAt + 5 * 60_000,
-      listed: listed.length, scanned: wanted.length, fetched, warnings: status.warnings,
+      listed: listed.length, scanned: wanted.length, fetched, shared, warnings: status.warnings,
       hubs: HUBS.map(h => h.id), contracts, couriers, types: usedTypes, prices,
     };
     status = { ...status, state: 'done', phase: null, finishedAt };
-    log(`Contract scan: ${listed.length} contracts listed, ${wanted.length} in scope (${fetched} newly fetched), `
+    log(`Contract scan: ${listed.length} contracts listed, ${wanted.length} in scope (${fetched} from ESI, ${shared} from the shared cache), `
       + `${contracts.length} worth taking at some hub, ${couriers.length} couriers in ${((finishedAt - startedAt) / 1000).toFixed(0)}s`);
     await Promise.resolve(store.put(STORE_KEY, result)).catch(e => log(`Contract scan: couldn't write cache (${e.message})`));
   }

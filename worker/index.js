@@ -12,6 +12,7 @@
 
 import { DurableObject } from 'cloudflare:workers';
 import { createSso } from '../sso.js';
+import { compactItems } from '../public/js/contract-value.js';
 
 const UPSTREAMS = {
   tycoon: { base: 'https://evetycoon.com/api/', maxConcurrent: 3 },
@@ -41,7 +42,8 @@ export default {
     const url = new URL(request.url);
     const p = url.pathname;
     try {
-      if (p === '/api/config') return json(200, { serverScans: false, sso: !!env.EVE_CLIENT_ID });
+      if (p === '/api/config') return json(200, { serverScans: false, sso: !!env.EVE_CLIENT_ID, sharedContracts: !!env.CONTRACTS_DB });
+      if (p === '/api/contract-items' && request.method === 'POST') return await contractItems(request, env, ctx);
       const m = p.match(/^\/api\/(tycoon|esi|fuzzwork|goon|adam4eve|evepraisal|zkill|mokaam)\/(.*)$/);
       if (m) return await proxy(request, env, ctx, m[1], m[2] + url.search);
       if (p.startsWith('/sso/') || p === '/api/me' || p.startsWith('/api/me/')) return await account(request, env, url);
@@ -170,6 +172,67 @@ async function proxy(request, env, ctx, name, rest) {
     if (hit) return respond(hit, 'STALE');
     return json(502, { error: String(err.message || err) });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared contract contents (D1). A contract's items never change, so once anyone's scan has
+// opened a contract, everyone else gets it from here instead of ESI. The Worker fetches missing
+// contracts from ESI itself, so what's stored is always CCP's data, never something a browser sent.
+//
+// POST /api/contract-items  {contracts: [[contractId, expiresAtMs], …]}  (at most 100)
+//   → {items: {contractId: rows}, pending: [ids to ask again], direct: [ids to fetch from ESI yourself]}
+// rows are contract-value.js compact rows; [] for contracts ESI no longer shows.
+// ---------------------------------------------------------------------------
+const ITEMS_BATCH = 100;
+const ITEMS_FETCH = 24;      // ESI calls per request: 50 subrequests allowed (free), 6 connections open at once
+let schemaReady = null;
+
+async function contractItems(request, env, ctx) {
+  const db = env.CONTRACTS_DB;
+  if (!db) return json(404, { error: 'Shared contract cache not configured' });
+  const body = await request.json().catch(() => null);
+  const list = Array.isArray(body?.contracts) ? body.contracts : [];
+  const wanted = new Map();
+  for (const c of list.slice(0, ITEMS_BATCH)) {
+    const [id, exp] = Array.isArray(c) ? c : [c, 0];
+    if (Number.isSafeInteger(id) && id > 0) wanted.set(id, Number(exp) || Date.now() + 30 * 86_400_000);
+  }
+  if (!wanted.size) return json(400, { error: 'No contract IDs' });
+
+  schemaReady ||= db.exec('CREATE TABLE IF NOT EXISTS contract_items (id INTEGER PRIMARY KEY, rows TEXT NOT NULL, expires INTEGER NOT NULL)')
+    .catch(e => { schemaReady = null; throw e; });
+  await schemaReady;
+
+  const ids = [...wanted.keys()];
+  const found = await db.prepare(`SELECT id, rows FROM contract_items WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
+  const items = {};
+  for (const r of found.results) items[r.id] = JSON.parse(r.rows);
+  const missing = ids.filter(id => !(id in items));
+
+  const fetchNow = missing.slice(0, ITEMS_FETCH);
+  const pending = missing.slice(ITEMS_FETCH), direct = [];
+  const headers = { 'User-Agent': userAgent(env), Accept: 'application/json' };
+  const fresh = [];
+  await Promise.all(fetchNow.map(async (id) => {
+    try {
+      const r = await fetch(`${UPSTREAMS.esi.base}contracts/public/items/${id}/`, { headers });
+      if (r.status === 200) {
+        // Contracts with more than one page of items are rare; the browser fetches those itself.
+        if (Number(r.headers.get('x-pages')) > 1) { direct.push(id); return; }
+        const rows = compactItems(await r.json().catch(() => []));
+        items[id] = rows; fresh.push([id, rows]);
+      } else if ([204, 403, 404].includes(r.status)) {
+        items[id] = []; fresh.push([id, []]);   // accepted, deleted or not public: nothing to value
+      } else pending.push(id);                   // ESI error: ask again later
+    } catch { pending.push(id); }
+  }));
+  if (fresh.length) {
+    const ins = db.prepare('INSERT OR IGNORE INTO contract_items (id, rows, expires) VALUES (?, ?, ?)');
+    ctx.waitUntil(db.batch(fresh.map(([id, rows]) => ins.bind(id, JSON.stringify(rows), wanted.get(id)))).catch(() => {}));
+  }
+  // Now and then, drop contracts that have expired.
+  if (Math.random() < 0.01) ctx.waitUntil(db.prepare('DELETE FROM contract_items WHERE expires < ?').bind(Date.now()).run().catch(() => {}));
+  return json(200, { items, pending, direct });
 }
 
 // ---------------------------------------------------------------------------
