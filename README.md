@@ -54,8 +54,9 @@ remembered per browser:
 
 **Watchlists** (Hub arbitrage's item list and Market watch's watchlist) are saved to your character
 while you're signed in, so they follow you to any browser (`public/js/watchlist.js`; stored in
-`.cache/watchlists.json` locally, D1 on Cloudflare). Signed out, they stay in this browser's
-localStorage. The first time a character signs in, the list you built while signed out is copied to it.
+`.cache/watchlists.json` locally, D1 on Cloudflare). Signed out, they last for the browser session
+(`sessionStorage`: closing the tab clears them). The first time a character signs in, the list you built
+while signed out is copied to it.
 New lists start empty; each item has a Remove button, and its icon links to the item's EVE University
 wiki page (the icon is hidden on narrow screens).
 

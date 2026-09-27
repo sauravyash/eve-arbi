@@ -2,7 +2,7 @@
 //   - Signed in with EVE: saved to your character on the server (/api/me/watchlists/{name}), so
 //     they follow you to any browser. The first time a character signs in, a list you built
 //     while signed out is copied to it.
-//   - Signed out: kept in this browser's localStorage.
+//   - Signed out: kept for this browser session (sessionStorage), gone when the tab closes.
 // New lists start empty.
 
 export const LIST_NAMES = ['hub', 'market'];
@@ -36,10 +36,13 @@ export const removeButton = (typeId, name) =>
   `<button class="del" type="button" data-remove="${typeId}" aria-label="Remove ${esc(name)} from watchlist" title="Remove from watchlist">`
   + '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Remove</span></button>';
 
-const LS = {
-  get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : undefined; } catch { return undefined; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* quota or disabled */ } },
-};
+const storage = (name) => ({
+  get(k) { try { const v = globalThis[name].getItem(k); return v ? JSON.parse(v) : undefined; } catch { return undefined; } },
+  set(k, v) { try { globalThis[name].setItem(k, JSON.stringify(v)); } catch { /* quota or disabled */ } },
+  remove(k) { try { globalThis[name].removeItem(k); } catch { /* disabled */ } },
+});
+const LS = storage('localStorage');     // signed-in state and a copy of the account's list
+const SS = storage('sessionStorage');   // the signed-out list
 const sameIds = (a, b) => a.length === b.length && a.every((x, i) => x.typeId === b[i].typeId);
 
 /**
@@ -51,11 +54,14 @@ const sameIds = (a, b) => a.length === b.length && a.every((x, i) => x.typeId ==
  */
 export function createWatchlist(name, { legacy, legacyDefaults = [], onLoad }) {
   const key = `watchlist.${name}`;
-  let local = LS.get(key);
+  let local = SS.get(key);
   if (local === undefined) {
-    const old = cleanItems(legacy);
-    local = sameIds(old, cleanItems(legacyDefaults)) ? [] : old;
-    LS.set(key, local);
+    // A list from an older version (localStorage) moves here once.
+    const kept = LS.get(key);
+    const old = cleanItems(kept ?? legacy);
+    local = kept === undefined && sameIds(old, cleanItems(legacyDefaults)) ? [] : old;
+    SS.set(key, local);
+    LS.remove(key);
   }
   local = cleanItems(local);
   // Copy of your account's list from last time, so a signed-in page doesn't flash the local one.
@@ -99,7 +105,7 @@ export function createWatchlist(name, { legacy, legacyDefaults = [], onLoad }) {
     /** Saves the list wherever it lives now (account saves are batched for half a second). */
     save(items) {
       items = cleanItems(items);
-      if (mode === 'local') { local = items; LS.set(key, items); return; }
+      if (mode === 'local') { local = items; SS.set(key, items); return; }
       LS.set(acctKey, items);
       pendingSave = items;
       clearTimeout(timer);

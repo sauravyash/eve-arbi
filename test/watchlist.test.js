@@ -2,19 +2,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanItems, createWatchlist, wikiUrl, itemPic, removeButton, MAX_ITEMS } from '../public/js/watchlist.js';
 
-// A minimal localStorage and fetch for the browser-side module.
+// Minimal localStorage, sessionStorage and fetch for the browser-side module.
+const fakeStorage = (m) => ({ getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) });
 function browser(responses = {}) {
-  const store = new Map();
-  globalThis.localStorage = {
-    getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k),
-  };
+  const store = new Map(), local = new Map();   // store = sessionStorage
+  globalThis.sessionStorage = fakeStorage(store);
+  globalThis.localStorage = fakeStorage(local);
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     calls.push({ url, method: init.method || 'GET', body: init.body && JSON.parse(init.body) });
     const r = responses[`${init.method || 'GET'} ${url}`] ?? { status: 401, body: { error: 'Not signed in' } };
     return { ok: r.status < 300, status: r.status, json: async () => r.body };
   };
-  return { store, calls };
+  return { store, local, calls };
 }
 
 test('cleanItems keeps valid, unique items and caps the list', () => {
@@ -44,7 +44,7 @@ test('new watchlists start empty; an untouched old default list is dropped, an e
   assert.deepEqual(createWatchlist('hub', { legacy: edited, legacyDefaults: defaults, onLoad() {} }).initial(), edited);
 });
 
-test('signed out: the list lives in localStorage', async () => {
+test('signed out: the list lives in sessionStorage', async () => {
   const { store } = browser();
   let loaded;
   const w = createWatchlist('market', { onLoad: (items, mode) => { loaded = { items, mode }; } });
@@ -74,4 +74,13 @@ test('signed in: the character list wins, and a never-saved character takes this
   await w2.load();
   assert.deepEqual(loaded, []);
   assert.ok(!b.calls.some(c => c.method === 'PUT'));
+});
+
+test('a signed-out list from localStorage (older version) moves to sessionStorage once', () => {
+  const { store, local } = browser();
+  const mine = [{ typeId: 587, name: 'Rifter' }];
+  local.set('watchlist.market', JSON.stringify(mine));
+  assert.deepEqual(createWatchlist('market', { onLoad() {} }).initial(), mine);
+  assert.deepEqual(JSON.parse(store.get('watchlist.market')), mine);
+  assert.ok(!local.has('watchlist.market'));
 });
