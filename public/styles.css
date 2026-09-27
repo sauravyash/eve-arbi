@@ -264,7 +264,7 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .map-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; padding: 20px; text-align: center; pointer-events: none; }
 .sec-legend { gap: 6px; }
 .secbar { display: inline-block; width: 90px; height: 6px; border-radius: 3px;
-  background: linear-gradient(90deg, #2fefef, #48f0c0, #00ef47, #00f000, #8fef2f, #efef00, #d77700, #f06000, #f04800, #d73000, #f00000); }
+  background: linear-gradient(90deg, #2fefef, #48f0c0, #00ef47, #00f000, #8fef2f, #efef00, #d77700, #f06000, #f04800, #d73000, #f00000, #da0636, #b6115f, #921981, #6e1f9e); }
 
 /* whole-market scan */
 .scan-panel { grid-area: scan; min-width: 0; }

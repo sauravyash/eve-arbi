@@ -10,7 +10,7 @@ import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges
 import { createMe } from './me.js';
 import { scanClient, tabNote } from './scan-client.js';
 import { normalizeMyOrder, orderStanding, expiresAt } from './orders.js';
-import { secBand, secLabel } from './map.js';
+import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 
 // ---------------------------------------------------------------------------
@@ -406,7 +406,7 @@ const SRC_LETTER = { esi: 'E', tycoon: 'T', fuzzwork: 'F', goon: 'G', evepraisal
 
 function secSpan(sec) {
   if (sec == null) return '';
-  return `<span class="sec s${secBand(sec)}">${secLabel(sec)}</span>`;
+  return `<span class="sec" style="color:${secColor(sec)}">${secLabel(sec)}</span>`;
 }
 // "Station name" with system, security and region, for any location in the merged book.
 function placeHtml(q, { compact = false } = {}) {
