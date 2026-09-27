@@ -27,5 +27,11 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
   // EVE_CLIENT_ID, EVE_CALLBACK_URL and CONTACT are set in the dashboard; keep them on deploy.
   "keep_vars": true,
+  // Git-connected branch builds run `wrangler preview`, which needs this block. Previews don't inherit
+  // production bindings: each gets its own Session namespace, and no D1 binding so they never touch the
+  // production contract cache (/api/config reports sharedContracts: false). SSO vars are unset there too.
+  "previews": {
+    "durable_objects": { "bindings": [{ "name": "SESSIONS", "class_name": "Session" }] }
+  },
   "observability": { "enabled": true }
 }
