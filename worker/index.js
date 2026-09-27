@@ -13,6 +13,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createSso } from '../sso.js';
 import { compactItems } from '../public/js/contract-value.js';
+import { cleanItems } from '../public/js/watchlist.js';
 
 const UPSTREAMS = {
   tycoon: { base: 'https://evetycoon.com/api/', maxConcurrent: 3 },
@@ -284,6 +285,15 @@ async function account(request, env, url) {
     const r = await run('status');
     return r.error ? json(r.status, { error: r.error }) : json(200, r.value);
   }
+  const wl = p.match(/^\/api\/me\/watchlists\/(hub|market)$/);
+  if (wl) {
+    if (!env.USERS_DB) return json(404, { error: 'Saved watchlists are not configured' });
+    if (!sid) return json(401, { error: 'Not signed in' });
+    const st = await run('status');
+    if (st.error) return json(st.status, { error: st.error });
+    if (!st.value.loggedIn) return json(401, { error: 'Not signed in' });
+    return watchlists(request, env, st.value.characterId, wl[1]);
+  }
   if (p === '/api/me/logout' && request.method === 'POST') {
     // A custom header can't be sent cross-site without a CORS preflight, which we never grant.
     if (request.headers.get('x-eve-arbi') !== '1') return json(403, { error: 'Forbidden' });
@@ -302,6 +312,31 @@ async function account(request, env, url) {
     }
   }
   return json(404, { error: 'Not found' });
+}
+
+// Watchlists of signed-in characters (public/js/watchlist.js), one row per character and list,
+// so they follow the character to any browser. Signed-out pages keep theirs in localStorage.
+let watchSchema = null;
+async function watchlists(request, env, characterId, name) {
+  const db = env.USERS_DB;
+  watchSchema ||= db.exec('CREATE TABLE IF NOT EXISTS watchlists (character_id INTEGER NOT NULL, name TEXT NOT NULL, items TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY (character_id, name))')
+    .catch(e => { watchSchema = null; throw e; });
+  await watchSchema;
+  if (request.method === 'GET') {
+    const row = await db.prepare('SELECT items FROM watchlists WHERE character_id = ? AND name = ?').bind(characterId, name).first();
+    return json(200, { items: row ? JSON.parse(row.items) : [], saved: !!row });
+  }
+  if (request.method !== 'PUT') return json(405, { error: 'Method not allowed' });
+  // A custom header can't be sent cross-site without a CORS preflight, which we never grant.
+  if (request.headers.get('x-eve-arbi') !== '1') return json(403, { error: 'Forbidden' });
+  const text = await request.text();
+  if (text.length > 64 * 1024) return json(413, { error: 'Too large' });
+  let items;
+  try { items = cleanItems(JSON.parse(text || '{}').items); } catch { return json(400, { error: 'Bad JSON' }); }
+  await db.prepare('INSERT INTO watchlists (character_id, name, items, updated) VALUES (?, ?, ?, ?) '
+    + 'ON CONFLICT (character_id, name) DO UPDATE SET items = excluded.items, updated = excluded.updated')
+    .bind(characterId, name, JSON.stringify(items), Date.now()).run();
+  return json(200, { items, saved: true });
 }
 
 // One browser's EVE login: sso.js with its tokens in this object's storage.

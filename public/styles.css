@@ -193,6 +193,24 @@ label.check input { accent-color: var(--teal); }
 @keyframes pulse { 50% { opacity: .3; } }
 .x { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px; border-radius: 4px; }
 .x:hover { color: var(--red); }
+.item-list li.empty { color: var(--faint); font-size: 12.5px; }
+
+/* watchlist items: icon linking to the EVE University wiki, and a Remove button */
+.item-pic { display: inline-flex; flex: none; border-radius: 5px; line-height: 0; vertical-align: middle; margin-right: 8px; }
+.item-pic img { border-radius: 5px; background: var(--bg); border: 1px solid var(--line); }
+.item-pic:hover img { border-color: var(--teal); }
+.item-pic:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+.item-list .item-pic { margin-right: 0; }
+.del { display: inline-flex; align-items: center; gap: 5px; flex: none; background: none; border: 1px solid var(--line-2); color: var(--muted);
+  border-radius: 6px; padding: 3px 8px; font: 12px system-ui, sans-serif; cursor: pointer; }
+.del svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.del:hover { color: var(--red); border-color: rgba(240,113,107,.6); background: rgba(240,113,107,.08); }
+.del:focus-visible { outline: 2px solid var(--red); outline-offset: 1px; }
+.item-list .del { padding: 4px 6px; }
+.item-list .del span { display: none; }   /* side panel: icon only */
+/* Pictures only where there's room. */
+@media (max-width: 700px) { .board .item-pic { display: none; } .board .del span { display: none; } }
+@media (max-width: 420px) { .item-list .item-pic { display: none; } }
 
 /* overrides */
 details.panel summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }

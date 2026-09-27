@@ -5,6 +5,7 @@ import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { isNpcStation } from './market-merge.js';
 import { evaluateLegs, planTrips, tripStops, SHIP_CATEGORY } from './trips.js';
 import { createMe } from './me.js';
+import { createWatchlist, itemPic, removeButton } from './watchlist.js';
 import { readUrl, writeUrl } from './url-state.js';
 
 // ---------------------------------------------------------------------------
@@ -15,9 +16,8 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* quota or disabled */ } },
 };
 
-// PLEX trades on the global market (no regional orders), so it can't be hauled.
-// Starter set: a high-value item, a mineral, and a T1 hull.
-const DEFAULT_ITEMS = [
+// The starter list watchlists used to have; one still equal to it starts empty (watchlist.js).
+const OLD_DEFAULT_ITEMS = [
   { typeId: 40520, name: 'Large Skill Injector' },
   { typeId: 37, name: 'Isogen' },
   { typeId: 587, name: 'Rifter' },
@@ -25,7 +25,7 @@ const DEFAULT_ITEMS = [
 const JUMP_TTL = 24 * 3600_000;
 
 const DEFAULTS = {
-  items: DEFAULT_ITEMS, flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: 0, graphItem: 'all', showAll: false,
+  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: 0, graphItem: 'all', showAll: false,
   view: 'map', mapLayout: '3d', secColors: true,
   scan: { cargo: '', budget: '', minProfit: '5m', from: '', to: '', maxMargin: '100', rank: 'ppj', q: '', hideShips: false },
   trips: { start: 30000142, legs: '3', link: '3', minProfit: '1m', rank: 'perJump', hideShips: false, hideHubs: false, structures: false },
@@ -55,7 +55,11 @@ try { localStorage.removeItem('arbi.jumps'); } catch { /* old jump-count-only ca
 
 const ui = { tripPick: null, selectedHub: null, sort: { key: null, dir: -1 }, refreshing: false, lastError: null, scanPick: null, scanLimit: 50 };
 
-const saveSettings = () => { LS.set('arbi.settings', settings); writeUrl(settings, DEFAULTS, URL_FIELDS); };
+const saveSettings = () => { LS.set('arbi.settings', { ...settings, items: undefined }); writeUrl(settings, DEFAULTS, URL_FIELDS); };
+// The watchlist is saved on its own: to your character when signed in, else this browser (watchlist.js).
+const watch = createWatchlist('hub', { legacy: LS.get('arbi.settings', {}).items, legacyDefaults: OLD_DEFAULT_ITEMS, onLoad: applyWatchlist });
+settings.items = watch.initial();
+const saveItems = () => watch.save(settings.items);
 const saveOverrides = () => LS.set('arbi.overrides', overrides);
 const saveMarket = () => LS.set('arbi.market', Object.fromEntries(
   Object.entries(market).filter(([, m]) => m.books).map(([k, m]) => [k, { books: m.books, fetchedAt: m.fetchedAt, expiresAt: m.expiresAt }])));
@@ -406,12 +410,18 @@ function renderItems() {
     const status = m?.status || 'none';
     const li = document.createElement('li');
     const tip = { ok: 'Fresh', loading: 'Loading…', stale: `Stale: ${m?.error || ''}`, error: `Failed: ${m?.error || ''}`, cached: 'Saved from last session — refresh for live data', none: 'Not loaded' }[status];
-    li.innerHTML = `<span class="dot ${status === 'cached' ? 'stale' : status}" title="${esc(tip)}"></span>
+    li.innerHTML = `${itemPic(item.typeId, item.name, 24)}<span class="dot ${status === 'cached' ? 'stale' : status}" title="${esc(tip)}"></span>
       <span class="nm" title="${esc(item.name)}">${esc(item.name)}</span><span class="id">${item.typeId}</span>
-      <button class="x" type="button" aria-label="Remove ${esc(item.name)}">×</button>`;
-    li.querySelector('button').addEventListener('click', () => removeItem(item.typeId));
+      ${removeButton(item.typeId, item.name)}`;
+    li.querySelector('[data-remove]').addEventListener('click', () => removeItem(item.typeId));
     return li;
   }));
+  if (!settings.items.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = `Your watchlist is empty — add items below${watch.mode === 'account' ? ' (saved to your character)' : ''}.`;
+    list.replaceChildren(li);
+  }
 
   const gi = $('graphItem');
   const opts = [['all', 'Watchlist: all items'], ['scan', 'Whole market (scan)'], ...settings.items.map(i => [String(i.typeId), i.name])];
@@ -424,14 +434,23 @@ function addItem(typeId, name) {
   if (settings.items.some(i => i.typeId === typeId)) return;
   const item = { typeId, name };
   settings.items.push(item);
-  saveSettings();
+  saveSettings(); saveItems();
   fetchItem(item).finally(() => { saveMarket(); saveSettings(); render(); });
 }
 
 function removeItem(typeId) {
   settings.items = settings.items.filter(i => i.typeId !== typeId);
+  saveSettings(); saveItems();
+  render();
+}
+
+// The watchlist arrived (from your character or this browser): show it and load items that are new.
+function applyWatchlist(items) {
+  const before = new Set(settings.items.map(i => i.typeId));
+  settings.items = items;
   saveSettings();
   render();
+  for (const item of items) if (!before.has(item.typeId) || !market[item.typeId]) fetchItem(item).finally(() => { saveMarket(); render(); });
 }
 
 // --- item picker: market groups tree + exact-name lookup via ESI ---
@@ -894,6 +913,8 @@ function tripList() {
   if (!r || !trip.graph || !trip.catalog) return [];
   const key = [r.finishedAt, JSON.stringify(t), settings.taxPct, settings.scan.cargo, settings.scan.budget, tripFlag()].join('|');
   if (trip.memo?.key === key) return trip.memo.trips;
+  const cached = tripCacheGet(key);
+  if (cached) { trip.memo = { key, trips: cached }; return cached; }
   const legs = evaluateLegs(r, {
     catalog: trip.catalog, taxRate: (Number(settings.taxPct) || 0) / 100,
     maxVolume: parseAmount(settings.scan.cargo) ?? Infinity, maxCost: parseAmount(settings.scan.budget) ?? Infinity,
@@ -904,7 +925,25 @@ function tripList() {
     maxLink: t.link === '' ? 3 : Math.max(0, Number(t.link) || 0), rank: t.rank,
   }).map(tr => ({ ...tr, key: tr.legs.map(l => `${l.t}:${l.f}:${l.d}`).join('>') }));
   trip.memo = { key, trips };
+  tripCachePut(key, trips);
   return trips;
+}
+
+// Planned trips for this browser session (sessionStorage), keyed by the scan and every setting
+// that shapes them, so going back to an earlier search or reloading the page doesn't re-plan.
+const TRIP_CACHE = 'arbi.tripSearches', TRIP_CACHE_MAX = 12;
+function tripCacheRead() {
+  try { return JSON.parse(sessionStorage.getItem(TRIP_CACHE) || '[]'); } catch { return []; }
+}
+function tripCacheGet(key) {
+  return tripCacheRead().find(e => e.key === key)?.trips ?? null;
+}
+function tripCachePut(key, trips) {
+  const list = [{ key, trips }, ...tripCacheRead().filter(e => e.key !== key)].slice(0, TRIP_CACHE_MAX);
+  // Full storage: drop the oldest searches until it fits (or give up quietly).
+  while (list.length) {
+    try { sessionStorage.setItem(TRIP_CACHE, JSON.stringify(list)); return; } catch { list.pop(); }
+  }
 }
 
 const sysName = (id) => (trip.graph ? systemInfo(trip.graph, id)?.name : null) || `System ${id}`;
@@ -1070,6 +1109,7 @@ const meCtl = createMe({
   onFollow: followLocation,
   onCargo: (m3) => useFromMe('scCargo', 'cargo', m3, 'From your current ship (base hold)'),
   onBudget: (isk) => useFromMe('scBudget', 'budget', isk, 'Your wallet balance'),
+  onStatus: () => watch.load(),
 });
 
 function initTripData(u) {

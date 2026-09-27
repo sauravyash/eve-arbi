@@ -13,6 +13,7 @@ import { createScanner } from './public/js/scan/hub-scanner.js';
 import { createUniverseScanner } from './public/js/scan/universe-scanner.js';
 import { createContractScanner } from './public/js/scan/contract-scanner.js';
 import { createSso } from './sso.js';
+import { cleanItems } from './public/js/watchlist.js';
 
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -220,6 +221,35 @@ const sso = createSso({
 // Account endpoints answer only requests addressed to this machine (blocks DNS rebinding).
 const isLocalHost = (host = '') => /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
 
+// Watchlists of signed-in characters (public/js/watchlist.js): .cache/watchlists.json,
+// {characterId: {hub: [...], market: [...]}}. Signed-out pages keep theirs in localStorage.
+const WATCHLISTS_FILE = path.join(APP_DIR, '.cache', 'watchlists.json');
+let watchlistWrite = Promise.resolve();
+
+async function watchlistApi(req, name, json) {
+  const st = await sso.status();
+  if (!st.loggedIn) return json(401, { error: 'Not signed in' });
+  const all = await readFile(WATCHLISTS_FILE, 'utf8').then(JSON.parse, () => ({}));
+  const mine = all[st.characterId]?.[name];
+  if (req.method === 'GET') return json(200, { items: mine ?? [], saved: mine !== undefined });
+  if (req.method !== 'PUT') return json(405, { error: 'Method not allowed' });
+  if (req.headers['x-eve-arbi'] !== '1') return json(403, { error: 'Forbidden' }); // no cross-site writes
+  let body = '';
+  for await (const c of req) { body += c; if (body.length > 64 * 1024) return json(413, { error: 'Too large' }); }
+  let items;
+  try { items = cleanItems(JSON.parse(body || '{}').items); } catch { return json(400, { error: 'Bad JSON' }); }
+  // Writes queue up so two saves in a row can't interleave; one failing doesn't block the next.
+  const write = watchlistWrite.then(async () => {
+    const cur = await readFile(WATCHLISTS_FILE, 'utf8').then(JSON.parse, () => ({}));
+    (cur[st.characterId] ||= {})[name] = items;
+    await mkdir(path.dirname(WATCHLISTS_FILE), { recursive: true });
+    await writeFile(WATCHLISTS_FILE, JSON.stringify(cur));
+  });
+  watchlistWrite = write.catch(() => {});
+  await write;
+  return json(200, { items, saved: true });
+}
+
 async function ssoApi(req, res, u) {
   const json = (status, obj) => send(res, status, JSON.stringify(obj), { 'Content-Type': 'application/json' });
   const page = (status, title, msg) => send(res, status, `<!doctype html><meta charset="utf-8"><title>${title}</title>
@@ -238,6 +268,8 @@ async function ssoApi(req, res, u) {
       return res.end();
     }
     if (u.pathname === '/api/me' && req.method === 'GET') return json(200, await sso.status());
+    const wl = u.pathname.match(/^\/api\/me\/watchlists\/(hub|market)$/);
+    if (wl) return await watchlistApi(req, wl[1], json);
     if (req.method === 'GET') {
       if (u.pathname === '/api/me/location') return json(200, await sso.location());
       if (u.pathname === '/api/me/online') return json(200, await sso.online());

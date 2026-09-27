@@ -9,6 +9,7 @@ import { SHIP_CATEGORY } from './trips.js';
 import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges.js';
 import { createMe } from './me.js';
 import { scanClient, tabNote } from './scan-client.js';
+import { createWatchlist, itemPic, removeButton } from './watchlist.js';
 import { normalizeMyOrder, orderStanding, expiresAt } from './orders.js';
 import { secBand, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
@@ -21,7 +22,8 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* quota or disabled */ } },
 };
 
-const DEFAULT_ITEMS = [
+// The starter list watchlists used to have; one still equal to it starts empty (watchlist.js).
+const OLD_DEFAULT_ITEMS = [
   { typeId: 34, name: 'Tritanium' },
   { typeId: 37, name: 'Isogen' },
   { typeId: 40520, name: 'Large Skill Injector' },
@@ -37,7 +39,7 @@ const stored = LS.get('market.settings', {});
 if (stored.hub && !stored.refHub) stored.refHub = stored.hub; // settings from the first version
 const US_DEFAULTS = { minProfit: '5m', maxMargin: '100', maxJumps: '', rank: 'perJump', q: '', near: '', nearEnd: 'pickup', nearMax: '', hideShips: false };
 const DEFAULTS = {
-  items: DEFAULT_ITEMS, refHub: JITA.id, home: JITA.id, flag: 'secure', tax: 0, cargo: '', budget: '',
+  items: [], refHub: JITA.id, home: JITA.id, flag: 'secure', tax: 0, cargo: '', budget: '',
   hideHubs: true, structures: true, showGhosts: false, haulRank: 'perJump',
   selected: null, histDays: 90, auto: false, sort: { key: null, dir: -1 }, us: US_DEFAULTS,
 };
@@ -52,10 +54,17 @@ const URL_FIELDS = [
   'us.minProfit', 'us.maxMargin', 'us.maxJumps', ['us.rank', ['perJump', 'near', 'profit', 'iskm3', 'margin']], 'us.q',
   'us.near', ['us.nearEnd', ['pickup', 'dropoff', 'either']], 'us.nearMax', 'us.hideShips',
 ];
+// The watchlist is saved on its own: to your character when signed in, else this browser (watchlist.js).
+const watch = createWatchlist('market', { legacy: stored.items, legacyDefaults: OLD_DEFAULT_ITEMS, onLoad: applyWatchlist });
+settings.items = watch.initial();
+// A link to an item you don't watch yet adds it.
+let urlItem = null;
 if (readUrl(settings, DEFAULTS, URL_FIELDS) && settings.selected && !settings.items.some(i => i.typeId === settings.selected)) {
+  urlItem = settings.selected;
   settings.items.push({ typeId: settings.selected, name: `Type ${settings.selected}` }); // named once types.json loads
 }
-const save = () => { LS.set('market.settings', settings); writeUrl(settings, DEFAULTS, URL_FIELDS); };
+const save = () => { LS.set('market.settings', { ...settings, items: undefined }); writeUrl(settings, DEFAULTS, URL_FIELDS); };
+const saveItems = () => watch.save(settings.items);
 
 // data[typeId] = { esi: {regionId: {orders, at}}, tycoon: {orders, at}, esiHist, tyHist, tyStats, praisal, zkill, errors }
 const data = {};
@@ -516,7 +525,7 @@ function renderBoard() {
   const home = graph ? systemInfo(graph, settings.home) : null;
   $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''} · click a row for detail`;
   if (!rows.length) {
-    $('boardBody').innerHTML = '<tr class="empty"><td colspan="10">Your watchlist is empty. Add items with the search box above.</td></tr>';
+    $('boardBody').innerHTML = `<tr class="empty"><td colspan="10">Your watchlist is empty. Add items with the <b>Add item</b> search above${watch.mode === 'account' ? ' — it’s saved to your character' : ''}.</td></tr>`;
     return;
   }
   $('boardBody').innerHTML = rows.map(r => {
@@ -536,7 +545,7 @@ function renderBoard() {
         <small>${esc(sysName(r.haul.from.systemId))} → ${esc(sysName(r.haul.to.systemId))}</small></span>`
       : `<span class="muted">${graph ? 'none found' : 'loading map…'}</span>`;
     return `<tr data-id="${r.it.typeId}" class="${sel ? 'picked' : ''}">
-      <td class="l item"><img src="${icon(r.it.typeId)}" alt="" width="24" height="24" loading="lazy"><span>${esc(r.it.name)}</span>
+      <td class="l item">${itemPic(r.it.typeId, r.it.name, 28)}<span>${esc(r.it.name)}</span>
         ${loading ? '<i class="dot loading"></i>' : ''}${err ? `<span class="badge stale" title="${esc(r.errors.join('; '))}">ERR</span>` : ''}</td>
       <td>${isk(r.ref)}</td>
       <td class="l">${cheap}</td>
@@ -546,7 +555,7 @@ function renderBoard() {
       <td class="${signCls(r.d7)}">${pct(r.d7)}</td>
       <td>${r.days ? sparkline(r.days) : ''}</td>
       <td class="l">${agree}</td>
-      <td><button class="x" type="button" data-remove="${r.it.typeId}" aria-label="Remove ${esc(r.it.name)}">×</button></td>
+      <td>${removeButton(r.it.typeId, r.it.name)}</td>
     </tr>`;
   }).join('');
 }
@@ -816,7 +825,9 @@ async function loadTypes() {
   typeList ||= fetch('data/types.json').then(r => r.json())
     .then(t => {
       types = t; bump();
-      for (const it of settings.items) if (t[it.typeId] && it.name === `Type ${it.typeId}`) it.name = t[it.typeId][0];
+      let named = false;
+      for (const it of settings.items) if (t[it.typeId] && it.name === `Type ${it.typeId}`) { it.name = t[it.typeId][0]; named = true; }
+      if (named) saveItems();
       return Object.entries(t).map(([id, [name]]) => ({ id: Number(id), name, lc: name.toLowerCase() }));
     })
     .catch(() => []);
@@ -841,7 +852,7 @@ async function onSearch() {
 }
 
 function addItem(typeId, name) {
-  if (!settings.items.some(i => i.typeId === typeId)) settings.items.push({ typeId, name });
+  if (!settings.items.some(i => i.typeId === typeId)) { settings.items.push({ typeId, name }); saveItems(); }
   settings.selected = typeId;
   save();
   $('itemSearch').value = '';
@@ -862,8 +873,24 @@ async function refreshOne(typeId) {
 function removeItem(typeId) {
   settings.items = settings.items.filter(i => i.typeId !== typeId);
   if (settings.selected === typeId) settings.selected = settings.items[0]?.typeId ?? null;
+  save(); saveItems();
+  renderAll();
+}
+
+// The watchlist arrived (from your character or this browser): show it, and load items that are new.
+function applyWatchlist(items) {
+  const before = new Set(settings.items.map(i => i.typeId));
+  settings.items = items;
+  if (urlItem && !items.some(i => i.typeId === urlItem)) {
+    items.push({ typeId: urlItem, name: types?.[urlItem]?.[0] || `Type ${urlItem}` });
+    saveItems();
+  }
+  urlItem = null;
+  if (settings.selected && !items.some(i => i.typeId === settings.selected)) settings.selected = null;
+  if (!settings.selected && items.length) settings.selected = items[0].typeId;
   save();
   renderAll();
+  if (items.some(i => !before.has(i.typeId))) refresh();
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,7 +1218,7 @@ function init() {
     el: $('me'), returnTo: '/market.html', systemName: sysName, isk,
     shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][3] ?? null } : null),
     onFollow: followLocation, onCargo: useShipCargo, onBudget: useWallet,
-    onStatus: () => loadMyOrders(),
+    onStatus: () => { loadMyOrders(); watch.load(); },
   });
   $('ordersRefresh').addEventListener('click', loadMyOrders);
   $('ordersProblems').addEventListener('change', renderMyOrders);
@@ -1263,6 +1290,7 @@ function init() {
   $('boardBody').addEventListener('click', (e) => {
     const rm = e.target.closest('[data-remove]');
     if (rm) { removeItem(Number(rm.dataset.remove)); return; }
+    if (e.target.closest('a')) return; // the item picture opens the wiki
     const tr = e.target.closest('tr[data-id]');
     if (!tr) return;
     settings.selected = Number(tr.dataset.id); save();

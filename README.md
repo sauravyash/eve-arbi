@@ -52,6 +52,13 @@ remembered per browser:
   wallet every 2 minutes. A field filled from your character is locked and outlined in violet;
   turn the option off to edit it.
 
+**Watchlists** (Hub arbitrage's item list and Market watch's watchlist) are saved to your character
+while you're signed in, so they follow you to any browser (`public/js/watchlist.js`; stored in
+`.cache/watchlists.json` locally, D1 on Cloudflare). Signed out, they stay in this browser's
+localStorage. The first time a character signs in, the list you built while signed out is copied to it.
+New lists start empty; each item has a Remove button, and its icon links to the item's EVE University
+wiki page (the icon is hidden on narrow screens).
+
 **My orders** (Market watch) lists your active orders, plus your corporation's if your role
 allows it, and checks each one against the live market:
 - **Sell orders** are *undercut* when another seller at the same station is cheaper.
@@ -307,6 +314,7 @@ plan. Differences from `npm start`:
 - **The proxy** (`/api/{tycoon,esi,…}`) is the Worker: EVE Tycoon, Goonmetrics, Adam4EVE and
   Mokaam send no CORS headers. It caches in the isolate's memory and, on a custom domain, in
   Cloudflare's cache (the Cache API does nothing on `workers.dev`).
+- **Watchlists of signed-in characters** are in D1 (`USERS_DB`), one row per character and list.
 - **Contract contents are shared** (D1, `/api/contract-items`). A contract's items never change, so
   once anyone's scan has opened a contract, everyone else gets it from the database: after the
   first visitor, opening ~2,000 contracts takes seconds instead of minutes. The Worker fetches
@@ -360,6 +368,8 @@ Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to 
     everything else.
   - Filters: hauls per trip (2–5), empty jumps between hauls, min profit per haul, hide ships,
     skip trade hubs and player structures.
+  - Searches are kept for the browser session (`sessionStorage`, last 12), so going back to earlier
+    settings or reloading the page doesn't plan them again. A new universe scan starts fresh.
   - Click a route to draw it on the star map as numbered waypoints along the real gate path;
     the per-hub routes fade out while it's shown.
   - The *Waypoints* panel lists each stop's station, what to sell and buy there, and the jumps

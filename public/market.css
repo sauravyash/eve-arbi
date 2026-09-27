@@ -37,8 +37,7 @@
 
 /* board */
 .board td.item { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-.board td.item img { vertical-align: middle; margin-right: 8px; }
-.board td.item img { border-radius: 4px; background: var(--bg); }
+.board td.item .item-pic img { vertical-align: middle; }
 .board td.item span { overflow: hidden; text-overflow: ellipsis; }
 .board tr.picked, .hubs-panel tr.picked { background: rgba(45,212,191,.1); box-shadow: inset 3px 0 0 var(--teal); }
 .routes .up { color: var(--up); }
