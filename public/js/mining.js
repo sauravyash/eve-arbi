@@ -1,5 +1,5 @@
 // Mining page: where to sell a load of ore, gas or ice (mining-value.js), with jumps that count
-// wormholes you've taken, Thera/Turnur connections and ones you add by hand (wormholes.js).
+// wormhole shortcuts (shortcuts.js). The wormhole panel here manages them for every page.
 //
 // Prices: EVE Tycoon's orders for each item in every region, player structures included (one call
 // per item, through the caching proxy). Only buy orders are kept.
@@ -9,8 +9,9 @@ import { normalizeTycoonOrder, isNpcStation } from './market-merge.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { buildRangeContext } from './ranges.js';
 import { priceLoad, parsePaste } from './mining-value.js';
-import { trailLinks, parseEveScout, withLinks, shortcutsOn, isJSpace } from './wormholes.js';
-import { createMe, readTrail } from './me.js';
+import { shortcutsOn, isJSpace } from './wormholes.js';
+import { createShortcuts, SOURCE_LABEL } from './shortcuts.js';
+import { createMe } from './me.js';
 import { itemPic, removeButton } from './watchlist.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
@@ -26,17 +27,14 @@ const JITA = HUBS[0];
 const PAGE = 25;
 const CONCURRENCY = 3;
 const HOUR = 3_600_000;
-const EVE_SCOUT = 'https://api.eve-scout.com/v2/public/signatures';   // sends CORS headers
-const SCOUT_TTL = 5 * 60_000;
 const KIND_LABEL = { ore: 'Ore', moon: 'Moon ore', ice: 'Ice', gas: 'Gas', mineral: 'Mineral' };
 
-const WH_DEFAULTS = { trail: true, scout: false, hours: 16 };
-const DEFAULTS = { home: JITA.id, flag: 'secure', tax: 0, maxJumps: '', minShare: '', structures: true, rank: 'isk', kind: '', wh: WH_DEFAULTS };
-const stored = LS.get('mining.settings', {});
-const settings = { ...DEFAULTS, ...stored, wh: { ...WH_DEFAULTS, ...stored.wh } };
+const DEFAULTS = { home: JITA.id, flag: 'secure', tax: 0, maxJumps: '', minShare: '', structures: true, rank: 'isk', kind: '' };
+const { wh: _oldWh, ...stored } = LS.get('mining.settings', {});   // wh moved to shortcuts.js
+const settings = { ...DEFAULTS, ...stored };
 const URL_FIELDS = [
   ['home', v => v > 0], ['flag', ['secure', 'shortest']], ['tax', v => v >= 0 && v <= 100], 'maxJumps', 'minShare', 'structures',
-  ['rank', ['isk', 'perJump', 'near']], 'wh.trail', 'wh.scout', ['wh.hours', v => v >= 1 && v <= 48],
+  ['rank', ['isk', 'perJump', 'near']],
 ];
 readUrl(settings, DEFAULTS, URL_FIELDS);
 writeUrl(settings, DEFAULTS, URL_FIELDS);
@@ -46,19 +44,14 @@ const load = { items: LS.get('mining.items', []).filter(it => it?.typeId > 0) };
 const saveLoad = () => LS.set('mining.items', load.items);
 const books = {};                                           // typeId → {orders, at, error, loading}
 const locNames = new Map();                                 // structure/station ID → name (from Tycoon)
-const sysNames = new Map(LS.get('mining.sysNames', []));   // wormhole system ID → name (ESI)
-let manual = LS.get('mining.links', []);                    // [{a, b, at, expiresAt, src: 'manual'}]
-let off = LS.get('mining.linksOff', {});                    // pair key → newest `at` you switched off
-const scout = { links: [], at: 0, error: null, loading: null };
-const ui = { limit: PAGE, open: null, ver: 0, memo: null, travel: null, error: null };
+const ui = { limit: PAGE, open: null, ver: 0, memo: null, error: null };
+const sc = createShortcuts({ onChange: () => { render(); meCtl?.render(); } });
 let base = null, ctx = null, types = null, stations = null, typeByName = null, meCtl = null;
-const byName = new Map();                                   // lower-case system name → ID
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const isk = (v) => formatIsk(v);
 const num = (v) => (v == null || !Number.isFinite(v) ? '—' : Math.abs(v) < 1000 ? String(Math.round(v)) : formatIsk(v, 1));
-const pairKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 const typeName = (t) => types?.[t]?.[0] || `Type ${t}`;
 const kindOf = (t) => (typeof types?.[t]?.[3] === 'string' ? types[t][3] : null);
 const taxRate = () => (Number(settings.tax) || 0) / 100;
@@ -86,88 +79,12 @@ function left(ms) {
 // ---------------------------------------------------------------------------
 // Systems and wormhole shortcuts
 // ---------------------------------------------------------------------------
-function sysName(id) {
-  if (id == null) return '';
-  const i = base?.indexOf.get(id);
-  if (i != null) return base.name[i];
-  return sysNames.get(id) || (isJSpace(id) ? `J-space ${id}` : `System ${id}`);
-}
+const sysName = (id) => sc.sysName(id);
 function secSpan(id) {
   const i = base?.indexOf.get(id);
   if (i == null) return isJSpace(id) ? '<span class="sec wh">WH</span>' : '';
   const sec = base.sec[i];
   return `<span class="sec" style="color:${secColor(sec)}">${secLabel(sec)}</span>`;
-}
-
-// Every shortcut on offer, newest first; `use` is false for ones you switched off.
-function allLinks() {
-  const now = Date.now(), since = now - settings.wh.hours * HOUR;
-  const out = [];
-  const charId = meCtl?.status?.loggedIn ? meCtl.status.characterId : null;
-  if (settings.wh.trail && charId && base) out.push(...trailLinks(readTrail(charId).hops, base, { since }));
-  out.push(...manual.filter(l => !(l.expiresAt <= now)));
-  if (settings.wh.scout) out.push(...scout.links.filter(l => !(l.expiresAt <= now)));
-  for (const l of out) {
-    l.key = pairKey(l.a, l.b);
-    l.use = !(off[l.key] >= l.at);
-  }
-  return out;
-}
-
-// The gate graph plus the shortcuts in use, rebuilt only when they change.
-function travelGraph() {
-  if (!base) return null;
-  const links = allLinks().filter(l => l.use);
-  const key = `${links.map(l => l.key).sort().join(',')}|${sysNames.size}`;
-  if (ui.travel?.key !== key) ui.travel = { key, g: withLinks(base, links, sysNames) };
-  return ui.travel.g;
-}
-
-// Names of wormhole systems (not in universe.json), once, via ESI.
-const naming = new Set(), unnamed = new Set();
-async function resolveNames(ids) {
-  if (!base) return;
-  const want = [...new Set(ids)].filter(id => id && !base.indexOf.has(id) && !sysNames.has(id) && !naming.has(id) && !unnamed.has(id));
-  if (!want.length) return;
-  want.forEach(id => naming.add(id));
-  try {
-    const res = await fetch('/api/esi/universe/names/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(want) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    for (const r of await res.json()) if (r.category === 'solar_system') sysNames.set(r.id, r.name);
-    LS.set('mining.sysNames', [...sysNames].slice(-500));
-    render();
-    meCtl?.render();
-  } catch { want.forEach(id => unnamed.add(id)); /* shown as "J-space 31…" */ } finally { want.forEach(id => naming.delete(id)); }
-}
-
-// A system typed by name: known space locally, anything else (J-codes, Thera) via ESI.
-async function systemByName(text) {
-  const q = text.trim().toLowerCase();
-  if (!q) return null;
-  if (byName.has(q)) return byName.get(q);
-  for (const [id, n] of sysNames) if (n.toLowerCase() === q) return id;
-  const res = await fetch('/api/esi/universe/ids/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify([text.trim()]) });
-  const hit = res.ok ? (await res.json()).systems?.[0] : null;
-  if (!hit) return null;
-  if (!base?.indexOf.has(hit.id)) { sysNames.set(hit.id, hit.name); LS.set('mining.sysNames', [...sysNames].slice(-500)); }
-  return hit.id;
-}
-
-async function loadScout(force = false) {
-  if (!settings.wh.scout) return;
-  if (!force && Date.now() - scout.at < SCOUT_TTL) return;
-  scout.loading ||= (async () => {
-    try {
-      const res = await fetch(EVE_SCOUT, { headers: { Accept: 'application/json' } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const { links, names } = parseEveScout(await res.json());
-      for (const [id, n] of names) if (!base?.indexOf.has(id)) sysNames.set(id, n);
-      Object.assign(scout, { links, at: Date.now(), error: null });
-    } catch (e) { scout.error = e.message; }
-    scout.loading = null;
-    render();
-  })();
-  return scout.loading;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +119,7 @@ async function refresh(force = false) {
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, todo.length) }, async () => {
     while (next < todo.length) { await fetchBook(todo[next++]); render(); }
   }));
-  await loadScout(force);
+  await sc.refresh(force);
   btn.classList.remove('loading'); btn.disabled = false;
   render();
 }
@@ -212,8 +129,8 @@ async function refresh(force = false) {
 // ---------------------------------------------------------------------------
 function compute() {
   if (!base || !ctx || !types) return null;
-  const g = travelGraph();
-  const key = [ui.ver, ui.travel?.key, JSON.stringify(load.items), settings.home, settings.flag, settings.tax, settings.maxJumps,
+  const g = sc.travelGraph();
+  const key = [ui.ver, sc.key(), JSON.stringify(load.items), settings.home, settings.flag, settings.tax, settings.maxJumps,
     settings.minShare, settings.structures, settings.rank, !!stations].join('|');
   if (ui.memo?.key === key) return ui.memo.value;
 
@@ -395,27 +312,32 @@ function renderPerItem(v) {
   }).join('');
 }
 
-const SRC_LABEL = { trail: 'Your jump', evescout: 'EVE Scout', manual: 'Added by you' };
 function renderWormholes() {
-  const links = base ? allLinks() : [];
-  resolveNames([settings.home, ...links.flatMap(l => [l.a, l.b])]);
+  const w = sc.settings, links = sc.links();
+  sc.resolveNames([settings.home, ...links.flatMap(l => [l.a, l.b])]);
   const used = links.filter(l => l.use).length;
-  $('whCount').textContent = links.length ? `· ${used} in use` : '';
+  $('whCount').textContent = !w.on ? '· off' : links.length ? `· ${used} in use on every page` : '';
+  const feed = (name, label) => {
+    const f = sc.feeds[name];
+    return f.error ? `${label}: ${f.error}` : f.loading && !f.at ? `${label}: loading…` : f.at ? `${label}: ${f.links.length} connection${f.links.length === 1 ? '' : 's'}, ${ago(f.at)}` : '';
+  };
+  $('whFeeds').textContent = [w.scout && feed('evescout', 'EVE Scout'), w.wanderer.on && feed('wanderer', 'Wanderer')].filter(Boolean).join(' · ');
+  $('whFeeds').classList.toggle('warn', !!((w.scout && sc.feeds.evescout.error) || (w.wanderer.on && sc.feeds.wanderer.error)));
   const signedIn = meCtl?.status?.loggedIn;
   $('whBody').innerHTML = links.map(l => {
-    const expires = l.expiresAt || (l.src === 'trail' ? l.at + settings.wh.hours * HOUR : null);
+    const expires = l.expiresAt || (l.src === 'trail' ? l.at + w.hours * HOUR : null);
     const what = l.kind === 'jump' ? '<span class="badge stale" title="No stargate joins these systems: a wormhole, a jump bridge or a cyno. Untick it if you can\'t fly it again.">no gate</span>' : '';
-    return `<tr class="static${l.use ? '' : ' off'}">
+    return `<tr class="static${l.use && w.on ? '' : ' off'}">
       <td class="l">${esc(sysName(l.a))} ${secSpan(l.a)} ↔ ${esc(sysName(l.b))} ${secSpan(l.b)}${what}</td>
-      <td class="l">${SRC_LABEL[l.src] || l.src}${l.note ? ` <small class="muted">${esc(l.note)}</small>` : ''}</td>
+      <td class="l">${SOURCE_LABEL[l.src] || l.src}${l.note ? ` <small class="muted">${esc(l.note)}</small>` : ''}</td>
       <td>${ago(l.at)}</td>
-      <td>${left(expires)}</td>
+      <td>${l.src === 'wanderer' ? '<span class="muted" title="Wanderer drops a connection when it collapses">mapped</span>' : left(expires)}</td>
       <td><input type="checkbox" data-use="${l.key}" data-at="${l.at}"${l.use ? ' checked' : ''} aria-label="Use this connection"></td>
       <td>${l.src === 'manual' ? `<button class="btn small ghost" type="button" data-del="${l.key}">Remove</button>` : ''}</td>
     </tr>`;
-  }).join('') || `<tr class="empty"><td colspan="6" class="l muted">${!settings.wh.trail ? 'No shortcuts.'
+  }).join('') || `<tr class="empty"><td colspan="6" class="l muted">${!w.trail ? 'No shortcuts.'
     : signedIn ? 'No wormhole jumps recorded yet. Keep this app open (any page) while you fly and they\'ll show up here.'
-      : 'Sign in with EVE to record your wormhole jumps, or add one by hand.'}${settings.wh.scout && scout.error ? ` EVE Scout: ${esc(scout.error)}` : ''}</td></tr>`;
+      : 'Sign in with EVE to record your wormhole jumps, or use one of the sources above.'}</td></tr>`;
 }
 
 function render() {
@@ -500,7 +422,7 @@ function init() {
 
   $('home').addEventListener('change', async () => {
     const input = $('home');
-    const id = await systemByName(input.value).catch(() => null);
+    const id = await sc.systemByName(input.value).catch(() => null);
     input.classList.toggle('bad', !id);
     if (!id) return;
     settings.home = id; save(); render();
@@ -543,50 +465,47 @@ function init() {
   $('moreBtn').addEventListener('click', () => { ui.limit += PAGE; renderStations(compute()); });
   $('refreshBtn').addEventListener('click', () => refresh(true));
 
-  // Wormholes
-  $('whTrail').checked = settings.wh.trail;
-  $('whScout').checked = settings.wh.scout;
-  $('whHours').value = settings.wh.hours;
-  $('whTrail').addEventListener('change', () => { settings.wh.trail = $('whTrail').checked; save(); render(); });
-  $('whScout').addEventListener('change', () => { settings.wh.scout = $('whScout').checked; save(); render(); loadScout(); });
+  // Wormholes (shared by every page, see shortcuts.js)
+  const w = sc.settings;
+  $('whOn').checked = w.on;
+  $('whTrail').checked = w.trail;
+  $('whScout').checked = w.scout;
+  $('whHours').value = w.hours;
+  $('whWanderer').checked = w.wanderer.on;
+  $('whWUrl').value = w.wanderer.url;
+  $('whWMap').value = w.wanderer.map;
+  $('whWToken').value = w.wanderer.token;
+  $('whOn').addEventListener('change', () => sc.update({ on: $('whOn').checked }));
+  $('whTrail').addEventListener('change', () => sc.update({ trail: $('whTrail').checked }));
+  $('whScout').addEventListener('change', () => sc.update({ scout: $('whScout').checked }));
   $('whHours').addEventListener('input', () => {
     const h = Number($('whHours').value);
-    if (!(h >= 1 && h <= 48)) return;
-    settings.wh.hours = h; save(); render();
+    if (h >= 1 && h <= 48) sc.update({ hours: h });
   });
+  const wanderer = () => sc.update({ wanderer: {
+    on: $('whWanderer').checked, url: $('whWUrl').value.trim(), map: $('whWMap').value.trim(), token: $('whWToken').value.trim(),
+  } });
+  for (const id of ['whWanderer', 'whWUrl', 'whWMap', 'whWToken']) $(id).addEventListener('change', wanderer);
   $('whAdd').addEventListener('click', async () => {
-    const [a, b] = await Promise.all([systemByName($('whFrom').value), systemByName($('whTo').value)].map(p => p.catch(() => null)));
+    const [a, b] = await Promise.all([sc.systemByName($('whFrom').value), sc.systemByName($('whTo').value)].map(p => p.catch(() => null)));
     $('whFrom').classList.toggle('bad', !a);
     $('whTo').classList.toggle('bad', !b);
     if (!a || !b || a === b) return;
-    const now = Date.now();
-    manual = manual.filter(l => pairKey(l.a, l.b) !== pairKey(a, b) && !(l.expiresAt <= now));
-    manual.push({ a, b, at: now, expiresAt: now + settings.wh.hours * HOUR, kind: 'wormhole', src: 'manual' });
-    delete off[pairKey(a, b)];
-    LS.set('mining.links', manual); LS.set('mining.linksOff', off);
+    sc.addManual(a, b);
     $('whFrom').value = ''; $('whTo').value = '';
-    render();
   });
   $('whBody').addEventListener('change', (e) => {
     const key = e.target.dataset.use;
-    if (!key) return;
-    if (e.target.checked) delete off[key]; else off[key] = Number(e.target.dataset.at);
-    LS.set('mining.linksOff', off);
-    render();
+    if (key) sc.setUse(key, e.target.checked, Number(e.target.dataset.at));
   });
   $('whBody').addEventListener('click', (e) => {
     const key = e.target.closest('[data-del]')?.dataset.del;
-    if (!key) return;
-    manual = manual.filter(l => pairKey(l.a, l.b) !== key);
-    LS.set('mining.links', manual);
-    render();
+    if (key) sc.removeManual(key);
   });
-  // Jumps recorded by another tab.
-  window.addEventListener('storage', (e) => { if (e.key?.startsWith('me.trail.')) render(); });
 
   fetch('data/universe.json').then(r => r.json()).then(u => {
     base = buildGraph(u);
-    for (let i = 0; i < base.n; i++) byName.set(base.name[i].toLowerCase(), base.id[i]);
+    sc.setBase(base);
     $('systemList').innerHTML = [...base.name].sort().map(n => `<option value="${esc(n)}">`).join('');
     return fetch('data/stations.json').then(r => (r.ok ? r.json() : {})).catch(() => ({})).then(s => {
       stations = s;
@@ -602,7 +521,6 @@ function init() {
   }).catch(() => {});
   render();
   refresh();
-  loadScout();
 }
 
 init();

@@ -23,9 +23,21 @@ function pref(key, fallback) { try { const v = localStorage.getItem(KEYS[key]); 
 function setPref(key, on) { try { localStorage.setItem(KEYS[key], on ? '1' : '0'); } catch { /* storage disabled */ } }
 
 // Each character's recent system changes (wormholes.js recordLocation), shared by every tab.
-const trailKey = (characterId) => `me.trail.${characterId}`;
+export const TRAIL_PREFIX = 'me.trail.';
+const trailKey = (characterId) => `${TRAIL_PREFIX}${characterId}`;
 export function readTrail(characterId) {
   try { return JSON.parse(localStorage.getItem(trailKey(characterId)) || 'null') || { hops: [] }; } catch { return { hops: [] }; }
+}
+// Every character that has recorded jumps in this browser (alts included): [{characterId, hops}].
+export function readAllTrails() {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(TRAIL_PREFIX)) out.push({ characterId: Number(k.slice(TRAIL_PREFIX.length)), hops: readTrail(k.slice(TRAIL_PREFIX.length)).hops || [] });
+    }
+  } catch { /* storage disabled */ }
+  return out;
 }
 function saveLocation(characterId, loc) {
   if (!characterId) return;

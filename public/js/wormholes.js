@@ -4,8 +4,9 @@
 // system change it sees when it polls your location (recordLocation). Two readings in a row in
 // systems that no stargate joins mean you took a wormhole (or a jump bridge or cyno), so that pair
 // becomes a shortcut (trailLinks). EVE Scout's public Thera and Turnur connections
-// (parseEveScout) and links you enter by hand work the same way. withLinks adds them to the gate
-// graph from galaxy.js, so jumpsFrom/pathBetween route through them.
+// (parseEveScout), a Wanderer mapper's connections (parseWanderer) and links you enter by hand
+// work the same way. withLinks adds them to the gate graph from galaxy.js, so
+// jumpsFrom/pathBetween route through them. shortcuts.js gathers them for the pages.
 //
 // Wormholes change travel only. Buy-order ranges are measured on the gate graph, as in game, so
 // ranges.js keeps using the graph without shortcuts.
@@ -93,6 +94,47 @@ export function parseEveScout(rows, now = Date.now()) {
     });
   }
   return { links, names };
+}
+
+// Wanderer's time_status and mass_status codes (its map shows the same labels).
+const WANDERER_TIME = { 1: 'end of life' };
+const WANDERER_MASS = { 1: 'reduced', 2: 'critical' };
+
+/**
+ * A Wanderer map's connections (GET {instance}/api/maps/{slug}/connections, {data: [...]}).
+ * Wanderer drops a connection when its wormhole collapses, so none of them carries an expiry.
+ * @returns {{a, b, at, expiresAt: null, kind: 'wormhole', src: 'wanderer', note}[]}
+ */
+export function parseWanderer(json, now = Date.now()) {
+  const rows = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+  const out = [];
+  for (const r of rows) {
+    const a = Number(r?.solar_system_source), b = Number(r?.solar_system_target);
+    if (!(a > 0) || !(b > 0) || a === b) continue;
+    out.push({
+      a, b, at: Date.parse(r.updated_at || r.inserted_at) || now, expiresAt: null, kind: 'wormhole', src: 'wanderer',
+      note: [r.wormhole_type, WANDERER_TIME[r.time_status], WANDERER_MASS[r.mass_status] && `mass ${WANDERER_MASS[r.mass_status]}`]
+        .filter(Boolean).join(' · '),
+    });
+  }
+  return out;
+}
+
+/**
+ * Where to ask a Wanderer instance for a map's connections (the proxy in server.js/worker only
+ * calls these): the current API path, then the older one. Only public https hosts are allowed, so
+ * the proxy can't be pointed at this machine or its network.
+ * @returns {string[]|null}  null when `instance` or `map` isn't acceptable
+ */
+export function wandererUrls(instance, map) {
+  let u;
+  try { u = new URL(String(instance || '')); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  if (u.protocol !== 'https:' || u.port || u.username || u.password || !host.includes('.')
+    || /^[\d.]+$/.test(host) || host.includes(':') || host.startsWith('[') || /(^|\.)(localhost|local|internal)$/.test(host)) return null;
+  if (!/^[\w-]{1,100}$/.test(String(map || ''))) return null;
+  const root = `https://${host}${u.pathname.replace(/\/+$/, '')}`;
+  return [`${root}/api/maps/${map}/connections`, `${root}/api/map/connections?slug=${map}`];
 }
 
 /**

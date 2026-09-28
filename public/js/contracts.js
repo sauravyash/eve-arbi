@@ -9,6 +9,7 @@ import { buildGraph, jumpsFrom, jumpsBetween, systemInfo } from './galaxy.js';
 import { parseFuzzwork, isNpcStation } from './market-merge.js';
 import { contractProfit, lpOfferValue, BLUEPRINT_CATEGORY } from './contract-value.js';
 import { createMe } from './me.js';
+import { createShortcuts, mountToggle } from './shortcuts.js';
 import { scanClient, tabNote } from './scan-client.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
@@ -52,7 +53,11 @@ const cs = { status: null, result: null, poll: null, xLimit: PAGE, cLimit: PAGE,
 const us = { result: null, loading: null, backMemo: null };
 const conScan = scanClient('cscan'), uniScan = scanClient('uscan');
 const lp = { corps: null, byName: new Map(), offers: null, corpId: null, prices: {}, vol: new Map(), status: '', ver: 0 };
-let graph = null, types = null, stations = null;
+let graph = null, types = null, stations = null;   // graph: stargates only (names)
+// Wormhole shortcuts (shortcuts.js): jumps use the gate graph plus the ones in use.
+let drawToggle = () => {};
+const sc = createShortcuts({ onChange: () => { drawToggle(); renderAll(); } });
+const travel = () => sc.travelGraph() || graph;
 const byName = new Map(); // lower-case system name → system ID
 
 const $ = (id) => document.getElementById(id);
@@ -99,13 +104,13 @@ function placeHtml(locationId, systemId, regionId) {
 function homeJumps(systemId) {
   if (!graph || systemId == null) return null;
   const i = graph.indexOf.get(systemId);
-  const d = i == null ? -1 : jumpsFrom(graph, settings.home, settings.flag)[i];
+  const d = i == null ? -1 : jumpsFrom(travel(), settings.home, settings.flag)[i];
   return d < 0 ? null : d;
 }
-const jumps = (a, b) => (graph && a != null && b != null ? (a === b ? 0 : jumpsBetween(graph, a, b, settings.flag)) : null);
+const jumps = (a, b) => (graph && a != null && b != null ? (a === b ? 0 : jumpsBetween(travel(), a, b, settings.flag)) : null);
 const taxRate = () => (Number(settings.tax) || 0) / 100;
 const settingsKey = () => [settings.home, settings.flag, settings.tax, settings.cargo, settings.budget, settings.sellHub,
-  settings.mode, settings.structures, !!graph, !!types, !!stations].join('|');
+  settings.mode, settings.structures, !!graph, !!types, !!stations, sc.key()].join('|');
 
 // ---------------------------------------------------------------------------
 // Contract scan (server-side, see contract-scanner.js)
@@ -320,7 +325,7 @@ function bestBackhaul(systemId, maxJ) {
   if (!b || systemId == null) return null;
   const k = `${systemId}|${maxJ}`;
   if (b.byDrop.has(k)) return b.byDrop.get(k);
-  const dist = jumpsFrom(graph, systemId, settings.flag);
+  const dist = jumpsFrom(travel(), systemId, settings.flag);
   let best = null;
   for (const h of b.list) {
     const i = graph.indexOf.get(h.fs);
@@ -619,6 +624,7 @@ function init() {
     renderItems();
   });
 
+  drawToggle = mountToggle($('whToggle'), sc);
   createMe({
     el: $('me'), returnTo: '/contracts.html', systemName: sysName, isk,
     shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][3] ?? null } : null),
@@ -627,7 +633,7 @@ function init() {
     onBudget: (v) => fromMe('budget', 'budget', v, 'Your wallet balance — turn off in the character menu to edit'),
   });
 
-  fetch('data/universe.json').then(r => r.json()).then(u => { graph = buildGraph(u); initHome(); cs.xMemo = cs.cMemo = null; renderAll(); })
+  fetch('data/universe.json').then(r => r.json()).then(u => { graph = buildGraph(u); sc.setBase(graph); initHome(); cs.xMemo = cs.cMemo = null; renderAll(); })
     .catch(() => { $('home').placeholder = 'Star map unavailable'; });
   fetch('data/types.json').then(r => r.json()).then(t => { types = t; renderAll(); }).catch(() => {});
   fetch('data/stations.json').then(r => (r.ok ? r.json() : {})).then(s => { stations = s; renderAll(); }).catch(() => {});
