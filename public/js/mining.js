@@ -4,7 +4,7 @@
 // Prices: EVE Tycoon's orders for each item in every region, player structures included (one call
 // per item, through the caching proxy). Only buy orders are kept.
 
-import { HUBS, formatIsk } from './arbitrage.js';
+import { HUBS, DEFAULT_TAX_PCT, formatIsk } from './arbitrage.js';
 import { normalizeTycoonOrder, isNpcStation } from './market-merge.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { buildRangeContext } from './ranges.js';
@@ -31,8 +31,10 @@ const SCOUT_TTL = 5 * 60_000;
 const KIND_LABEL = { ore: 'Ore', moon: 'Moon ore', ice: 'Ice', gas: 'Gas', mineral: 'Mineral' };
 
 const WH_DEFAULTS = { trail: true, scout: false, hours: 16 };
-const DEFAULTS = { home: JITA.id, flag: 'secure', tax: 0, maxJumps: '', minShare: '', structures: true, rank: 'isk', kind: '', wh: WH_DEFAULTS };
+const DEFAULTS = { home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, taxV: 1, maxJumps: '', minShare: '', structures: true, rank: 'isk', kind: '', wh: WH_DEFAULTS };
 const stored = LS.get('mining.settings', {});
+// Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
+if (!stored.taxV && !Number(stored.tax)) delete stored.tax;
 const settings = { ...DEFAULTS, ...stored, wh: { ...WH_DEFAULTS, ...stored.wh } };
 const URL_FIELDS = [
   ['home', v => v > 0], ['flag', ['secure', 'shortest']], ['tax', v => v >= 0 && v <= 100], 'maxJumps', 'minShare', 'structures',

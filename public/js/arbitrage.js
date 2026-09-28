@@ -9,6 +9,10 @@ export const HUBS = [
   { id: 30002053, name: 'Hek',     region: 'Metropolis',  regionId: 10000042, stationId: 60005686, station: 'Hek VIII - Moon 12 - Boundless Creation Factory' },
 ];
 
+// EVE's base sales tax. The Accounting skill cuts it by 11% a level (3.375% at level V); every
+// page's Sales tax % starts here and can be set to your own rate.
+export const DEFAULT_TAX_PCT = 7.5;
+
 export const pairKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 
 // Can a buy order be filled by someone standing in the hub station?

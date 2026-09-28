@@ -1,4 +1,4 @@
-import { HUBS, formatIsk, summarizeSteps } from './arbitrage.js';
+import { HUBS, DEFAULT_TAX_PCT, formatIsk, summarizeSteps } from './arbitrage.js';
 import {
   normalizeEsiOrder, normalizeTycoonOrder, mergeOrders, hubBook, bookQuote, volumeWeightedTop,
   mergeHistory, historyChange, parseFuzzwork, parseGoonXml, consensus, isNpcStation,
@@ -36,10 +36,12 @@ const AUTO_MS = 5 * 60_000;
 const CONCURRENCY = 4;
 
 const stored = LS.get('market.settings', {});
+// Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
+if (!stored.taxV && !Number(stored.tax)) delete stored.tax;
 if (stored.hub && !stored.refHub) stored.refHub = stored.hub; // settings from the first version
 const US_DEFAULTS = { minProfit: '5m', maxMargin: '100', maxJumps: '', rank: 'perJump', q: '', near: '', nearEnd: 'pickup', nearMax: '', hideShips: false };
 const DEFAULTS = {
-  items: [], refHub: JITA.id, home: JITA.id, flag: 'secure', tax: 0, cargo: '', budget: '',
+  items: [], refHub: JITA.id, home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, taxV: 1, cargo: '', budget: '',
   hideHubs: true, structures: true, showGhosts: false, haulRank: 'perJump',
   selected: null, histDays: 90, auto: false, sort: { key: null, dir: -1 }, us: US_DEFAULTS,
 };

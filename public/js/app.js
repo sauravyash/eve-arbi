@@ -1,4 +1,4 @@
-import { HUBS, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
+import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
 import { scanClient, tabNote } from './scan-client.js';
 import { GalaxyMap } from './map.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
@@ -26,12 +26,15 @@ const OLD_DEFAULT_ITEMS = [
 const JUMP_TTL = 24 * 3600_000;
 
 const DEFAULTS = {
-  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: 0, graphItem: 'all', showAll: false,
+  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, graphItem: 'all', showAll: false,
   view: 'map', mapLayout: '3d', secColors: true,
   scan: { scope: 'hubs', cargo: '', ship: '', budget: '', minProfit: '5m', from: '', to: '', near: '0', maxMargin: '100', rank: 'ppj', q: '', hideShips: false, structures: false },
   trips: { start: 30000142, legs: '3', link: '3', minProfit: '1m', rank: 'perJump', hideShips: false, hideHubs: false, structures: false },
 };
-const settings = Object.assign(structuredClone(DEFAULTS), LS.get('arbi.settings', {}));
+const storedSettings = LS.get('arbi.settings', {});
+// Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
+if (!storedSettings.taxV && !Number(storedSettings.taxPct)) delete storedSettings.taxPct;
+const settings = Object.assign(structuredClone(DEFAULTS), storedSettings);
 settings.scan = { ...DEFAULTS.scan, ...settings.scan };
 settings.trips = { ...DEFAULTS.trips, ...settings.trips };
 // Settings mirrored in the query string (url-state.js); the item list and overrides stay local.

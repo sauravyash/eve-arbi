@@ -455,5 +455,6 @@ Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to 
   re-check big hauls in-game before buying.
 - Buy orders placed outside the hub system with a jump range that reaches it are ignored. This
   is conservative: it may miss some sell opportunities but never invents them.
-- Sales tax defaults to 0%. Set your own rate (it depends on your Accounting skill).
+- Sales tax defaults to 7.5%, EVE's base rate. Set your own: Accounting cuts it by 11% per level
+  (3.375% at level V). Broker fees for relisting aren't counted.
 - Hub IDs in `public/js/arbitrage.js` were verified against ESI on 2026-09-17.
