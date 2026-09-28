@@ -27,11 +27,23 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
   // EVE_CLIENT_ID, EVE_CALLBACK_URL and CONTACT are set in the dashboard; keep them on deploy.
   "keep_vars": true,
-  // Git-connected branch builds run `wrangler preview`, which needs this block. Previews don't inherit
-  // production bindings: each gets its own Session namespace, and no D1 binding so they never touch the
-  // production contract cache (/api/config reports sharedContracts: false). SSO vars are unset there too.
+  // Git-connected branch builds run `wrangler preview`, which needs this block. It mirrors the preview
+  // bindings set in the Cloudflare dashboard (Workers → eve-arbi → Previews), so deploys keep them:
+  // both D1 databases and the Session Durable Object namespace, by ID. SSO vars are unset there.
   "previews": {
-    "durable_objects": { "bindings": [{ "name": "SESSIONS", "class_name": "Session" }] }
+    "d1_databases": [
+      { "binding": "CONTRACTS_DB", "database_id": "852dda8a-9af2-44c3-a8a0-37c509d70efd" },
+      { "binding": "USERS_DB", "database_id": "bee339b5-b2c5-4f2b-8dcd-d9d025c2d588" }
+    ],
+    "unsafe": {
+      "bindings": [
+        { "name": "SESSIONS", "type": "durable_object_namespace", "class_name": "Session", "namespace_id": "bd4c9f2e21b143bf8850495fc015a71d" }
+      ]
+    },
+    "observability": {
+      "logs": { "enabled": true, "head_sampling_rate": 1, "invocation_logs": true, "persist": true },
+      "traces": { "enabled": false, "head_sampling_rate": 1, "persist": true }
+    }
   },
   "observability": { "enabled": true }
 }
