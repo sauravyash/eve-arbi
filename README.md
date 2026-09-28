@@ -21,7 +21,7 @@ Open http://localhost:8000. Set `PORT` to use a different port.
 On first start the server builds three static data files from Fuzzwork's mirror of CCP's Static
 Data Export (about 23 MB downloaded, once):
 - `public/data/universe.json`: systems and gates for the star map (about 335 KB)
-- `public/data/types.json`: item names, packaged volumes and categories (about 950 KB)
+- `public/data/types.json`: item names, packaged volumes, categories and groups (about 1 MB)
 - `public/data/stations.json`: NPC station names and systems (about 370 KB)
 
 To rebuild them later (say, after new systems are added to the game):
@@ -47,7 +47,8 @@ remembered per browser:
 | **Use my wallet as max investment** | Your wallet balance fills *Max investment* / *Budget* on both pages. |
 
 - *Use my ship's cargo* uses the base hold from the SDE (`types.json` stores it for ships). It
-  doesn't include skills, expanded cargoholds, or ore, fleet or other specialised holds.
+  doesn't include skills or expanded cargoholds. On Hub arbitrage it also puts your ship in *Ship
+  holds*, so its ore, fleet and other specialised holds count for the items that fit them.
 - Location, online status and ship are checked every 20 s while the tab is visible, and the
   wallet every 2 minutes. A field filled from your character is locked and outlined in violet;
   turn the option off to edit it.
@@ -357,6 +358,20 @@ Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to 
   - Click a row to draw that haul on the map; the graph switches to *Whole market (scan)*, the
     best item per hub pair. ☆ adds an item to the watchlist.
   - *Hide ships* leaves out every item in the Ship category.
+  - **Markets:** *Trade hubs* ranks the hub scan. *All stations* ranks the universe scan instead (the
+    same one Multi-stop routes use; *Scan universe* runs it). It covers every NPC station and, with
+    *Player structures* ticked, structures too. Jumps are computed locally with your *Route* setting.
+  - **Buy at / Sell at:** a hub, *Anywhere*, *Trade hubs* or *Away from hubs* (All stations only), or
+    *Near me*. Near me means within *Jumps from me* of your location: the multi-stop *Start system*,
+    which follows your character when you're signed in with *Follow* on. When buying near you,
+    the Jumps column shows `to pickup + haul`, and profit per jump counts both.
+  - **Ship holds:** pick a ship, or turn on *Use my ship's cargo* to use the one you're flying. Items
+    that fit its special holds can use them on top of *Cargo m³* (`public/js/holds.js`): mining hold
+    (ore, ice, gas), ice, gas, mineral, salvage, ammo, planetary commodities, command center, fuel
+    bay (ice products, fuel blocks), booster, subsystem and mobile depot holds, and the fleet hangar
+    (anything). Hold sizes come from ESI's dogma attributes, are cached per ship, and are base sizes
+    (no skills). Ship-only bays are left out, because market ships are packaged. Picking a ship by hand
+    also fills *Cargo m³* with its base hold. Rows that needed the extra room say which holds they used.
 - **Multi-stop routes** (`public/js/trips.js`) chain hauls from the universe scan into one trip:
   buy item 1, sell it, buy item 2 where you sold (or after a few empty jumps), and so on.
   - Each haul sells its whole cargo before the next purchase, so *Cargo m³* and *Budget* apply

@@ -315,6 +315,12 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .scan-filters input[type=text]#tpStart { width: 140px; }
 .scan-filters input.bad { border-color: var(--red); }
 .scan-filters .sc-check { align-self: flex-end; padding-bottom: 7px; flex-direction: row; }
+.scan-filters input#scShip { width: 150px; }
+.scan-filters input#scNear { width: 80px; }
+.scan-filters [hidden] { display: none; }
+.scan-panel .ship-note { margin: -4px 0 10px; color: #a78bfa; }
+.scan-table small.hold { display: block; color: #a78bfa; font-size: 10.5px; white-space: nowrap; }
+.scan-table .loc small.note { color: var(--amber); }
 .trips-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .trips-body.has-detail { grid-template-columns: minmax(0, 1fr) 380px; }
 @media (max-width: 1100px) { .trips-body.has-detail { grid-template-columns: minmax(0, 1fr); } }

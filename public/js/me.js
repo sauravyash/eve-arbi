@@ -3,7 +3,8 @@
 //
 // Options (remembered per browser):
 //   Follow        — your current system becomes the page's starting point
-//   Ship cargo    — your current ship's base cargo hold becomes Cargo m³
+//   Ship cargo    — your current ship's base cargo hold becomes Cargo m³ (and, on pages that
+//                   ask for it, the ship's special holds count too)
 //   Wallet        — your wallet balance becomes Max investment
 
 const POLL_MS = 20_000;
@@ -34,10 +35,11 @@ async function getJson(url) {
  * @param {(v: number) => string} o.isk            ISK formatter
  * @param {(loc|null) => void} o.onFollow          your location while following, null when it stops
  * @param {(m3: number|null) => void} [o.onCargo]  your ship's cargo while "use ship" is on, null when off
+ * @param {(typeId: number|null) => void} [o.onShip]  your ship's type while "use ship" is on, null when off
  * @param {(isk: number|null) => void} [o.onBudget] your wallet while "use wallet" is on, null when off
  * @param {(status) => void} [o.onStatus]          sign-in state changes (for pages that show more)
  */
-export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk = String, onFollow, onCargo = () => {}, onBudget = () => {}, onStatus = () => {} }) {
+export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk = String, onFollow, onCargo = () => {}, onShip = () => {}, onBudget = () => {}, onStatus = () => {} }) {
   const me = {
     status: null, loc: null, online: null, ship: null, wallet: null, errors: {}, timer: null, walletAt: 0,
     follow: pref('follow', true), useShip: pref('useShip', false), useWallet: pref('useWallet', false),
@@ -48,6 +50,7 @@ export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk 
   const push = () => {
     onFollow(me.follow && me.loc ? me.loc : null);
     onCargo(me.useShip && cargoOf() ? cargoOf() : null);
+    onShip(me.useShip && me.ship ? me.ship.typeId : null);
     onBudget(me.useWallet && me.wallet != null ? me.wallet : null);
   };
 

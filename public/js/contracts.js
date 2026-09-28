@@ -621,7 +621,7 @@ function init() {
 
   createMe({
     el: $('me'), returnTo: '/contracts.html', systemName: sysName, isk,
-    shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][3] ?? null } : null),
+    shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][2] === 6 ? types[id][3] ?? null : null } : null),
     onFollow: followLocation,
     onCargo: (m3) => fromMe('cargo', 'cargo', m3, 'From your current ship (base hold) — turn off in the character menu to edit'),
     onBudget: (v) => fromMe('budget', 'budget', v, 'Your wallet balance — turn off in the character menu to edit'),

@@ -1,8 +1,8 @@
 // Builds static data from CCP's Static Data Export (CSV mirror by Fuzzwork):
 //  - public/data/universe.json: every known-space system (3D top-down position + CCP's 2D map
 //    layout, security, region) and every stargate link, for the star map.
-//  - public/data/types.json: every published market item → [name, packaged volume m³, category ID]
-//    (6 = ships, which also get their base cargo capacity m³), for the market scans.
+//  - public/data/types.json: every published market item → [name, packaged volume m³, category ID,
+//    group ID] for the market scans; ships (category 6) have their base cargo m³ instead of the group.
 //  - public/data/stations.json: every NPC station → [name, solar system ID], for naming off-hub
 //    stations in the universe-wide scan.
 //
@@ -118,8 +118,8 @@ export async function buildTypes({ fromDir, outFile = TYPES_FILE, log = console.
     if (t.published !== '1' || !t.marketGroupID) continue;
     const vol = Number(t.packagedVolume) || Number(t.volume) || 0;
     const cat = categoryOf.get(t.groupID) ?? 0;
-    out[t.typeID] = [t.typeName, vol, cat];
-    if (cat === 6) out[t.typeID].push(Number(t.capacity) || 0); // ships: base cargo hold m³
+    // Ships: base cargo hold m³. Everything else: group, to match specialised holds (holds.js).
+    out[t.typeID] = [t.typeName, vol, cat, cat === 6 ? Number(t.capacity) || 0 : Number(t.groupID)];
   }
   await mkdir(path.dirname(outFile), { recursive: true });
   const json = JSON.stringify(out);

@@ -186,11 +186,23 @@
       </div>
       <div id="scanProgress" class="progress" hidden><i></i></div>
       <div class="scan-filters">
+        <label title="Trade hubs: the five hub stations (hub scan, about a minute). All stations: every NPC station and structure in New Eden (the universe scan, a few minutes, shared with Multi-stop routes).">Markets
+          <select id="scScope">
+            <option value="hubs">Trade hubs</option>
+            <option value="all">All stations</option>
+          </select>
+        </label>
         <label>Cargo m³ <input id="scCargo" type="text" inputmode="decimal" placeholder="Unlimited"></label>
+        <label title="Items that fit this ship's special holds (ore, mineral, PI, fuel bay, fleet hangar, …) can use them as well as Cargo m³">Ship holds
+          <input id="scShip" type="text" list="scShips" autocomplete="off" spellcheck="false" placeholder="None (cargo only)">
+          <datalist id="scShips"></datalist>
+        </label>
         <label>Budget ISK <input id="scBudget" type="text" placeholder="Unlimited"></label>
         <label>Min profit <input id="scMinProfit" type="text" placeholder="0"></label>
         <label>Buy at <select id="scFrom"></select></label>
         <label>Sell at <select id="scTo"></select></label>
+        <label id="scNearWrap" title="Your location is the multi-stop Start system, which follows your character when you're signed in with Follow on. 0 = the same system.">Jumps from me
+          <input id="scNear" type="number" min="0" max="40" step="1"></label>
         <label>Hide margin above % <input id="scMaxMargin" type="number" min="0" step="1" placeholder="No limit"></label>
         <label>Rank by
           <select id="scRank">
@@ -202,7 +214,9 @@
         </label>
         <label class="grow">Item <input id="scQuery" type="search" placeholder="Filter by name"></label>
         <label class="inline check sc-check"><input id="scHideShips" type="checkbox"> Hide ships</label>
+        <label id="scStructuresWrap" class="inline check sc-check"><input id="scStructures" type="checkbox"> Player structures</label>
       </div>
+      <p id="scShipNote" class="hint ship-note" hidden></p>
       <div class="table-wrap">
         <table class="routes scan-table">
           <thead><tr>
@@ -214,8 +228,9 @@
         </table>
       </div>
       <div class="scan-foot">
-        <p class="hint">Buy from sell orders at the first hub's station, haul, and sell into buy orders at the second. Profit is
-          after sales tax and within your cargo/budget limits, walking both order books. Click a row to show the route on the map; ☆ adds the item to your watchlist.</p>
+        <p class="hint">Buy from sell orders at the pickup station, haul, and sell into buy orders at the drop-off. Profit is
+          after sales tax and within your cargo/budget limits, walking both order books. With <b>Buy at → Near me</b>, profit per jump
+          includes the flight to the pickup. Click a row to show the route on the map; ☆ adds the item to your watchlist.</p>
         <button id="scanMore" class="btn small ghost" type="button" hidden>Show more</button>
       </div>
     </section>

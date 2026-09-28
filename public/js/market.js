@@ -1216,7 +1216,7 @@ function initHome() {
 function init() {
   meCtl = createMe({
     el: $('me'), returnTo: '/market.html', systemName: sysName, isk,
-    shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][3] ?? null } : null),
+    shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][2] === 6 ? types[id][3] ?? null : null } : null),
     onFollow: followLocation, onCargo: useShipCargo, onBudget: useWallet,
     onStatus: () => { loadMyOrders(); watch.load(); },
   });
