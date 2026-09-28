@@ -135,9 +135,6 @@ td .place + small { display: block; font-size: 10.5px; }
 .routes .metric { color: var(--teal); font-weight: 700; }
 .mini tr.group td { text-align: left; font: 600 10.5px system-ui, sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding-top: 12px; border-bottom: 1px solid var(--line-2); }
 .sec { font: 600 10.5px var(--mono); }
-.sec.s10 { color: #2fefef; } .sec.s9 { color: #48f0c0; } .sec.s8 { color: #00ef47; } .sec.s7 { color: #00f000; }
-.sec.s6 { color: #8fef2f; } .sec.s5 { color: #efef00; } .sec.s4 { color: #d77700; } .sec.s3 { color: #f06000; }
-.sec.s2 { color: #f04800; } .sec.s1 { color: #d73000; } .sec.s0 { color: #f00000; }
 .c-zk { fill: none; stroke: var(--amber); stroke-width: 1.3; stroke-dasharray: 4 3; opacity: .85; }
 .sw.zk { border-color: var(--amber); border-top-style: dashed; border-top-width: 2px; }
 .src-chip.warn span { color: var(--amber); }

@@ -14,7 +14,10 @@ test('security bands follow in-game rounding', () => {
   assert.equal(secLabel(0.9459), '0.9');
   assert.equal(secLabel(0.45), '0.5');
   assert.equal(secLabel(0.01), '0.1'); // 0 < sec < 0.05 displays as 0.1
-  assert.equal(secBand(-0.4), 0);
+  assert.equal(secBand(-0.4), -4);
+  assert.equal(secLabel(-0.4), '-0.4');
+  assert.equal(secLabel(-0.99), '-1.0');
+  assert.equal(secLabel(-0.02), '0.0'); // no "-0.0"
 });
 
 test('built universe contains every hub, gate-connected to Jita', async (t) => {

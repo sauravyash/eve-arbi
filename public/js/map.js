@@ -3,10 +3,15 @@
 
 import { formatIsk } from './arbitrage.js';
 
-// In-game security colours, 1.0 → 0.0.
-const SEC_COLORS = ['#f00000', '#d73000', '#f04800', '#f06000', '#d77700', '#efef00', '#8fef2f', '#00f000', '#00ef47', '#48f0c0', '#2fefef'];
-export const secBand = (s) => (s > 0 && s < 0.05 ? 1 : Math.max(0, Math.min(10, Math.round(s * 10))));
+// Security colours indexed by band + 10: null-sec -1.0 → -0.1 (crimson fading to purple), then in-game 0.0 → 1.0.
+const SEC_COLORS = [
+  '#6e1f9e', '#7a1d95', '#861b8b', '#921981', '#9e1777', '#aa146b', '#b6115f', '#c20e52', '#ce0a44', '#da0636',
+  '#f00000', '#d73000', '#f04800', '#f06000', '#d77700', '#efef00', '#8fef2f', '#00f000', '#00ef47', '#48f0c0', '#2fefef',
+];
+// Band is security × 10 rounded, -10…10; 0 < sec < 0.05 displays as 0.1 in-game.
+export const secBand = (s) => (s > 0 && s < 0.05 ? 1 : Math.max(-10, Math.min(10, Math.round(s * 10) || 0)));
 export const secLabel = (s) => (secBand(s) / 10).toFixed(1);
+export const secColor = (s) => SEC_COLORS[secBand(s) + 10];
 
 const TEAL = '#2dd4bf', EDGE = '#9fb3c8', AMBER = '#e0a74a', VIOLET = '#a78bfa';
 const MIN_SCALE = 0.5, MAX_SCALE = 400; // px per light year
@@ -38,7 +43,7 @@ export class GalaxyMap {
       pos: { '3d': [Float32Array.from(s.x), Float32Array.from(s.y)], '2d': [Float32Array.from(s.x2), Float32Array.from(s.y2)] },
       jumps: Uint16Array.from(u.jumps),
       indexOf: new Map(s.id.map((id, i) => [id, i])),
-      band: Uint8Array.from(s.sec, secBand),
+      band: Uint8Array.from(s.sec, (v) => secBand(v) + 10),
     };
     this.computeRegionCentres();
     this.fitted = false;
@@ -243,7 +248,7 @@ export class GalaxyMap {
     const { name, sec, region, regions } = this.u;
     const onRoutes = this.routesThrough(this.u.id[i]);
     const t = this.tooltip;
-    t.innerHTML = `<b>${esc(name[i])}</b> <span class="sec" style="color:${SEC_COLORS[secBand(sec[i])]}">${secLabel(sec[i])}</span>
+    t.innerHTML = `<b>${esc(name[i])}</b> <span class="sec" style="color:${secColor(sec[i])}">${secLabel(sec[i])}</span>
       <div class="reg">${esc(regions[region[i]].name)}</div>
       ${hub ? '<div class="hint">Click to show best outgoing route</div>' : ''}
       ${onRoutes.length ? `<div class="on">${onRoutes.map(esc).join('<br>')}</div>` : ''}`;
@@ -301,8 +306,8 @@ export class GalaxyMap {
 
     // Systems, batched by security band
     const r = clamp(scale * 0.06, 0.9, 3.2);
-    const buckets = Array.from({ length: 11 }, () => []);
-    for (let i = 0; i < n; i++) if (onScreen(i, 4)) buckets[this.secColors ? this.u.band[i] : 10].push(i);
+    const buckets = Array.from({ length: SEC_COLORS.length }, () => []);
+    for (let i = 0; i < n; i++) if (onScreen(i, 4)) buckets[this.secColors ? this.u.band[i] : 0].push(i);
     ctx.globalAlpha = this.model?.sel || this.model?.top ? 0.55 : 0.8;
     buckets.forEach((idx, band) => {
       if (!idx.length) return;

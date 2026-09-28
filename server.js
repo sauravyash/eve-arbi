@@ -318,6 +318,6 @@ access(UNIVERSE_FILE).catch(() => buildUniverse().catch(e =>
   console.error(`Star map build failed (${e.message}). The schematic view still works; retry with "npm run build:map".`)));
 access(STATIONS_FILE).catch(() => buildStations().catch(e =>
   console.error(`Station list build failed (${e.message}); the universe scan will show station IDs. Retry with "npm run build:map".`)));
-// Item lists from before group IDs were added (Tritanium has no group) are rebuilt too.
-readFile(TYPES_FILE, 'utf8').then(t => { if (JSON.parse(t)[34]?.[3] == null) throw new Error('old format'); }).catch(() => buildTypes().catch(e =>
+// Item lists in an older format (Tritanium without its group and mining kind) are rebuilt too.
+readFile(TYPES_FILE, 'utf8').then(t => { const tr = JSON.parse(t)[34]; if (typeof tr?.[3] !== 'number' || tr[4] !== 'mineral') throw new Error('old format'); }).catch(() => buildTypes().catch(e =>
   console.error(`Item list build failed (${e.message}); the market scan will show type IDs. Retry with "npm run build:map".`)));

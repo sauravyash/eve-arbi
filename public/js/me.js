@@ -6,10 +6,14 @@
 //   Ship cargo    — your current ship's base cargo hold becomes Cargo m³ (and, on pages that
 //                   ask for it, the ship's special holds count too)
 //   Wallet        — your wallet balance becomes Max investment
+//   Track jumps   — keep checking your location in background tabs too; every system change is
+//                   kept (readTrail) so pages can spot wormhole jumps (wormholes.js)
+
+import { recordLocation } from './wormholes.js';
 
 const POLL_MS = 20_000;
 const WALLET_MS = 120_000;   // ESI caches the wallet for 2 min
-const KEYS = { follow: 'me.follow', useShip: 'me.useShip', useWallet: 'me.useWallet' };
+const KEYS = { follow: 'me.follow', useShip: 'me.useShip', useWallet: 'me.useWallet', track: 'me.track' };
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const SCOPE = {
   location: 'esi-location.read_location.v1', online: 'esi-location.read_online.v1', ship: 'esi-location.read_ship_type.v1',
@@ -18,6 +22,18 @@ const SCOPE = {
 
 function pref(key, fallback) { try { const v = localStorage.getItem(KEYS[key]); return v == null ? fallback : v === '1'; } catch { return fallback; } }
 function setPref(key, on) { try { localStorage.setItem(KEYS[key], on ? '1' : '0'); } catch { /* storage disabled */ } }
+
+// Each character's recent system changes (wormholes.js recordLocation), shared by every tab.
+const trailKey = (characterId) => `me.trail.${characterId}`;
+export function readTrail(characterId) {
+  try { return JSON.parse(localStorage.getItem(trailKey(characterId)) || 'null') || { hops: [] }; } catch { return { hops: [] }; }
+}
+function saveLocation(characterId, loc) {
+  if (!characterId) return;
+  // Read fresh each time: another tab may have recorded the same move already.
+  const t = recordLocation(readTrail(characterId), loc);
+  try { localStorage.setItem(trailKey(characterId), JSON.stringify(t)); } catch { /* storage full or disabled */ }
+}
 
 async function getJson(url) {
   const res = await fetch(url);
@@ -42,7 +58,7 @@ async function getJson(url) {
 export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk = String, onFollow, onCargo = () => {}, onShip = () => {}, onBudget = () => {}, onStatus = () => {} }) {
   const me = {
     status: null, loc: null, online: null, ship: null, wallet: null, errors: {}, timer: null, walletAt: 0,
-    follow: pref('follow', true), useShip: pref('useShip', false), useWallet: pref('useWallet', false),
+    follow: pref('follow', true), useShip: pref('useShip', false), useWallet: pref('useWallet', false), track: pref('track', true),
   };
   const has = (k) => me.status?.scopes?.includes(SCOPE[k]);
 
@@ -63,18 +79,27 @@ export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk 
     }
   }
 
+  const applyLocation = (v) => {
+    me.loc = v;
+    if (me.track) saveLocation(me.status?.characterId, v);
+  };
+
   // The first check always runs (a page opened in a background tab still shows where you are);
-  // after that, only while the tab is visible.
+  // after that, only while the tab is visible, except location while tracking jumps.
   let checked = false;
   async function poll() {
     clearTimeout(me.timer);
     if (!me.status?.loggedIn) return;
-    if (!checked || document.visibilityState === 'visible') {
+    if (checked && document.visibilityState !== 'visible' && me.track) {
+      const was = me.loc?.systemId;
+      await fetchPart('location', '/api/me/location', applyLocation);
+      if (was !== me.loc?.systemId) { push(); render(); }
+    } else if (!checked || document.visibilityState === 'visible') {
       checked = true;
       const was = { sys: me.loc?.systemId, st: me.loc?.stationId, ship: me.ship?.typeId, wallet: me.wallet };
       const wantWallet = Date.now() - me.walletAt > WALLET_MS;
       await Promise.all([
-        fetchPart('location', '/api/me/location', (v) => { me.loc = v; }),
+        fetchPart('location', '/api/me/location', applyLocation),
         fetchPart('online', '/api/me/online', (v) => { me.online = v; }),
         fetchPart('ship', '/api/me/ship', (v) => { me.ship = v; }),
         wantWallet && fetchPart('wallet', '/api/me/wallet', (v) => { me.wallet = v.balance; me.walletAt = Date.now(); }),
@@ -122,6 +147,7 @@ export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk 
         ${opt('follow', 'Follow my location', where ? `Start from ${where}, updated every 20 s` : 'Waiting for your location', has('location'), 'Needs the location scope — sign in again')}
         ${opt('useShip', 'Use my ship\'s cargo', ship?.cargo ? `${Math.round(ship.cargo).toLocaleString()} m³ base hold (no skills, expanders or special holds)` : 'Your ship has no cargo hold', has('ship') && !!ship?.cargo, has('ship') ? 'Your current ship has no cargo hold' : 'Needs the ship scope — sign in again')}
         ${opt('useWallet', 'Use my wallet as max investment', me.wallet != null ? `${isk(me.wallet)} ISK` : 'Loading balance…', has('wallet'), 'Needs the wallet scope — sign in again')}
+        ${opt('track', 'Record my wormhole jumps', 'Keeps checking your location in background tabs, so jumps without a stargate become route shortcuts (Mining page)', has('location'), 'Needs the location scope — sign in again')}
         ${errs.map(([k, m]) => `<div class="me-warn">${esc(k)}: ${esc(m)}</div>`).join('')}
         <button class="btn small ghost" type="button" data-me="logout">Sign out</button>
       </div>

@@ -10,7 +10,7 @@ import { parseFuzzwork, isNpcStation } from './market-merge.js';
 import { contractProfit, lpOfferValue, BLUEPRINT_CATEGORY } from './contract-value.js';
 import { createMe } from './me.js';
 import { scanClient, tabNote } from './scan-client.js';
-import { secBand, secLabel } from './map.js';
+import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 
 // ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ function left(ms) {
   if (d <= 0) return 'expired';
   return d > 86_400_000 ? `${Math.floor(d / 86_400_000)}d` : `${Math.ceil(d / 3_600_000)}h`;
 }
-const secSpan = (sec) => (sec == null ? '' : `<span class="sec s${secBand(sec)}">${secLabel(sec)}</span>`);
+const secSpan = (sec) => (sec == null ? '' : `<span class="sec" style="color:${secColor(sec)}">${secLabel(sec)}</span>`);
 
 // "Station name" with system, security and region. Structures have no public names.
 function placeHtml(locationId, systemId, regionId) {

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mining · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="market.css">
+  <link rel="stylesheet" href="mining.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Mining</h1>
+        <p class="sub">Where to sell your ore, gas and ice, counting every buy order that reaches each station</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Pages">
+      <a href="index.html">Hub arbitrage</a>
+      <a href="market.html">Market watch</a>
+      <a href="contracts.html">Contracts</a>
+      <a href="mining.html" aria-current="page">Mining</a>
+    </nav>
+    <div class="refresh">
+      <span id="status" class="status" role="status" aria-live="polite">Add what you mined</span>
+      <button id="refreshBtn" class="btn primary" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+        Refresh prices
+      </button>
+    </div>
+  </header>
+
+  <section class="controls" aria-label="Settings">
+    <label>You are in
+      <input id="home" type="text" list="systemList" autocomplete="off" spellcheck="false">
+      <datalist id="systemList"></datalist>
+    </label>
+    <label>Route
+      <select id="flag">
+        <option value="secure">High-sec only</option>
+        <option value="shortest">Shortest (any sec)</option>
+      </select>
+    </label>
+    <label>Sales tax % <input id="tax" type="number" min="0" max="100" step="0.01" inputmode="decimal"></label>
+    <label>Max jumps <input id="maxJumps" type="number" min="0" step="1" placeholder="No limit"></label>
+    <label title="Hide stations that can't take at least this much of your load (by m³)">Min % of load sold <input id="minShare" type="number" min="0" max="100" step="5" placeholder="0"></label>
+    <div class="checks">
+      <label class="inline check"><input id="structures" type="checkbox"> Player structures</label>
+    </div>
+  </section>
+
+  <main class="mw-layout mn-layout">
+    <!-- Load -->
+    <section class="panel mn-load" aria-labelledby="loadTitle">
+      <div class="table-head">
+        <h2 id="loadTitle">Your load <span id="loadCount" class="count"></span></h2>
+        <button id="clearBtn" class="btn small ghost" type="button">Clear</button>
+      </div>
+      <div class="mn-add">
+        <label>Show
+          <select id="kind">
+            <option value="">All mining items</option>
+            <option value="ore">Ore</option>
+            <option value="moon">Moon ore</option>
+            <option value="ice">Ice</option>
+            <option value="gas">Gas</option>
+            <option value="mineral">Minerals &amp; ice/moon products</option>
+          </select>
+        </label>
+        <label class="grow">Item
+          <input id="itemName" type="text" list="itemList" autocomplete="off" spellcheck="false" placeholder="e.g. Compressed Veldspar">
+          <datalist id="itemList"></datalist>
+        </label>
+        <label>Units <input id="itemQty" type="text" inputmode="numeric" placeholder="1"></label>
+        <button id="addBtn" class="btn small" type="button">Add</button>
+      </div>
+      <details class="mn-paste">
+        <summary>Paste from EVE</summary>
+        <p class="hint">Select items in your ore hold or cargo, press Ctrl+C, and paste here. Lines like <code>Veldspar 12,000</code> work too.</p>
+        <textarea id="pasteBox" rows="5" spellcheck="false" placeholder="Veldspar&#9;12,345&#9;Veldspar&#9;…"></textarea>
+        <div class="mn-paste-row">
+          <label class="inline check"><input id="pasteReplace" type="checkbox" checked> Replace my load</label>
+          <button id="pasteBtn" class="btn small" type="button">Add pasted items</button>
+          <span id="pasteNote" class="hint"></span>
+        </div>
+      </details>
+      <div class="table-wrap">
+        <table class="routes mn-items">
+          <thead><tr><th class="l">Item</th><th>Units</th><th>m³</th><th>Jita 4-4 buy</th><th>Best price nearby</th><th></th></tr></thead>
+          <tbody id="loadBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="kpis" id="kpis" aria-label="Summary"></section>
+
+    <!-- Everything at one station -->
+    <section class="panel" aria-labelledby="stationsTitle">
+      <div class="table-head">
+        <h2 id="stationsTitle">Best places to sell everything <span class="count">· one stop</span></h2>
+        <label class="inline">Rank by
+          <select id="rank">
+            <option value="isk">Total ISK</option>
+            <option value="perJump">ISK per jump (jumps + 1)</option>
+            <option value="near">Closest</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="routes mn-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Sell at</th><th>Jumps</th><th>Load sold</th><th>ISK after tax</th><th>vs. here</th><th>vs. Jita</th>
+          </tr></thead>
+          <tbody id="stationsBody"></tbody>
+        </table>
+      </div>
+      <div class="scan-foot">
+        <p class="hint">Each station's value fills every buy order that reaches it, best price first, including ranged orders placed elsewhere
+          (bait orders with a minimum quantity are skipped). <i>vs. here</i> compares with the best station in your current system. Click a row for
+          the per-item breakdown. Prices are from EVE Tycoon (every region, player structures included) and can be a few minutes old;
+          check in game before undocking.</p>
+        <button id="moreBtn" class="btn small ghost" type="button" hidden>Show more</button>
+      </div>
+    </section>
+
+    <!-- Per item -->
+    <section class="panel" aria-labelledby="itemsTitle">
+      <div class="table-head">
+        <h2 id="itemsTitle">Best place per item <span class="count">· split the load</span></h2>
+      </div>
+      <div class="table-wrap">
+        <table class="routes mn-table">
+          <thead><tr>
+            <th class="l">Item</th><th>Units</th><th class="l">Best within your limits</th><th>Jumps</th><th>Avg price</th><th>ISK after tax</th>
+            <th class="l">Best anywhere</th><th>Jumps</th><th>ISK after tax</th>
+          </tr></thead>
+          <tbody id="perItemBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Wormholes -->
+    <section class="panel" aria-labelledby="whTitle">
+      <div class="table-head">
+        <h2 id="whTitle">Wormhole shortcuts <span id="whCount" class="count"></span></h2>
+      </div>
+      <div class="scan-filters mn-wh-opts">
+        <label class="inline check" title="While you're signed in, every system change the app sees is recorded; jumps with no stargate between them become shortcuts">
+          <input id="whTrail" type="checkbox"> My recent jumps</label>
+        <label class="inline check" title="Public Thera and Turnur connections from EVE Scout (api.eve-scout.com)">
+          <input id="whScout" type="checkbox"> Thera &amp; Turnur (EVE Scout)</label>
+        <label title="Most wormholes live 16–24 hours; forget ones you took longer ago than this">Forget after (hours)
+          <input id="whHours" type="number" min="1" max="48" step="1"></label>
+        <fieldset class="near" aria-label="Add a wormhole by hand">
+          <label>From <input id="whFrom" type="text" list="systemList" autocomplete="off" spellcheck="false" placeholder="System or J-code"></label>
+          <label>To <input id="whTo" type="text" list="systemList" autocomplete="off" spellcheck="false" placeholder="System or J-code"></label>
+          <button id="whAdd" class="btn small" type="button">Add</button>
+        </fieldset>
+      </div>
+      <div class="table-wrap">
+        <table class="routes mn-table mn-wh">
+          <thead><tr><th class="l">Connection</th><th class="l">Found by</th><th>Seen</th><th>Expires</th><th>Use</th><th></th></tr></thead>
+          <tbody id="whBody"></tbody>
+        </table>
+      </div>
+      <p id="whHint" class="hint">ESI doesn't keep a travel history, so this page can't look back at jumps you made before. What it can do:
+        while you're signed in with <i>Record my wormhole jumps</i> on (character menu), every system change is recorded from then on.
+        Two readings in a row in systems that no stargate joins mean you took a wormhole (or a jump bridge or cyno), and that pair becomes a
+        shortcut here. Jumps through wormhole space count one per hole, and never count as high-sec. Order ranges still follow stargates, as in game.</p>
+    </section>
+  </main>
+
+  <script type="module" src="js/mining.js"></script>
+</body>
+</html>
