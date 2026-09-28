@@ -2,7 +2,8 @@
 //  - public/data/universe.json: every known-space system (3D top-down position + CCP's 2D map
 //    layout, security, region) and every stargate link, for the star map.
 //  - public/data/types.json: every published market item → [name, packaged volume m³, category ID]
-//    (6 = ships, which also get their base cargo capacity m³), for the market scans.
+//    (6 = ships, which also get their base cargo capacity m³; mined and refined materials get
+//    their MINING_KIND), for the market scans and the mining page.
 //  - public/data/stations.json: every NPC station → [name, solar system ID], for naming off-hub
 //    stations in the universe-wide scan.
 //
@@ -109,6 +110,18 @@ export async function buildUniverse({ fromDir, outFile = OUT_FILE, log = console
   return out;
 }
 
+// Mining page (public/js/mining.js): what each harvestable or refined material is, by SDE group.
+// Every other group in the Asteroid category (25) is ore.
+const ASTEROID_CATEGORY = 25;
+const KIND_BY_GROUP = {
+  711: 'gas', 4168: 'gas',                                     // Harvestable Cloud, Compressed Gas
+  465: 'ice',
+  1884: 'moon', 1920: 'moon', 1921: 'moon', 1922: 'moon', 1923: 'moon',
+  18: 'mineral', 423: 'mineral', 427: 'mineral',               // Mineral, Ice Product, Moon Materials
+};
+export const miningKind = (groupId, categoryId) =>
+  KIND_BY_GROUP[groupId] ?? (categoryId === ASTEROID_CATEGORY ? 'ore' : null);
+
 export async function buildTypes({ fromDir, outFile = TYPES_FILE, log = console.log } = {}) {
   log(`Building item list from SDE${fromDir ? ` (${fromDir})` : ` (${SDE_BASE})`}…`);
   const [types, groups] = await Promise.all([loadCsv('invTypes', fromDir), loadCsv('invGroups', fromDir)]);
@@ -120,6 +133,8 @@ export async function buildTypes({ fromDir, outFile = TYPES_FILE, log = console.
     const cat = categoryOf.get(t.groupID) ?? 0;
     out[t.typeID] = [t.typeName, vol, cat];
     if (cat === 6) out[t.typeID].push(Number(t.capacity) || 0); // ships: base cargo hold m³
+    const kind = miningKind(Number(t.groupID), cat);
+    if (kind) out[t.typeID].push(kind);                            // ore, moon, ice, gas, mineral
   }
   await mkdir(path.dirname(outFile), { recursive: true });
   const json = JSON.stringify(out);

@@ -21,7 +21,7 @@ Open http://localhost:8000. Set `PORT` to use a different port.
 On first start the server builds three static data files from Fuzzwork's mirror of CCP's Static
 Data Export (about 23 MB downloaded, once):
 - `public/data/universe.json`: systems and gates for the star map (about 335 KB)
-- `public/data/types.json`: item names, packaged volumes and categories (about 950 KB)
+- `public/data/types.json`: item names, packaged volumes and categories, plus what kind of ore, gas, ice or mineral an item is for the Mining page (about 950 KB)
 - `public/data/stations.json`: NPC station names and systems (about 370 KB)
 
 To rebuild them later (say, after new systems are added to the game):
@@ -45,6 +45,7 @@ remembered per browser:
 | **Follow my location** | Your current system becomes the home system (Market watch) and the start of multi-stop routes (Hub arbitrage). |
 | **Use my ship's cargo** | Your current ship's cargo hold fills *Cargo m³* on both pages. |
 | **Use my wallet as max investment** | Your wallet balance fills *Max investment* / *Budget* on both pages. |
+| **Record my wormhole jumps** | Keeps checking your location in background tabs, so jumps without a stargate become route shortcuts on the Mining page (see [Wormholes](#wormholes)). |
 
 - *Use my ship's cargo* uses the base hold from the SDE (`types.json` stores it for ships). It
   doesn't include skills, expanded cargoholds, or ore, fleet or other specialised holds.
@@ -302,6 +303,50 @@ apply to all three tabs, and follow your character like the other pages.
   can absorb what you redeem. LP-store blueprints are copies and are left unpriced.
 - **Not available:** ESI has no public data for agent missions or the in-game *Opportunities*
   window (Corporation projects, Freelance jobs), so those can't be scanned.
+
+## Mining (`/mining.html`)
+
+A fourth page that answers "where should I sell this?" for ore, moon ore, ice, gas and minerals.
+
+- **Your load:** add items by name (the *Show* filter narrows the list to ore, moon ore, ice, gas or
+  minerals), or open *Paste from EVE*, select items in your ore hold or cargo, press Ctrl+C and paste.
+  Lines like `Veldspar 12,000` or `500 x Blue Ice` work too. The load is kept in this browser.
+- **Prices:** EVE Tycoon's orders for each item in every region, player structures included (one call
+  per item through the caching proxy). Only buy orders are used, since selling to them is instant.
+- **Best places to sell everything:** every station that buys any of the load. Each one's value
+  (`public/js/mining-value.js`) fills every buy order that reaches it, best price first, using the
+  same range rules as the universe scan: orders placed at the station, in its system, N jumps away or
+  region-wide. Bait orders with a minimum quantity are skipped. The table shows jumps from you, how
+  much of the load (by m³) sells there, ISK after tax, and the difference from your own system and
+  from Jita 4-4. Click a row to see each item's units, average price and ISK. Rank it by total ISK,
+  ISK per jump (jumps + 1) or distance. Filter it with *Max jumps* and *Min % of load sold*.
+- **Best place per item:** where each item sells best within your limits and anywhere you can reach.
+  *Split by item* adds these up, in case a few stops beat one.
+
+### Wormholes
+
+ESI has no travel history, so there's no way to look back at jumps you made before. Instead:
+
+- **Your jumps from now on.** While you're signed in, the location check every page already makes
+  (every 20 s) records each system change in this browser (`me.trail.<character>` in
+  `localStorage`, last 48 h). *Record my wormhole jumps* in the character menu (on by default) keeps
+  checking your location in background tabs too.
+- Two readings in a row in systems with **no stargate between them** count as a shortcut
+  (`public/js/wormholes.js`):
+  - Either end in wormhole space: a wormhole.
+  - Two known-space systems: a K-space wormhole, jump bridge or cyno, marked *no gate*. Untick it if
+    you can't fly it again.
+  - Skipped: gaps over 90 s (the path in between is unknown), docked-to-docked changes (jump clones)
+    and abyssal filaments.
+- **Thera and Turnur:** tick *Thera & Turnur (EVE Scout)* to add EVE Scout's public connections
+  (`api.eve-scout.com`, called straight from the browser).
+- **By hand:** add any pair of systems (J-codes work, resolved through ESI).
+- Shortcuts are forgotten after *Forget after* hours (default 16; most wormholes last 16–24 h). Untick
+  one to leave it out.
+
+Shortcuts are added to the gate graph for travel. Wormhole systems become nodes, so jumps work while
+you're sitting in a wormhole, and routes that use one show ⤳. Wormhole space never counts as
+high-sec. Buy-order ranges still follow stargates only, as they do in game.
 
 ## Hosting on Cloudflare
 
