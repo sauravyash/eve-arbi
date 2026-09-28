@@ -8,6 +8,7 @@ import { createMe } from './me.js';
 import { createWatchlist, itemPic, removeButton } from './watchlist.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { shipHolds, capacityFor } from './holds.js';
+import { packRoute, multibuyText } from './manifest.js';
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -59,7 +60,7 @@ for (const m of Object.values(market)) m.status = 'cached';
 const jumpCache = LS.get('arbi.routes', {});
 try { localStorage.removeItem('arbi.jumps'); } catch { /* old jump-count-only cache */ }
 
-const ui = { tripPick: null, scanTrip: false, selectedHub: null, sort: { key: null, dir: -1 }, refreshing: false, lastError: null, scanPick: null, scanLimit: 50 };
+const ui = { tripPick: null, scanTrip: false, selectedHub: null, sort: { key: null, dir: -1 }, refreshing: false, lastError: null, scanPick: null, scanLimit: 50, loadPick: null, loadLimit: 30 };
 
 const saveSettings = () => { LS.set('arbi.settings', { ...settings, items: undefined }); writeUrl(settings, DEFAULTS, URL_FIELDS); };
 // The watchlist is saved on its own: to your character when signed in, else this browser (watchlist.js).
@@ -768,7 +769,7 @@ function scanRows() {
   // Buying near you: the flight to the pickup counts towards profit per jump.
   const approachFrom = f.from === 'me' && trip.graph ? tripDistFrom(settings.trips.start) : null;
   const room = new Map();   // typeId → capacityFor(…)
-  const rows = [];
+  const rows = [], groups = new Map();
   for (const c of r.candidates) {
     const fs = all ? c.fs : c.f, ds = all ? c.ds : c.d;
     const fl = all ? c.f : hubById[c.f].stationId, dl = all ? c.d : hubById[c.d].stationId;
@@ -781,7 +782,7 @@ function scanRows() {
     let cap = room.get(c.t);
     if (!cap) room.set(c.t, cap = capacityFor(ship.holds, maxVolume, info));
     const sum = summarizeSteps(c.s, { taxRate, unitVolume: vol, maxVolume: cap.m3, maxCost });
-    if (!sum.units || sum.profit < minProfit) continue;
+    if (!sum.units) continue;
     const margin = (sum.sell * (1 - taxRate) / sum.buy - 1) * 100;
     if (margin > maxMargin) continue;
     let jumps;
@@ -792,6 +793,12 @@ function scanRows() {
       if (jumps == null) continue; // unreachable with this route setting
     }
     const approach = approachFrom ? approachFrom(fs) : null;
+    // Every haul on a pickup → drop-off pair, whatever its own profit, for Single route, many items.
+    const gk = `${fl}>${dl}`;
+    let g = groups.get(gk);
+    if (!g) groups.set(gk, g = { key: gk, fl, fs, dl, ds, jumps, approach, hauls: [] });
+    g.hauls.push({ key: `${c.t}:${gk}`, t: c.t, name, vol, steps: c.s, pools: poolsFor(cap) });
+    if (sum.profit < minProfit) continue;
     const total = jumps == null ? null : jumps + (approach ?? 0);
     rows.push({
       key: `${c.t}:${fl}:${dl}`, typeId: c.t, name, vol, from: scanEnd(fl, fs), to: scanEnd(dl, ds), jumps, approach, stale,
@@ -803,8 +810,47 @@ function scanRows() {
   }
   const key = { ppj: r => r.ppj ?? -Infinity, profit: r => r.profit, iskm3: r => r.iskm3 ?? -Infinity, margin: r => r.margin }[f.rank] || (r => r.ppj ?? -Infinity);
   rows.sort((a, b) => key(b) - key(a));
-  scan.memo = { key: memoKey, rows };
+  scan.memo = { key: memoKey, rows, groups: [...groups.values()], stale, routes: null };
   return rows;
+}
+
+// Holds an item may use for Single route, many items: its special holds, then the fleet hangar,
+// then the cargo hold (manifest.js fills them in that order).
+const FLEET_HANGAR = 912;
+function poolsFor(cap) {
+  const special = cap.holds.filter(h => h.attr !== FLEET_HANGAR).map(h => String(h.attr));
+  return [...special, ...(cap.holds.some(h => h.attr === FLEET_HANGAR) ? [String(FLEET_HANGAR)] : []), 'cargo'];
+}
+
+// Single route, many items: for each pickup → drop-off pair, the most profitable mix of items
+// that fits one hold and budget (manifest.js), ranked like Best arbitrage items.
+function routeRows() {
+  if (!(allStations() ? trip.result : scan.result)) return [];
+  scanRows();
+  const m = scan.memo;
+  if (!m) return [];
+  if (m.routes) return m.routes;
+  const f = settings.scan;
+  const taxRate = (Number(settings.taxPct) || 0) / 100;
+  const maxCost = parseAmount(f.budget) ?? Infinity;
+  const minProfit = parseAmount(f.minProfit) ?? 0;
+  const pools = { cargo: parseAmount(f.cargo) ?? Infinity, ...Object.fromEntries(ship.holds.map(h => [String(h.attr), h.m3])) };
+  const routes = [];
+  for (const g of m.groups) {
+    const load = packRoute(g.hauls, { pools, taxRate, maxCost });
+    if (!load.items.length || load.profit < minProfit) continue;
+    const total = g.jumps == null ? null : g.jumps + (g.approach ?? 0);
+    routes.push({
+      ...load, key: g.key, jumps: g.jumps, approach: g.approach, stale: m.stale,
+      from: scanEnd(g.fl, g.fs), to: scanEnd(g.dl, g.ds),
+      ppj: total == null ? null : load.profit / Math.max(1, total),
+      iskm3: load.volume > 0 ? load.profit / load.volume : null,
+      margin: load.cost ? load.profit / load.cost * 100 : 0,
+    });
+  }
+  const key = { ppj: r => r.ppj ?? -Infinity, profit: r => r.profit, iskm3: r => r.iskm3 ?? -Infinity, margin: r => r.margin }[f.rank] || (r => r.ppj ?? -Infinity);
+  m.routes = routes.sort((a, b) => key(b) - key(a));
+  return m.routes;
 }
 
 function scanRowToRoute(row) {
@@ -880,6 +926,11 @@ function renderShipNote() {
 }
 
 function renderScan() {
+  renderScanTable();
+  renderLoads();
+}
+
+function renderScanTable() {
   const all = allStations();
   syncScanOptions();
   renderShipNote();
@@ -964,6 +1015,7 @@ function renderScan() {
     ui.selectedHub = row.from.hub?.id ?? null;
     ui.scanPick = row.key;
     ui.tripPick = null;
+    ui.loadPick = null;
     const geo = scanRowPath(row);
     ui.scanTrip = !!geo;
     galaxy.setTrip(geo);
@@ -971,6 +1023,87 @@ function renderScan() {
     if (settings.view === 'map') galaxy.fitPath(geo?.path || pathFor({ from: row.from.hub, to: row.to.hub }));
     $('mapView').closest('.panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }));
+}
+
+function renderLoads() {
+  const all = allStations(), r = all ? trip.result : scan.result;
+  const routes = routeRows();
+  const body = $('loadBody'), more = $('loadMore'), label = $('loadStatus');
+  label.textContent = r ? `${routes.length.toLocaleString()} route${routes.length === 1 ? '' : 's'}` : '';
+  const picked = ui.loadPick && routes.find(x => x.key === ui.loadPick);
+  if (ui.loadPick && r && !picked) ui.loadPick = null;
+  $('loadDetail').hidden = !picked;
+  $('loadDetail').parentElement.classList.toggle('has-detail', !!picked);
+  if (!routes.length) {
+    body.innerHTML = `<tr class="empty"><td colspan="11">${r ? 'No route with these filters.' : 'Waiting for a scan (Best arbitrage items).'}</td></tr>`;
+    more.hidden = true;
+    return;
+  }
+  const shown = routes.slice(0, ui.loadLimit);
+  const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
+  const loc = (e) => `<div class="loc"><b>${esc(e.name)}</b><small title="${esc(e.station)}">${esc(e.station)}</small></div>`;
+  const rank = settings.scan.rank;
+  body.innerHTML = shown.map((rt, i) => {
+    const names = rt.items.slice(0, 3).map(e => `<b>${esc(e.name)}</b>`).join(', ');
+    const jumps = rt.jumps == null ? '<span class="muted">?</span>' : rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps;
+    return `<tr data-key="${esc(rt.key)}" class="${i === 0 ? 'top' : ''} ${rt.key === ui.loadPick ? 'picked' : ''}">
+      <td class="l rank">${i + 1}</td>
+      <td class="l">${loc(rt.from)}</td><td class="l">${loc(rt.to)}</td><td>${jumps}</td>
+      <td class="l itm">${rt.items.length} item${rt.items.length === 1 ? '' : 's'}: ${names}${rt.items.length > 3 ? ` +${rt.items.length - 3} more` : ''}${rt.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
+      <td>${Math.round(rt.volume).toLocaleString()}</td><td>${n(rt.cost)}</td>
+      <td class="${rank === 'margin' ? 'metric' : ''}">${rt.margin.toFixed(1)}%</td>
+      <td class="${rank === 'profit' ? 'metric' : ''}">${n(rt.profit)}</td>
+      <td class="${rank === 'ppj' ? 'metric' : ''}">${n(rt.ppj)}</td>
+      <td class="${rank === 'iskm3' ? 'metric' : ''}">${n(rt.iskm3)}</td></tr>`;
+  }).join('');
+  more.hidden = routes.length <= ui.loadLimit;
+  more.textContent = `Show more (${(routes.length - ui.loadLimit).toLocaleString()} left)`;
+  if (picked) renderLoadDetail(picked);
+}
+
+function renderLoadDetail(rt) {
+  const holdName = Object.fromEntries(ship.holds.map(h => [String(h.attr), h.name]));
+  const jumps = rt.jumps == null ? '' : ` · ${rt.approach != null ? `${rt.approach} jumps from you, then ` : ''}${rt.jumps} jump${rt.jumps === 1 ? '' : 's'}`;
+  $('loadWhere').textContent = `Buy at ${rt.from.station}, sell at ${rt.to.station}${jumps}. Sell into buy orders; prices are the first and last order filled.`;
+  const n = (v) => formatIsk(v);
+  $('loadItems').innerHTML = rt.items.map(e => {
+    const holds = Object.keys(e.used).filter(p => p !== 'cargo').map(p => holdName[p]).filter(Boolean);
+    const px = e.worstBuy !== e.buy || e.worstSell !== e.sell ? `${n(e.buy)}–${n(e.worstBuy)} → ${n(e.sell)}–${n(e.worstSell)}` : `${n(e.buy)} → ${n(e.sell)}`;
+    return `<tr><td class="l">${esc(e.name)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
+      <td>${e.units.toLocaleString()}</td><td>${Math.round(e.volume).toLocaleString()}</td><td>${px}</td><td>${n(e.profit)}</td></tr>`;
+  }).join('') + `<tr class="total"><td class="l"><b>Total</b></td><td></td><td><b>${Math.round(rt.volume).toLocaleString()}</b></td>
+    <td><b>${n(rt.cost)}</b> spent</td><td><b>${n(rt.profit)}</b></td></tr>`;
+}
+
+function selectLoad(rt) {
+  ui.loadPick = rt?.key ?? null;
+  if (!rt) { if (ui.scanTrip) { ui.scanTrip = false; galaxy.setTrip(null); } renderLoads(); return; }
+  settings.graphItem = 'scan';
+  saveSettings();
+  ui.scanPick = null;
+  ui.tripPick = null;
+  ui.selectedHub = rt.from.hub?.id ?? null;
+  const geo = scanRowPath({ ...rt, name: 'cargo' });
+  ui.scanTrip = !!geo;
+  galaxy.setTrip(geo);
+  render();
+  if (settings.view === 'map') galaxy.fitPath(geo?.path || pathFor({ from: rt.from.hub, to: rt.to.hub }));
+}
+
+function bindLoads() {
+  $('loadBody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-key]');
+    if (tr) selectLoad(routeRows().find(x => x.key === tr.dataset.key));
+  });
+  $('loadClear').addEventListener('click', () => selectLoad(null));
+  $('loadMore').addEventListener('click', () => { ui.loadLimit += 50; renderLoads(); });
+  $('loadCopy').addEventListener('click', async () => {
+    const rt = routeRows().find(x => x.key === ui.loadPick);
+    if (!rt) return;
+    try { await navigator.clipboard.writeText(multibuyText(rt.items)); $('loadCopy').textContent = 'Copied'; }
+    catch { $('loadCopy').textContent = 'Copy failed'; }
+    setTimeout(() => { $('loadCopy').textContent = 'Copy for multibuy'; }, 1500);
+  });
 }
 
 const hubScan = scanClient('scan'), uniScan = scanClient('uscan');
@@ -1046,7 +1179,7 @@ function bindScanFilters() {
     const isSelect = input.tagName === 'SELECT';
     input.addEventListener(isSelect ? 'change' : 'input', () => {
       settings.scan[key] = input.value;
-      ui.scanLimit = 50;
+      ui.scanLimit = 50; ui.loadLimit = 30;
       if (key === 'scope') { ui.scanPick = null; if (ui.scanTrip) { ui.scanTrip = false; galaxy.setTrip(null); } }
       clearTimeout(timer);
       timer = setTimeout(() => { saveSettings(); render(); }, isSelect ? 0 : 200);
@@ -1397,6 +1530,7 @@ document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) pi
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.selectedHub && !e.target.closest?.('input, select')) selectHub(null); });
 
 bindScanFilters();
+bindLoads();
 bindTrips();
 fetch('data/types.json').then(r => r.json()).then(t => { trip.catalog = t; trip.memo = null; scan.memo = null; initShipList(t); render(); meCtl.reapply(); }).catch(() => { trip.catalog = {}; });
 fetch('data/stations.json').then(r => r.json()).then(t => { trip.stations = t; scan.memo = null; render(); }).catch(() => {});

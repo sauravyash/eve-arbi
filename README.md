@@ -417,6 +417,18 @@ Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to 
     (anything). Hold sizes come from ESI's dogma attributes, are cached per ship, and are base sizes
     (no skills). Ship-only bays are left out, because market ships are packaged. Picking a ship by hand
     also fills *Cargo m³* with its base hold. Rows that needed the extra room say which holds they used.
+- **Single route, many items** (`public/js/manifest.js`) fills one hold on one trip. For each pickup →
+  drop-off pair in *Best arbitrage items* (same scan and filters), it packs the most profitable mix
+  of items into your *Cargo m³*, ship holds and *Budget*.
+  - It walks every item's order books and takes the best ISK per m³ (or per ISK, or a mix of both
+    when cargo and budget are both limited) until the hold or the wallet runs out.
+  - Items that fit a special hold fill it before the shared cargo hold.
+  - *Min profit* applies to the whole load, and routes are ranked with the same *Rank by*.
+  - Click a route for its shopping list: units, m³, first and last prices, profit per item, and
+    which hold each goes in. *Copy for multibuy* puts it on the clipboard as one `name quantity` line
+    per item, the format EVE's Multibuy window takes. The route is drawn on the map.
+  - With *All stations* most routes carry one or two items, because the universe scan keeps only a
+    handful of hauls per item.
 - **Multi-stop routes** (`public/js/trips.js`) chain hauls from the universe scan into one trip:
   buy item 1, sell it, buy item 2 where you sold (or after a few empty jumps), and so on.
   - Each haul sells its whole cargo before the next purchase, so *Cargo m³* and *Budget* apply

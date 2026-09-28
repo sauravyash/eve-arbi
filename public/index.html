@@ -236,6 +236,42 @@
       </div>
     </section>
 
+    <section class="panel load-panel" aria-label="Single route, many items">
+      <div class="table-head">
+        <h2>Single route, many items <span class="count">· fill one hold on one trip</span></h2>
+        <span id="loadStatus" class="scan-status" role="status" aria-live="polite"></span>
+      </div>
+      <div class="trips-body">
+        <div class="table-wrap">
+          <table class="routes scan-table load-table">
+            <thead><tr>
+              <th class="l">#</th><th class="l">Buy at</th><th class="l">Sell at</th><th>Jumps</th><th class="l">Items</th>
+              <th>Cargo m³</th><th>Investment</th><th>Margin</th><th>Profit</th><th>Profit/jump</th><th>ISK/m³</th>
+            </tr></thead>
+            <tbody id="loadBody"></tbody>
+          </table>
+        </div>
+        <aside id="loadDetail" class="trip-detail" hidden aria-label="Shopping list">
+          <div class="table-head">
+            <h3>Shopping list</h3>
+            <button id="loadCopy" class="btn small" type="button" title="One line per item, for the in-game Multibuy window">Copy for multibuy</button>
+            <button id="loadClear" class="x" type="button" aria-label="Close shopping list">×</button>
+          </div>
+          <p id="loadWhere" class="hint"></p>
+          <table class="routes load-items">
+            <thead><tr><th class="l">Item</th><th>Units</th><th>m³</th><th>Buy → Sell</th><th>Profit</th></tr></thead>
+            <tbody id="loadItems"></tbody>
+          </table>
+        </aside>
+      </div>
+      <div class="scan-foot">
+        <p class="hint">For each pickup → drop-off pair from <b>Best arbitrage items</b> (same scan and filters), the most profitable mix
+          of items that fits one hold and one budget: cargo, ship holds and budget are shared, walking every item's order books.
+          Min profit applies to the whole load. Click a route for its shopping list and to draw it on the map.</p>
+        <button id="loadMore" class="btn small ghost" type="button" hidden>Show more</button>
+      </div>
+    </section>
+
     <section class="panel table-panel" aria-label="Routes">
       <div class="table-head">
         <h2>Routes</h2>

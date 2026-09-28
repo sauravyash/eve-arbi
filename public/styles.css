@@ -112,10 +112,10 @@ label.check input { accent-color: var(--teal); }
 .layout {
   display: grid; gap: 16px; padding: 16px 24px 32px;
   grid-template-columns: minmax(0, 1fr) 360px;
-  grid-template-areas: "graph side" "trips trips" "scan scan" "table table";
+  grid-template-areas: "graph side" "trips trips" "scan scan" "load load" "table table";
 }
 @media (max-width: 1000px) {
-  .layout { grid-template-columns: 1fr; grid-template-areas: "graph" "side" "trips" "scan" "table"; padding: 12px; }
+  .layout { grid-template-columns: 1fr; grid-template-areas: "graph" "side" "trips" "scan" "load" "table"; padding: 12px; }
   .topbar, .controls { padding-left: 12px; padding-right: 12px; }
 }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
@@ -286,6 +286,14 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 
 /* whole-market scan */
 .scan-panel { grid-area: scan; min-width: 0; }
+.load-panel { grid-area: load; min-width: 0; }
+.load-table td.itm { white-space: normal; min-width: 220px; max-width: 320px; font-family: inherit; font-size: 12px; color: var(--muted); }
+.load-table td.itm b { color: var(--text); font-weight: 600; }
+.load-table tr.picked { background: rgba(167,139,250,.12); box-shadow: inset 3px 0 0 #a78bfa; }
+.load-items { width: 100%; font-size: 12px; }
+.load-items td.l { white-space: normal; }
+.load-items small.hold { display: block; color: #a78bfa; font-size: 10.5px; }
+.load-items tfoot td { font-weight: 700; border-top: 1px solid var(--line-2); }
 .scan-status { color: var(--muted); font-size: 12px; margin-left: auto; text-align: right; }
 .scan-status.warn { color: var(--amber); }
 .progress { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin: -4px 0 10px; }
