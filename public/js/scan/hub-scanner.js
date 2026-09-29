@@ -114,6 +114,8 @@ export function createScanner({ fetchUpstream, data, store, log = console.log })
       };
     },
     result: () => result,
+    /** Settles once the scan in progress (if any) has finished and saved its result. */
+    idle: () => running || Promise.resolve(),
     async start({ force = false } = {}) {
       await ready;
       if (running) return { started: false, reason: 'running' };

@@ -86,19 +86,92 @@ async function sharedItems(contracts) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
-const scannerFor = async (kind) => (scanners[kind] ||= FACTORIES[kind]({
-  fetchUpstream, data, store, log, ...((await config).sharedContracts && kind === 'cscan' && { sharedItems }),
-}));
+const scannerFor = (kind) => (scanners[kind] ||= config.then(c => FACTORIES[kind]({
+  fetchUpstream, data, store, log, ...(c.sharedContracts && kind === 'cscan' && { sharedItems }),
+})));
+
+// Tabs of the same site share IndexedDB but each runs its own worker, so they keep each other up to
+// date over a BroadcastChannel:
+//   {type: 'progress', kind, status}  sent every second by the tab running a scan
+//   {type: 'done', kind}              sent once its result is saved; the others reload from IndexedDB
+//   {type: 'hello'}                   sent by a new worker, answered with 'progress' by running tabs
+// A Web Lock per kind makes sure only one tab scans at a time. The page hears about changes it
+// didn't ask for as {event: 'started'|'done', kind}.
+const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('eve-arbi-scans') : null;
+const REMOTE_TTL = 5000;   // a tab closed mid-scan stops sending progress; forget it after this
+const remote = {};         // kind → {status, at}: a scan running in another tab
+const running = {};        // kind → scanner: scans running in this tab
+const busy = (st) => st?.state === 'running' || st?.state === 'computing';
+const remoteStatus = (kind) => (remote[kind] && Date.now() - remote[kind].at < REMOTE_TTL ? remote[kind].status : null);
+const notify = (event, kind) => self.postMessage({ event, kind });
+
+if (channel) {
+  channel.onmessage = ({ data: msg }) => {
+    const { type, kind } = msg || {};
+    if (type === 'hello') {
+      for (const [k, s] of Object.entries(running)) channel.postMessage({ type: 'progress', kind: k, status: s.status() });
+    } else if (type === 'progress' && FACTORIES[kind]) {
+      const was = remoteStatus(kind);
+      remote[kind] = { status: msg.status, at: Date.now() };
+      if (!was) notify('started', kind);
+    } else if (type === 'done' && FACTORIES[kind]) {
+      delete remote[kind];
+      // Drop the scanner so the next request builds a new one from what the other tab saved.
+      if (!running[kind]) delete scanners[kind];
+      notify('done', kind);
+    }
+  };
+  channel.postMessage({ type: 'hello' });
+}
+
+// Resolves with a release function, or null when another tab holds the lock.
+function tryLock(kind) {
+  if (!self.navigator?.locks) return Promise.resolve(() => {});
+  return new Promise((resolve, reject) => {
+    navigator.locks.request(`eve-arbi-scan:${kind}`, { ifAvailable: true }, (lock) => {
+      if (!lock) { resolve(null); return undefined; }
+      return new Promise(release => resolve(release));
+    }).catch(reject);
+  });
+}
+
+// Tell the other tabs how the scan is going until it has finished and saved its result.
+function announce(kind, s, release) {
+  running[kind] = s;
+  const send = () => channel?.postMessage({ type: 'progress', kind, status: s.status() });
+  send();
+  const timer = setInterval(send, 1000);
+  s.idle().finally(() => {
+    clearInterval(timer);
+    delete running[kind];
+    release();
+    channel?.postMessage({ type: 'done', kind });
+  });
+}
 
 const OPS = {
-  async status(s) { await s.ready; return s.status(); },
+  async status(s, kind) {
+    await s.ready;
+    const own = s.status(), other = !busy(own) && remoteStatus(kind);
+    return other ? { ...other, remote: true, result: own.result } : own;
+  },
   async result(s) { await s.ready; return s.result(); },
-  async start(s, opts = {}) {
-    const outcome = await s.start({
+  async start(s, kind, opts = {}) {
+    await s.ready;
+    const args = {
       force: opts.force === true || opts.force === '1',
       ...(opts.scope != null && { scope: opts.scope }),
       ...(opts.minPrice != null && { minPrice: Number(opts.minPrice) }),
-    });
+    };
+    if (busy(s.status())) return { ...(await s.start(args)), ...s.status() };
+    const release = await tryLock(kind);
+    if (!release) {
+      const other = remoteStatus(kind) || { state: 'running', done: 0, total: 0, warnings: [] };
+      return { started: false, reason: 'running', ...other, remote: true };
+    }
+    let outcome;
+    try { outcome = await s.start(args); } catch (e) { release(); throw e; }
+    if (outcome.started) announce(kind, s, release); else release();
     return { ...outcome, ...s.status() };
   },
 };
@@ -106,7 +179,7 @@ const OPS = {
 self.onmessage = async ({ data: { id, kind, op, opts } }) => {
   try {
     if (!FACTORIES[kind] || !OPS[op]) throw new Error(`Unknown scan request ${kind}/${op}`);
-    self.postMessage({ id, value: await OPS[op](await scannerFor(kind), opts) });
+    self.postMessage({ id, value: await OPS[op](await scannerFor(kind), kind, opts) });
   } catch (e) {
     self.postMessage({ id, error: e.message || String(e) });
   }

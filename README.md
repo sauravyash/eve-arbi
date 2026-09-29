@@ -398,6 +398,9 @@ plan. Differences from `npm start`:
   calling ESI directly (it allows CORS). Results are kept in IndexedDB. A scan stops if you close or
   reload its tab; contract contents already opened are kept, so the next scan picks up where it
   left off.
+  Open tabs share scans: only one tab scans a kind at a time (a Web Lock), the others show its
+  progress ("running in another tab") over a `BroadcastChannel` and load its result from IndexedDB
+  when it's done.
 - **The proxy** (`/api/{tycoon,esi,…}`) is the Worker: EVE Tycoon, Goonmetrics, Adam4EVE and
   Mokaam send no CORS headers. It caches in the isolate's memory and, on a custom domain, in
   Cloudflare's cache (the Cache API does nothing on `workers.dev`). Browsers keep fresh answers

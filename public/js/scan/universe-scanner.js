@@ -196,6 +196,8 @@ export function createUniverseScanner({ fetchUpstream, data, store, hubs = false
       };
     },
     result: () => result,
+    /** Settles once the scan in progress (if any) has finished and saved its result. */
+    idle: () => running || Promise.resolve(),
     hubResult: () => hubResult,
     async start({ force = false } = {}) {
       await ready;
