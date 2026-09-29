@@ -4,7 +4,7 @@ import {
   mergeHistory, historyChange, parseFuzzwork, parseGoonXml, consensus, isNpcStation,
   MAJOR_HUB_SYSTEMS, stationQuotes, parseAdam, parseEvepraisal, parseZkill,
 } from './market-merge.js';
-import { buildGraph, jumpsFrom, jumpsBetween, systemInfo } from './galaxy.js';
+import { buildGraph, jumpsFrom, jumpsBetween, systemInfo, isHighSec } from './galaxy.js';
 import { SHIP_CATEGORY } from './trips.js';
 import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges.js';
 import { createMe } from './me.js';
@@ -361,11 +361,13 @@ function rangeContext() {
 }
 const loadStations = () => (stationNames ? Promise.resolve(stationNames)
   : fetch('data/stations.json').then(r => (r.ok ? r.json() : {})).catch(() => ({})).then(t => { stationNames ||= t; bump(); return stationNames; }));
-// High-sec-only routes can't leave a low-/null-sec home, so every station is filtered out; say why.
+// High-sec-only routes leave a low-/null-sec home by the nearest high-sec (galaxy.js), but a home with
+// no gate route into high-sec (Pochven) reaches nothing else, so every station is filtered out; say why.
 function homeBlocked() {
-  if (!graph || settings.flag !== 'secure' || homeJumps(settings.home) != null) return null;
+  if (!graph || settings.flag !== 'secure' || isHighSec(systemInfo(graph, settings.home)?.sec ?? 1)) return null;
+  if (homeDist().some(d => d > 0)) return null;
   const sys = systemInfo(graph, settings.home);
-  return sys ? `${esc(sys.name)} (${secLabel(sys.sec)}) is not high-sec, so high-sec-only routes can't leave it and every station is filtered out. Set Route to Shortest, or choose a high-sec home system.` : null;
+  return `${esc(sys.name)} (${secLabel(sys.sec)}) has no gate route into high-sec, so high-sec-only routes reach no station. Set Route to Shortest, or choose another home system.`;
 }
 function homeJumps(systemId) {
   if (!graph) return null;
@@ -537,7 +539,7 @@ function renderBoard() {
   const rows = sortRows(boardRows());
   $('boardCount').textContent = `· ${settings.items.length} item${settings.items.length === 1 ? '' : 's'}`;
   const home = graph ? systemInfo(graph, settings.home) : null;
-  $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''}${homeBlocked() ? ' (not high-sec: set Route to Shortest)' : ''} · click a row for detail`;
+  $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''}${homeBlocked() ? ' (no route into high-sec: set Route to Shortest)' : ''} · click a row for detail`;
   if (!rows.length) {
     $('boardBody').innerHTML = `<tr class="empty"><td colspan="10">Your watchlist is empty. Add items with the <b>Add item</b> search above${watch.mode === 'account' ? ' — it’s saved to your character' : ''}.</td></tr>`;
     return;

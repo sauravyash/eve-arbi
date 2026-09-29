@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGraph, jumpsFrom, jumpsBetween, systemInfo } from '../public/js/galaxy.js';
+import { buildGraph, jumpsFrom, jumpsBetween, pathBetween, systemInfo } from '../public/js/galaxy.js';
 import { stationQuotes, parseAdam, parseEvepraisal, parseZkill } from '../public/js/market-merge.js';
 import { buildRangeContext, bookEntry, pairsForType, rangeCodeOf, sellPoints, REGION } from '../public/js/ranges.js';
 import { summarizeSteps } from '../public/js/arbitrage.js';
@@ -23,6 +23,22 @@ test('BFS jump counts respect the route flag', () => {
 });
 
 const o = (x) => ({ orderId: Math.random(), volumeRemain: 10, minVolume: 1, ghost: false, regionId: 1, ...x });
+
+test('high-sec routing from outside high-sec leaves by the nearest high-sec, then stays in it', () => {
+  // L1 (0.3) – L2 (0.2) – A (0.9) – B (0.8); L1 – N (0.1) – C (0.7); L1 – L3 (0.4) – L4 (0.1).
+  // Nearest high-sec from L1 is 2 jumps: A and C. L3/L4 lead nowhere safe and stay unreachable.
+  const g = buildGraph({
+    regions: [{ id: 1, name: 'R' }],
+    systems: { id: [1, 2, 3, 4, 5, 6, 7, 8], name: ['L1', 'L2', 'A', 'B', 'N', 'C', 'L3', 'L4'],
+               sec: [0.3, 0.2, 0.9, 0.8, 0.1, 0.7, 0.4, 0.1], region: [0, 0, 0, 0, 0, 0, 0, 0] },
+    jumps: [0, 1, 1, 2, 2, 3, 0, 4, 4, 5, 0, 6, 6, 7],
+  });
+  const j = (b) => jumpsBetween(g, 1, b, 'secure');
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8].map(j), [0, 1, 2, 3, 1, 2, null, null]);
+  assert.deepEqual(pathBetween(g, 1, 4, 'secure'), [1, 2, 3, 4]);
+  assert.deepEqual(pathBetween(g, 1, 6, 'secure'), [1, 5, 6]);
+  assert.equal(jumpsBetween(g, 3, 1, 'secure'), null); // from high-sec it still never leaves
+});
 
 test('stationQuotes groups by station and skips ghosts and bait bids', () => {
   const q = stationQuotes([

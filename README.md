@@ -195,7 +195,8 @@ structure in New Eden, not just Jita/Amarr/Dodixie/Rens/Hek, and ranks station-t
   structures* can be toggled off, because many don't grant docking or market access.
 - **Jumps** are computed locally with a BFS over the SDE gate graph (`public/js/galaxy.js`), so any
   pair can be priced without an ESI route call. *High-sec only* also drops stations you can't
-  reach through high-sec.
+  reach through high-sec. From a low- or null-sec home it first leaves by the fewest jumps to the
+  nearest high-sec systems, like the in-game *prefer safer* autopilot, then stays in high-sec.
 - The board still shows the reference hub's price, so every deal reads as "x% below Jita".
 
 ### Universe scan
