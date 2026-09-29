@@ -10,7 +10,7 @@ import { parseFuzzwork, isNpcStation } from './market-merge.js';
 import { contractProfit, lpOfferValue, BLUEPRINT_CATEGORY } from './contract-value.js';
 import { createMe } from './me.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
-import { scanClient, tabNote } from './scan-client.js';
+import { scanClient, tabNote, showProgress } from './scan-client.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { copyButton } from './watchlist.js';
@@ -53,7 +53,7 @@ readUrl(settings, URL_DEFAULTS, URL_FIELDS);
 writeUrl(settings, URL_DEFAULTS, URL_FIELDS);
 const save = () => { LS.set('contracts.settings', settings); writeUrl(settings, URL_DEFAULTS, URL_FIELDS); };
 
-const cs = { status: null, result: null, poll: null, xLimit: PAGE, cLimit: PAGE, open: null, xMemo: null, cMemo: null };
+const cs = { status: null, result: null, poll: null, loading: false, xLimit: PAGE, cLimit: PAGE, open: null, xMemo: null, cMemo: null };
 const us = { result: null, loading: null, backMemo: null };
 const conScan = scanClient('cscan'), uniScan = scanClient('uscan');
 const lp = { corps: null, byName: new Map(), offers: null, corpId: null, prices: {}, vol: new Map(), status: '', ver: 0 };
@@ -120,10 +120,13 @@ const settingsKey = () => [settings.home, settings.flag, settings.tax, settings.
 // Contract scan (server-side, see contract-scanner.js)
 // ---------------------------------------------------------------------------
 async function loadResult() {
+  cs.loading = true;
+  renderStatus();
   try {
     const r = await conScan.result();
     if (r) { cs.result = r; cs.xMemo = cs.cMemo = null; us.backMemo = null; }
   } catch { /* keep the previous result */ }
+  cs.loading = false;
   renderAll();
 }
 
@@ -132,7 +135,7 @@ async function poll() {
   try { cs.status = await conScan.status(); } catch { /* server restarting */ }
   const st = cs.status?.state;
   if (st === 'running') cs.poll = setTimeout(poll, 1500);
-  else if (st === 'done' && cs.status.result?.finishedAt !== cs.result?.finishedAt) await loadResult();
+  else if (cs.status?.result && cs.status.result.finishedAt !== cs.result?.finishedAt) await loadResult();
   renderStatus();
 }
 
@@ -158,12 +161,12 @@ function renderStatus() {
   const st = cs.status, el = $('scanStatus'), bar = $('scanProgress');
   const running = st?.state === 'running';
   $('scanBtn').disabled = running;
-  bar.hidden = !running;
-  if (running) bar.firstElementChild.style.width = `${st.total ? Math.round(st.done / st.total * 100) : 0}%`;
+  showProgress(bar, st, cs.loading);
   const r = cs.result;
   let msg;
-  if (running) msg = (PHASE[st.phase] || (() => 'Scanning…'))(st) + tabNote();
+  if (running) msg = (PHASE[st.phase] || (() => 'Scanning…'))(st) + tabNote(st);
   else if (st?.state === 'error') msg = `Scan failed: ${st.error}`;
+  else if (cs.loading) msg = 'Loading scan results…';
   else if (r) {
     const fresh = r.expiresAt > Date.now();
     msg = `${num(r.listed)} contracts listed · ${num(r.scanned)} opened (${r.scope === 'all' ? 'all regions' : 'hub regions'}, ≥ ${isk(r.minPrice)}) · `
@@ -642,7 +645,10 @@ function init() {
     .catch(() => { $('home').placeholder = 'Star map unavailable'; });
   fetch('data/types.json').then(r => r.json()).then(t => { types = t; renderAll(); }).catch(() => {});
   fetch('data/stations.json').then(r => (r.ok ? r.json() : {})).then(s => { stations = s; renderAll(); }).catch(() => {});
-  poll().then(() => { if (!cs.result && cs.status?.result) loadResult(); });
+  poll();
+  // Scans started or finished in another tab.
+  conScan.onChange(() => poll());
+  uniScan.onChange(({ type }) => { if (type === 'done' && us.loading) { us.loading = null; loadUscan(); } });
   renderAll();
 }
 

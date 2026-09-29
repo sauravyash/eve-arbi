@@ -9,7 +9,7 @@ import { SHIP_CATEGORY } from './trips.js';
 import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges.js';
 import { createMe } from './me.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
-import { scanClient, tabNote } from './scan-client.js';
+import { scanClient, tabNote, showProgress } from './scan-client.js';
 import { createWatchlist, itemPic, removeButton, copyButton } from './watchlist.js';
 import { normalizeMyOrder, orderStanding, expiresAt } from './orders.js';
 import { secColor, secLabel } from './map.js';
@@ -904,15 +904,18 @@ function applyWatchlist(items) {
 // ---------------------------------------------------------------------------
 // Universe scan (server-side, see universe-scanner.js)
 // ---------------------------------------------------------------------------
-const us = { status: null, result: null, poll: null, limit: 50, memo: null };
+const us = { status: null, result: null, poll: null, loading: false, limit: 50, memo: null };
 const uniScan = scanClient('uscan');
 
 async function usLoadResult() {
+  us.loading = true;
+  renderUscanStatus();
   try {
     const r = await uniScan.result();
     if (r) { us.result = r; us.memo = null; }
   } catch { /* keep the previous result */ }
   await loadStations();
+  us.loading = false;
   renderUscan();
 }
 
@@ -921,7 +924,7 @@ async function usPoll() {
   try { us.status = await uniScan.status(); } catch { /* server restarting */ }
   const st = us.status?.state;
   if (st === 'running' || st === 'computing') us.poll = setTimeout(usPoll, 1500);
-  else if (st === 'done' && us.status.result?.finishedAt !== us.result?.finishedAt) await usLoadResult();
+  else if (us.status?.result && us.status.result.finishedAt !== us.result?.finishedAt) await usLoadResult();
   renderUscanStatus();
 }
 
@@ -987,13 +990,13 @@ function renderUscanStatus() {
   const st = us.status, el = $('usStatus'), bar = $('usProgress');
   const running = st?.state === 'running' || st?.state === 'computing';
   $('usBtn').disabled = running;
-  bar.hidden = !running;
-  if (running) bar.firstElementChild.style.width = `${st.total ? Math.round(st.done / st.total * 100) : 0}%`;
+  showProgress(bar, st, us.loading);
   const r = us.result;
   let msg = '';
-  if (st?.state === 'running') msg = `Scanning ${st.regionsDone}/${st.regions} regions · ${st.done}/${st.total} pages…${tabNote()}`;
+  if (st?.state === 'running') msg = `Scanning ${st.regionsDone}/${st.regions} regions · ${st.done}/${st.total} pages…${tabNote(st)}`;
   else if (st?.state === 'computing') msg = 'Matching every station pair…';
   else if (st?.state === 'error') msg = `Scan failed: ${st.error}`;
+  else if (us.loading) msg = 'Loading scan results…';
   else if (r) {
     const fresh = r.expiresAt > Date.now();
     msg = `${num(r.items)} items at ${num(r.locations)} item-stations in ${r.regions} regions · scanned ${ago(r.finishedAt)}${fresh ? '' : ' · ESI has newer data'}`;
@@ -1335,7 +1338,8 @@ function init() {
     .catch(() => { $('home').placeholder = 'Star map unavailable'; });
   loadTypes().then(() => { renderAll(); meCtl?.reapply(); }); // ship names and cargo need types.json
   loadStations().then(() => renderAll());
-  usPoll().then(() => { if (!us.result && us.status?.result) usLoadResult(); });
+  usPoll();
+  uniScan.onChange(() => usPoll());   // a scan started or finished in another tab
   renderAll();
   refresh();
 }

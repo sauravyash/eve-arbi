@@ -1,5 +1,5 @@
 import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
-import { scanClient, tabNote } from './scan-client.js';
+import { scanClient, tabNote, showProgress } from './scan-client.js';
 import { GalaxyMap, secColor, secLabel } from './map.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
@@ -792,7 +792,7 @@ function onOverrideInput(e) {
 // regions); All stations uses the universe scan (every station, shared with multi-stop routes).
 // Either way the scan finds the hauls and we rank and filter them here.
 // ---------------------------------------------------------------------------
-const scan = { result: null, status: null, polling: null, rows: [], memo: null, optKey: null };
+const scan = { result: null, status: null, polling: null, loading: false, rows: [], memo: null, optKey: null };
 const hubByStation = new Map(HUBS.map(h => [h.stationId, h]));
 const hubSystems = new Set(HUBS.map(h => h.id));
 const allStations = () => settings.scan.scope === 'all';
@@ -1066,15 +1066,14 @@ function renderScanTable() {
   const busy = !!st && (st.state === 'running' || st.state === 'computing');
   btn.disabled = busy;
   btn.textContent = busy ? 'Scanning…' : all ? (r ? 'Rescan universe' : 'Scan universe') : 'Scan market';
-  bar.hidden = !busy;
-  if (busy) bar.firstElementChild.style.width = `${st.total ? Math.round(100 * st.done / st.total) : 3}%`;
+  showProgress(bar, st, (all ? trip : scan).loading);
 
   const t = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const warnings = (busy ? st.warnings : r?.warnings) || [];
   label.classList.toggle('warn', warnings.length > 0 || st?.state === 'error');
   label.title = warnings.join('\n');
   if (busy) label.textContent = st.state === 'computing' ? (all ? 'Matching stations…' : 'Comparing order books…')
-    : `${all ? 'Scanning every region' : 'Fetching orders'}: ${st.done}/${st.total || '…'} pages${all ? tabNote() : ''}`;
+    : `${all ? 'Scanning every region' : 'Fetching orders'}: ${st.done}/${st.total || '…'} pages${all || st.remote ? tabNote(st) : ''}`;
   else if (st?.state === 'error') label.textContent = `Scan failed: ${st.error}`;
   else if (!all && scan.notice) label.textContent = scan.notice;
   else if (!r) label.textContent = all ? 'Needs a universe scan (a few minutes)' : 'No scan yet';
@@ -1091,7 +1090,7 @@ function renderScanTable() {
     const nearMe = settings.scan.from === 'me' || settings.scan.to === 'me';
     body.innerHTML = `<tr class="empty"><td colspan="13">${
       r ? (all && !trip.graph ? 'Loading map data…' : nearMe ? 'Nothing matches these filters. Try allowing more jumps from your location.' : 'Nothing matches these filters.')
-        : busy ? (all ? `Scanning every order in New Eden, which takes a few minutes${tabNote()}.` : `Scanning every order in the five hub regions, which takes about a minute${tabNote()}.`)
+        : busy ? (all ? `Scanning every order in New Eden, which takes a few minutes${tabNote(st)}.` : `Scanning every order in the five hub regions, which takes about a minute${tabNote(st)}.`)
         : all ? 'Scan the universe to rank hauls between every station.' : 'Run a market scan to rank every item.'}</td></tr>`;
     more.hidden = true;
     return;
@@ -1238,8 +1237,11 @@ function bindLoads() {
 const hubScan = scanClient('scan'), uniScan = scanClient('uscan');
 
 async function loadScanResult() {
+  scan.loading = true;
+  renderScan();
   try { scan.result = (await hubScan.result()) ?? scan.result; }
   catch { /* keep the previous result */ }
+  scan.loading = false;
   render();
 }
 
@@ -1333,12 +1335,16 @@ function bindScanFilters() {
 // ---------------------------------------------------------------------------
 // Multi-stop routes: chained hauls from the universe scan (see trips.js)
 // ---------------------------------------------------------------------------
-const trip = { result: null, status: null, poll: null, graph: null, catalog: null, stations: {}, memo: null, byName: new Map() };
+const trip = { result: null, status: null, poll: null, loading: false, graph: null, catalog: null, stations: {}, memo: null, byName: new Map() };
 const tripFlag = () => (settings.flag === 'secure' ? 'secure' : 'shortest');
 
 async function tripLoadResult() {
+  trip.loading = true;
+  renderTrips();
+  if (allStations()) renderScan();
   try { trip.result = (await uniScan.result()) ?? trip.result; trip.memo = null; }
   catch { /* keep the previous result */ }
+  trip.loading = false;
   render();
 }
 
@@ -1484,14 +1490,13 @@ function renderTrips() {
   const label = $('tripStatus'), bar = $('tripProgress');
   $('tripScanBtn').disabled = busy;
   $('tripScanBtn').textContent = busy ? 'Scanning…' : r ? 'Rescan universe' : 'Scan universe';
-  bar.hidden = !busy;
-  if (busy) bar.firstElementChild.style.width = `${st.total ? Math.round(100 * st.done / st.total) : 3}%`;
+  showProgress(bar, st, trip.loading);
   const startOk = !!trip.graph && travel().indexOf.has(settings.trips.start);
   $('tpStart').classList.toggle('bad', !!trip.graph && !startOk);
 
   const body = $('tripBody');
   let trips = [];
-  if (busy) label.textContent = st.state === 'computing' ? 'Matching stations…' : `Scanning every region: ${st.done}/${st.total || '…'} pages${tabNote()}`;
+  if (busy) label.textContent = st.state === 'computing' ? 'Matching stations…' : `Scanning every region: ${st.done}/${st.total || '…'} pages${tabNote(st)}`;
   else if (st?.state === 'error') label.textContent = `Universe scan failed: ${st.error}`;
   else if (!r) label.textContent = 'Needs a universe scan (a few minutes)';
   else {
@@ -1729,6 +1734,9 @@ bindTrips();
 fetch('data/types.json').then(r => r.json()).then(t => { trip.catalog = t; trip.memo = null; scan.memo = null; initShipList(t); render(); meCtl.reapply(); }).catch(() => { trip.catalog = {}; });
 fetch('data/stations.json').then(r => r.json()).then(t => { trip.stations = t; scan.memo = null; render(); }).catch(() => {});
 tripPoll();
+// Scans started or finished in another tab.
+uniScan.onChange(() => tripPoll());
+hubScan.onChange(() => pollScan());
 drawToggle = mountToggle($('whToggle'), sc);
 render();   // show last session's data (marked stale) immediately
 refresh();  // then fetch once; further refreshes are manual

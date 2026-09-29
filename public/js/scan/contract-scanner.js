@@ -275,6 +275,8 @@ export function createContractScanner({ fetchUpstream, data, store, sharedItems 
       };
     },
     result: () => result,
+    /** Settles once the scan in progress (if any) has finished and saved its result. */
+    idle: () => running || Promise.resolve(),
     async start({ force = false, scope = 'hubs', minPrice = DEFAULT_MIN_PRICE } = {}) {
       await ready;
       if (running) return { started: false, reason: 'running' };
