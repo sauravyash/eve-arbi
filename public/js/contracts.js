@@ -4,7 +4,7 @@
 //   Courier        — ISK per jump, plus a market backhaul from the Universe scan near the drop-off
 //   LP stores      — ISK per LP for mission runners' loyalty points
 
-import { HUBS, formatIsk, summarizeSteps } from './arbitrage.js';
+import { HUBS, DEFAULT_TAX_PCT, formatIsk, summarizeSteps } from './arbitrage.js';
 import { buildGraph, jumpsFrom, jumpsBetween, systemInfo } from './galaxy.js';
 import { parseFuzzwork, isNpcStation } from './market-merge.js';
 import { contractProfit, lpOfferValue, BLUEPRINT_CATEGORY } from './contract-value.js';
@@ -24,13 +24,15 @@ const LS = {
 const JITA = HUBS[0];
 const PAGE = 50;
 const DEFAULTS = {
-  home: JITA.id, flag: 'secure', tax: 0, cargo: '', budget: '', sellHub: 'best', mode: 'instant', structures: true,
+  home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, taxV: 1, cargo: '', budget: '', sellHub: 'best', mode: 'instant', structures: true,
   tab: 'items', scope: 'hubs', minPrice: '20m',
 };
 const X_DEFAULTS = { minProfit: '1m', maxMargin: '', maxJumps: '', rank: 'profit', q: '', priced: true, auctions: false };
 const C_DEFAULTS = { minReward: '', maxCollateral: '', maxJumps: '', backJumps: '5', rank: 'perJump', fits: false };
 const LP_DEFAULTS = { corp: '', have: '', rank: 'perLp', hideBp: true };
 const stored = LS.get('contracts.settings', {});
+// Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
+if (!stored.taxV && !Number(stored.tax)) delete stored.tax;
 const settings = { ...DEFAULTS, ...stored };
 settings.x = { ...X_DEFAULTS, ...stored.x };
 settings.c = { ...C_DEFAULTS, ...stored.c };
@@ -627,7 +629,7 @@ function init() {
   drawToggle = mountToggle($('whToggle'), sc);
   createMe({
     el: $('me'), returnTo: '/contracts.html', systemName: sysName, isk,
-    shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][3] ?? null } : null),
+    shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][2] === 6 ? types[id][3] ?? null : null } : null),
     onFollow: followLocation,
     onCargo: (m3) => fromMe('cargo', 'cargo', m3, 'From your current ship (base hold) — turn off in the character menu to edit'),
     onBudget: (v) => fromMe('budget', 'budget', v, 'Your wallet balance — turn off in the character menu to edit'),

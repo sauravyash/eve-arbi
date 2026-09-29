@@ -1,4 +1,4 @@
-import { HUBS, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
+import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
 import { scanClient, tabNote } from './scan-client.js';
 import { GalaxyMap } from './map.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
@@ -8,6 +8,8 @@ import { evaluateLegs, planTrips, tripStops, SHIP_CATEGORY } from './trips.js';
 import { createMe } from './me.js';
 import { createWatchlist, itemPic, removeButton } from './watchlist.js';
 import { readUrl, writeUrl } from './url-state.js';
+import { shipHolds, capacityFor } from './holds.js';
+import { packRoute, multibuyText } from './manifest.js';
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -26,21 +28,26 @@ const OLD_DEFAULT_ITEMS = [
 const JUMP_TTL = 24 * 3600_000;
 
 const DEFAULTS = {
-  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: 0, graphItem: 'all', showAll: false,
-  view: 'map', mapLayout: '3d', secColors: true,
-  scan: { cargo: '', budget: '', minProfit: '5m', from: '', to: '', maxMargin: '100', rank: 'ppj', q: '', hideShips: false },
+  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, graphItem: 'all', showAll: false,
+  view: 'map', mapLayout: '3d', secColors: true, tab: 'scan',
+  scan: { scope: 'hubs', cargo: '', ship: '', budget: '', minProfit: '5m', from: '', to: '', near: '0', maxMargin: '100', rank: 'ppj', q: '', hideShips: false, structures: false },
   trips: { start: 30000142, legs: '3', link: '3', minProfit: '1m', rank: 'perJump', hideShips: false, hideHubs: false, structures: false },
 };
-const settings = Object.assign(structuredClone(DEFAULTS), LS.get('arbi.settings', {}));
+const storedSettings = LS.get('arbi.settings', {});
+// Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
+if (!storedSettings.taxV && !Number(storedSettings.taxPct)) delete storedSettings.taxPct;
+const settings = Object.assign(structuredClone(DEFAULTS), storedSettings);
 settings.scan = { ...DEFAULTS.scan, ...settings.scan };
 settings.trips = { ...DEFAULTS.trips, ...settings.trips };
 // Settings mirrored in the query string (url-state.js); the item list and overrides stay local.
 const hubIds = ['', ...HUBS.map(h => String(h.id))];
+const scanEnds = [...hubIds, 'hubs', 'offhub', 'me'];
 const URL_FIELDS = [
   ['flag', ['secure', 'shortest', 'insecure']], ['sellMode', ['instant', 'relist']], ['metric', ['unit', 'depth']],
-  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['3d', '2d']], 'secColors',
-  'scan.cargo', 'scan.budget', 'scan.minProfit', ['scan.from', hubIds], ['scan.to', hubIds], 'scan.maxMargin',
-  ['scan.rank', ['ppj', 'profit', 'iskm3', 'margin']], 'scan.q', 'scan.hideShips',
+  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['tab', ['scan', 'load', 'trips', 'table']], ['mapLayout', ['3d', '2d']], 'secColors',
+  ['scan.scope', ['hubs', 'all']], 'scan.cargo', ['scan.ship', v => v === '' || Number(v) > 0], 'scan.budget', 'scan.minProfit',
+  ['scan.from', scanEnds], ['scan.to', scanEnds], ['scan.near', v => v === '' || Number(v) >= 0], 'scan.maxMargin',
+  ['scan.rank', ['ppj', 'profit', 'iskm3', 'margin']], 'scan.q', 'scan.hideShips', 'scan.structures',
   ['trips.start', v => v > 0], ['trips.legs', ['2', '3', '4', '5']], 'trips.link', 'trips.minProfit',
   ['trips.rank', ['perJump', 'profit']], 'trips.hideShips', 'trips.hideHubs', 'trips.structures',
 ];
@@ -54,7 +61,7 @@ for (const m of Object.values(market)) m.status = 'cached';
 const jumpCache = LS.get('arbi.routes', {});
 try { localStorage.removeItem('arbi.jumps'); } catch { /* old jump-count-only cache */ }
 
-const ui = { tripPick: null, selectedHub: null, sort: { key: null, dir: -1 }, refreshing: false, lastError: null, scanPick: null, scanLimit: 50 };
+const ui = { tripPick: null, scanTrip: false, selectedHub: null, sort: { key: null, dir: -1 }, refreshing: false, lastError: null, scanPick: null, scanLimit: 50, loadPick: null, loadLimit: 30 };
 
 const saveSettings = () => { LS.set('arbi.settings', { ...settings, items: undefined }); writeUrl(settings, DEFAULTS, URL_FIELDS); };
 // The watchlist is saved on its own: to your character when signed in, else this browser (watchlist.js).
@@ -157,7 +164,7 @@ async function refresh() {
 // Wormhole shortcuts (shortcuts.js). ESI's routes only know stargates, so while shortcuts are in
 // use each hub pair also gets a local path through them, and the shorter one wins.
 let drawToggle = () => {};
-const sc = createShortcuts({ onChange: () => { drawToggle(); trip.memo = null; render(); renderTrips(); } });
+const sc = createShortcuts({ onChange: () => { drawToggle(); trip.memo = null; scan.memo = null; render(); renderTrips(); } });
 const travel = () => sc.travelGraph() || trip.graph;
 
 // System path between two hubs (lower hub ID first), or null until ESI answers.
@@ -414,6 +421,7 @@ function renderFocus(routes) {
 function selectHub(id) {
   ui.selectedHub = id;
   ui.scanPick = null;
+  if (ui.scanTrip) { ui.scanTrip = false; galaxy.setTrip(null); }
   render();
 }
 
@@ -598,6 +606,7 @@ function renderTable(routes) {
   let rows = routes.filter(r => r.status !== 'nomarket');
   if (ui.selectedHub) rows = rows.filter(r => r.from.id === ui.selectedHub);
   if (!settings.showAll) rows = rows.filter(r => r.metric > 0);
+  tabCount('table', settings.items.length ? rows.length : null);
   const col = COLUMNS.find(c => c.key === sortKey);
   rows.sort((a, b) => {
     const va = col.val(a), vb = col.val(b);
@@ -690,9 +699,14 @@ function onOverrideInput(e) {
 }
 
 // ---------------------------------------------------------------------------
-// Whole-market scan (server walks every order in the hub regions; we rank and filter here)
+// Best arbitrage items. Markets → Trade hubs uses the hub scan (every order in the five hub
+// regions); All stations uses the universe scan (every station, shared with multi-stop routes).
+// Either way the scan finds the hauls and we rank and filter them here.
 // ---------------------------------------------------------------------------
-const scan = { result: null, status: null, polling: null, rows: [] };
+const scan = { result: null, status: null, polling: null, rows: [], memo: null, optKey: null };
+const hubByStation = new Map(HUBS.map(h => [h.stationId, h]));
+const hubSystems = new Set(HUBS.map(h => h.id));
+const allStations = () => settings.scan.scope === 'all';
 
 // "500m", "2.5b", "12,000" → number; blank or invalid → null
 function parseAmount(v) {
@@ -701,45 +715,166 @@ function parseAmount(v) {
   return Number(m[1]) * { '': 1, k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[m[2]];
 }
 
+// The special holds (ore, mineral, PI, fleet hangar, …) of the ship in the Ship field: your
+// current ship while "Use my ship's cargo" is on, else one picked by hand. From ESI's dogma
+// attributes, cached per ship type in localStorage (they only change with game patches).
+const ship = { typeId: null, holds: [], loading: false, error: null, fromMe: false };
+const HOLDS_KEY = 'arbi.shipHolds';
+async function loadShipHolds(typeId) {
+  typeId = Number(typeId) || null;
+  if (typeId === ship.typeId && !ship.error) return;
+  Object.assign(ship, { typeId, holds: [], loading: false, error: null });
+  scan.memo = null;
+  const cached = typeId && LS.get(HOLDS_KEY, {})[typeId];
+  if (typeId && !cached) {
+    ship.loading = true;
+    renderScan();
+    try {
+      const { data } = await getJson(`/api/esi/universe/types/${typeId}/`);
+      if (ship.typeId !== typeId) return;
+      ship.holds = shipHolds(data.dogma_attributes);
+      LS.set(HOLDS_KEY, { ...LS.get(HOLDS_KEY, {}), [typeId]: ship.holds });
+    } catch (e) {
+      if (ship.typeId === typeId) ship.error = e.message;
+    } finally {
+      if (ship.typeId === typeId) ship.loading = false;
+    }
+  } else if (cached) ship.holds = cached;
+  scan.memo = null;
+  render();
+}
+
+// Buy at / Sell at: '' anywhere, 'hubs', 'offhub', a hub's system ID, or 'me' (within
+// `near` jumps of your location: the multi-stop Start system, which follows your character).
+function endFilter(v, near) {
+  if (!v) return () => true;
+  if (v === 'hubs') return (sys, loc) => hubByStation.has(loc);
+  if (v === 'offhub') return (sys) => !hubSystems.has(sys);
+  if (v === 'me') {
+    if (!trip.graph) return () => false;
+    const d = tripDistFrom(settings.trips.start);
+    return (sys) => { const j = d(sys); return j != null && j <= near; };
+  }
+  const id = Number(v);
+  return (sys) => sys === id;
+}
+
+function scanEnd(loc, sys) {
+  const hub = hubByStation.get(loc);
+  return hub ? { id: loc, systemId: sys, hub, name: hub.name, station: hub.station }
+    : { id: loc, systemId: sys, hub: null, name: sysName(sys), station: stationName(loc, sys) };
+}
+
 function scanRows() {
-  const r = scan.result;
+  const all = allStations();
+  const r = all ? trip.result : scan.result;
   if (!r) return [];
   const f = settings.scan;
+  const memoKey = [all, r.finishedAt, JSON.stringify(f), settings.taxPct, settings.flag, settings.trips.start, ship.typeId, ship.holds.length,
+    all ? '' : `${Object.keys(jumpCache[settings.flag]?.pairs || {}).length}${JSON.stringify(overrides.jumps)}`, sc.key()].join('|');
+  if (scan.memo?.key === memoKey) return scan.memo.rows;
+
   const taxRate = (Number(settings.taxPct) || 0) / 100;
   const maxVolume = parseAmount(f.cargo) ?? Infinity;
   const maxCost = parseAmount(f.budget) ?? Infinity;
   const minProfit = parseAmount(f.minProfit) ?? 0;
   const maxMargin = f.maxMargin === '' ? Infinity : Number(f.maxMargin);
+  const near = Math.max(0, Number(f.near) || 0);
   const q = f.q.trim().toLowerCase();
   const stale = Date.now() - r.finishedAt > 30 * 60_000; // badge rows only once prices are clearly old
-  const rows = [];
+  const fromOk = endFilter(f.from, near), toOk = endFilter(f.to, near);
+  // Buying near you: the flight to the pickup counts towards profit per jump.
+  const approachFrom = f.from === 'me' && trip.graph ? tripDistFrom(settings.trips.start) : null;
+  const room = new Map();   // typeId → capacityFor(…)
+  const rows = [], groups = new Map();
   for (const c of r.candidates) {
-    if (f.from && String(c.f) !== f.from) continue;
-    if (f.to && String(c.d) !== f.to) continue;
-    const [name, vol] = r.types[c.t] || [`Type ${c.t}`, 0];
+    const fs = all ? c.fs : c.f, ds = all ? c.ds : c.d;
+    const fl = all ? c.f : hubById[c.f].stationId, dl = all ? c.d : hubById[c.d].stationId;
+    if (!fromOk(fs, fl) || !toOk(ds, dl)) continue;
+    if (all && !f.structures && (!isNpcStation(fl) || !isNpcStation(dl))) continue;
+    const info = trip.catalog?.[c.t] || r.types?.[c.t] || [`Type ${c.t}`, 0];
+    const [name, vol] = info;
     if (q && !name.toLowerCase().includes(q)) continue;
-    if (f.hideShips && trip.catalog?.[c.t]?.[2] === SHIP_CATEGORY) continue;
-    const sum = summarizeSteps(c.s, { taxRate, unitVolume: vol, maxVolume, maxCost });
-    if (!sum.units || sum.profit < minProfit) continue;
+    if (f.hideShips && info[2] === SHIP_CATEGORY) continue;
+    let cap = room.get(c.t);
+    if (!cap) room.set(c.t, cap = capacityFor(ship.holds, maxVolume, info));
+    const sum = summarizeSteps(c.s, { taxRate, unitVolume: vol, maxVolume: cap.m3, maxCost });
+    if (!sum.units) continue;
     const margin = (sum.sell * (1 - taxRate) / sum.buy - 1) * 100;
     if (margin > maxMargin) continue;
-    const jumps = jumpsFor(c.f, c.d);
+    let jumps;
+    if (!all) jumps = jumpsFor(c.f, c.d);
+    else {
+      if (!trip.graph) continue;
+      jumps = fs === ds ? 0 : tripDistFrom(fs)(ds);
+      if (jumps == null) continue; // unreachable with this route setting
+    }
+    const approach = approachFrom ? approachFrom(fs) : null;
+    // Every haul on a pickup → drop-off pair, whatever its own profit, for Single route, many items.
+    const gk = `${fl}>${dl}`;
+    let g = groups.get(gk);
+    if (!g) groups.set(gk, g = { key: gk, fl, fs, dl, ds, jumps, approach, hauls: [] });
+    g.hauls.push({ key: `${c.t}:${gk}`, t: c.t, name, vol, steps: c.s, pools: poolsFor(cap) });
+    if (sum.profit < minProfit) continue;
+    const total = jumps == null ? null : jumps + (approach ?? 0);
     rows.push({
-      key: `${c.t}:${c.f}:${c.d}`, typeId: c.t, name, vol, from: hubById[c.f], to: hubById[c.d], jumps, stale,
+      key: `${c.t}:${fl}:${dl}`, typeId: c.t, name, vol, from: scanEnd(fl, fs), to: scanEnd(dl, ds), jumps, approach, stale,
+      ranged: !!c.x, holds: sum.volume > maxVolume + 1e-6 ? cap.holds : [],
       ...sum, margin,
-      ppj: jumps ? sum.profit / jumps : null,
+      ppj: total == null ? null : sum.profit / Math.max(1, total),
       iskm3: sum.volume > 0 ? sum.profit / sum.volume : null,
     });
   }
   const key = { ppj: r => r.ppj ?? -Infinity, profit: r => r.profit, iskm3: r => r.iskm3 ?? -Infinity, margin: r => r.margin }[f.rank] || (r => r.ppj ?? -Infinity);
-  return rows.sort((a, b) => key(b) - key(a));
+  rows.sort((a, b) => key(b) - key(a));
+  scan.memo = { key: memoKey, rows, groups: [...groups.values()], stale, routes: null };
+  return rows;
+}
+
+// Holds an item may use for Single route, many items: its special holds, then the fleet hangar,
+// then the cargo hold (manifest.js fills them in that order).
+const FLEET_HANGAR = 912;
+function poolsFor(cap) {
+  const special = cap.holds.filter(h => h.attr !== FLEET_HANGAR).map(h => String(h.attr));
+  return [...special, ...(cap.holds.some(h => h.attr === FLEET_HANGAR) ? [String(FLEET_HANGAR)] : []), 'cargo'];
+}
+
+// Single route, many items: for each pickup → drop-off pair, the most profitable mix of items
+// that fits one hold and budget (manifest.js), ranked like Best arbitrage items.
+function routeRows() {
+  if (!(allStations() ? trip.result : scan.result)) return [];
+  scanRows();
+  const m = scan.memo;
+  if (!m) return [];
+  if (m.routes) return m.routes;
+  const f = settings.scan;
+  const taxRate = (Number(settings.taxPct) || 0) / 100;
+  const maxCost = parseAmount(f.budget) ?? Infinity;
+  const minProfit = parseAmount(f.minProfit) ?? 0;
+  const pools = { cargo: parseAmount(f.cargo) ?? Infinity, ...Object.fromEntries(ship.holds.map(h => [String(h.attr), h.m3])) };
+  const routes = [];
+  for (const g of m.groups) {
+    const load = packRoute(g.hauls, { pools, taxRate, maxCost });
+    if (!load.items.length || load.profit < minProfit) continue;
+    const total = g.jumps == null ? null : g.jumps + (g.approach ?? 0);
+    routes.push({
+      ...load, key: g.key, jumps: g.jumps, approach: g.approach, stale: m.stale,
+      from: scanEnd(g.fl, g.fs), to: scanEnd(g.dl, g.ds),
+      ppj: total == null ? null : load.profit / Math.max(1, total),
+      iskm3: load.volume > 0 ? load.profit / load.volume : null,
+      margin: load.cost ? load.profit / load.cost * 100 : 0,
+    });
+  }
+  const key = { ppj: r => r.ppj ?? -Infinity, profit: r => r.profit, iskm3: r => r.iskm3 ?? -Infinity, margin: r => r.margin }[f.rank] || (r => r.ppj ?? -Infinity);
+  m.routes = routes.sort((a, b) => key(b) - key(a));
+  return m.routes;
 }
 
 function scanRowToRoute(row) {
   const taxRate = (Number(settings.taxPct) || 0) / 100;
   const spread = row.sell * (1 - taxRate) - row.buy;
   return {
-    item: { typeId: row.typeId, name: row.name }, from: row.from, to: row.to, buy: row.buy, sell: row.sell,
+    item: { typeId: row.typeId, name: row.name }, from: row.from.hub, to: row.to.hub, buy: row.buy, sell: row.sell,
     jumps: row.jumps, spread, iskPerJump: row.jumps ? spread / row.jumps : null,
     units: row.units, depthProfit: row.profit, depthPerJump: row.ppj, metric: row.ppj,
     stale: row.stale, overridden: false, status: row.jumps ? 'ok' : 'unknown', pinned: row.key === ui.scanPick,
@@ -750,19 +885,77 @@ function scanRowToRoute(row) {
 function scanGraphRoutes() {
   const best = new Map();
   for (const row of scan.rows) {
+    if (!row.from.hub || !row.to.hub || row.from.hub === row.to.hub) continue;
     const route = scanRowToRoute(row);
-    const k = `${row.from.id}>${row.to.id}`;
+    const k = `${row.from.hub.id}>${row.to.hub.id}`;
     best.set(k, better(route, best.get(k)));
   }
   return [...best.values()];
 }
 
+// A picked row that isn't a plain hub-to-hub haul is drawn like a multi-stop trip: your
+// location (when buying near you), the pickup, the drop-off.
+function scanRowPath(row) {
+  if (!trip.graph || (!allStations() && row.approach == null)) return null;
+  const flag = tripFlag();
+  const pts = [...(row.approach != null ? [{ systemId: settings.trips.start, label: `You: ${sysName(settings.trips.start)}` }] : []),
+    { systemId: row.from.systemId, label: `Buy ${row.name} at ${row.from.station}` },
+    { systemId: row.to.systemId, label: `Sell ${row.name} at ${row.to.station}` }];
+  const path = [];
+  for (let i = 1; i < pts.length; i++) {
+    const seg = pathBetween(travel(), pts[i - 1].systemId, pts[i].systemId, flag) || [pts[i - 1].systemId, pts[i].systemId];
+    path.push(...(path.length ? seg.slice(1) : seg));
+  }
+  const first = row.approach != null ? 0 : 1;
+  return { path, stops: pts.map((p, i) => ({ ...p, n: i + first })) };
+}
+
+// Buy at / Sell at options depend on the market and your location's name.
+function syncScanOptions() {
+  const all = allStations(), where = trip.graph ? sysName(settings.trips.start) : 'your location';
+  const key = `${all}|${where}`;
+  if (scan.optKey !== key) {
+    scan.optKey = key;
+    for (const [id, k] of [['scFrom', 'from'], ['scTo', 'to']]) {
+      const opts = [new Option(all ? 'Anywhere' : 'Any hub', ''),
+        ...(all ? [new Option('Trade hubs', 'hubs'), new Option('Away from hubs', 'offhub')] : []),
+        ...HUBS.map(h => new Option(all ? `${h.name} (system)` : h.name, String(h.id))),
+        new Option(`Near me (${where})`, 'me')];
+      $(id).replaceChildren(...opts);
+      if (!opts.some(o => o.value === settings.scan[k])) settings.scan[k] = '';
+      $(id).value = settings.scan[k];
+    }
+  }
+  $('scNearWrap').hidden = settings.scan.from !== 'me' && settings.scan.to !== 'me';
+  $('scStructuresWrap').hidden = !all;
+}
+
+function renderShipNote() {
+  const note = $('scShipNote');
+  note.hidden = !ship.typeId;
+  if (!ship.typeId) return;
+  const name = `${trip.catalog?.[ship.typeId]?.[0] || `Ship ${ship.typeId}`}${ship.fromMe ? ' (your ship)' : ''}`;
+  const m3 = (v) => `${Math.round(v).toLocaleString()} m³`;
+  note.textContent = ship.loading ? `${name}: loading its holds…`
+    : ship.error ? `${name}: couldn't load its holds (${ship.error}), so only Cargo m³ counts.`
+    : ship.holds.length ? `${name}: items that fit also go in its ${ship.holds.map(h => `${h.name.toLowerCase()} (${m3(h.m3)})`).join(', ')}, on top of Cargo m³. Base sizes, before skills.`
+    : `${name} has no special holds, so only Cargo m³ counts.`;
+}
+
 function renderScan() {
-  const st = scan.status, r = scan.result;
+  renderScanTable();
+  renderLoads();
+}
+
+function renderScanTable() {
+  const all = allStations();
+  syncScanOptions();
+  renderShipNote();
+  const st = all ? trip.status : scan.status, r = all ? trip.result : scan.result;
   const btn = $('scanBtn'), label = $('scanStatus'), bar = $('scanProgress');
   const busy = !!st && (st.state === 'running' || st.state === 'computing');
   btn.disabled = busy;
-  btn.textContent = busy ? 'Scanning…' : 'Scan market';
+  btn.textContent = busy ? 'Scanning…' : all ? (r ? 'Rescan universe' : 'Scan universe') : 'Scan market';
   bar.hidden = !busy;
   if (busy) bar.firstElementChild.style.width = `${st.total ? Math.round(100 * st.done / st.total) : 3}%`;
 
@@ -770,22 +963,26 @@ function renderScan() {
   const warnings = (busy ? st.warnings : r?.warnings) || [];
   label.classList.toggle('warn', warnings.length > 0 || st?.state === 'error');
   label.title = warnings.join('\n');
-  if (busy) label.textContent = st.state === 'computing' ? 'Comparing order books…' : `Fetching orders: ${st.done}/${st.total || '…'} pages`;
+  if (busy) label.textContent = st.state === 'computing' ? (all ? 'Matching stations…' : 'Comparing order books…')
+    : `${all ? 'Scanning every region' : 'Fetching orders'}: ${st.done}/${st.total || '…'} pages${all ? tabNote() : ''}`;
   else if (st?.state === 'error') label.textContent = `Scan failed: ${st.error}`;
-  else if (scan.notice) label.textContent = scan.notice;
-  else if (!r) label.textContent = 'No scan yet';
+  else if (!all && scan.notice) label.textContent = scan.notice;
+  else if (!r) label.textContent = all ? 'Needs a universe scan (a few minutes)' : 'No scan yet';
   else {
-    label.textContent = `${r.candidates.length.toLocaleString()} profitable item routes · scanned ${t(r.finishedAt)}`
+    label.textContent = `${r.candidates.length.toLocaleString()} profitable ${all ? 'hauls · universe scan' : 'item routes · scanned'} ${t(r.finishedAt)}`
       + (r.expiresAt > Date.now() ? ` · ESI refreshes ~${t(r.expiresAt)}` : ' · prices may have moved, rescan')
       + (warnings.length ? ` · ⚠ ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : '');
   }
 
   scan.rows = scanRows();
+  tabCount('scan', r ? scan.rows.length : null);
   const body = $('scanBody'), more = $('scanMore');
   if (!r || !scan.rows.length) {
+    const nearMe = settings.scan.from === 'me' || settings.scan.to === 'me';
     body.innerHTML = `<tr class="empty"><td colspan="13">${
-      r ? 'Nothing matches these filters.'
-        : busy ? `Scanning every order in the five hub regions — about a minute${tabNote()}.` : 'Run a market scan to rank every item.'}</td></tr>`;
+      r ? (all && !trip.graph ? 'Loading map data…' : nearMe ? 'Nothing matches these filters. Try allowing more jumps from your location.' : 'Nothing matches these filters.')
+        : busy ? (all ? `Scanning every order in New Eden, which takes a few minutes${tabNote()}.` : `Scanning every order in the five hub regions, which takes about a minute${tabNote()}.`)
+        : all ? 'Scan the universe to rank hauls between every station.' : 'Run a market scan to rank every item.'}</td></tr>`;
     more.hidden = true;
     return;
   }
@@ -793,20 +990,26 @@ function renderScan() {
   const shown = scan.rows.slice(0, ui.scanLimit);
   const watched = new Set(settings.items.map(i => i.typeId));
   const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
-  const loc = (h) => `<div class="loc"><b>${esc(h.name)}</b><small title="${esc(h.station)}">${esc(h.station)}</small></div>`;
+  const loc = (e, extra = '') => `<div class="loc"><b>${esc(e.name)}</b><small title="${esc(e.station)}">${esc(e.station)}</small>${extra}</div>`;
+  const jumpsOf = (j) => `${j} jump${j === 1 ? '' : 's'}`;
   const rank = settings.scan.rank;
   body.innerHTML = shown.map((row, i) => {
     const w = watched.has(row.typeId);
+    const jumpsCell = row.jumps == null ? '<span class="muted">?</span>'
+      : row.approach != null ? `<span title="${jumpsOf(row.approach)} from you to the pickup, then ${jumpsOf(row.jumps)} to the drop-off">${row.approach} + ${row.jumps}</span>`
+      : row.jumps;
+    const holds = row.holds.length
+      ? `<small class="hold" title="Also uses the ${esc(row.holds.map(h => h.name.toLowerCase()).join(' and '))}">+ ${esc(row.holds.map(h => h.name).join(', '))}</small>` : '';
     return `
     <tr data-i="${i}" class="${i === 0 ? 'top' : ''} ${row.key === ui.scanPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
       <td class="l item" title="${esc(row.name)}"><button class="star ${w ? 'on' : ''}" type="button" data-star
         aria-label="${w ? 'In watchlist' : `Add ${esc(row.name)} to watchlist`}">${w ? '★' : '☆'}</button>${esc(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
       <td class="l">${loc(row.from)}</td>
-      <td class="l">${loc(row.to)}</td>
-      <td>${row.jumps ?? '<span class="muted">?</span>'}</td>
+      <td class="l">${loc(row.to, row.ranged ? '<small class="note">sells into ranged buy orders</small>' : '')}</td>
+      <td>${jumpsCell}</td>
       <td>${row.units.toLocaleString()}</td>
-      <td>${row.vol ? Math.round(row.volume).toLocaleString() : '<span class="muted">?</span>'}</td>
+      <td>${row.vol ? Math.round(row.volume).toLocaleString() : '<span class="muted">?</span>'}${holds}</td>
       <td>${n(row.cost)}</td>
       <td>${n(row.buy)} → ${n(row.sell)}</td>
       <td class="${row.margin > 50 ? 'warn-m' : ''}">${row.margin.toFixed(1)}%</td>
@@ -827,12 +1030,99 @@ function renderScan() {
     }
     settings.graphItem = 'scan';
     saveSettings();
-    ui.selectedHub = row.from.id;
+    ui.selectedHub = row.from.hub?.id ?? null;
     ui.scanPick = row.key;
+    ui.tripPick = null;
+    ui.loadPick = null;
+    const geo = scanRowPath(row);
+    ui.scanTrip = !!geo;
+    galaxy.setTrip(geo);
     render();
-    if (settings.view === 'map') galaxy.fitPath(pathFor({ from: row.from, to: row.to }));
+    if (settings.view === 'map') galaxy.fitPath(geo?.path || pathFor({ from: row.from.hub, to: row.to.hub }));
     $('mapView').closest('.panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }));
+}
+
+function renderLoads() {
+  const all = allStations(), r = all ? trip.result : scan.result;
+  const routes = routeRows();
+  tabCount('load', r ? routes.length : null);
+  const body = $('loadBody'), more = $('loadMore'), label = $('loadStatus');
+  label.textContent = r ? `${routes.length.toLocaleString()} route${routes.length === 1 ? '' : 's'}` : '';
+  const picked = ui.loadPick && routes.find(x => x.key === ui.loadPick);
+  if (ui.loadPick && r && !picked) ui.loadPick = null;
+  $('loadDetail').hidden = !picked;
+  $('loadDetail').parentElement.classList.toggle('has-detail', !!picked);
+  if (!routes.length) {
+    body.innerHTML = `<tr class="empty"><td colspan="11">${r ? 'No route with these filters.' : 'Waiting for a scan (Best arbitrage items).'}</td></tr>`;
+    more.hidden = true;
+    return;
+  }
+  const shown = routes.slice(0, ui.loadLimit);
+  const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
+  const loc = (e) => `<div class="loc"><b>${esc(e.name)}</b><small title="${esc(e.station)}">${esc(e.station)}</small></div>`;
+  const rank = settings.scan.rank;
+  body.innerHTML = shown.map((rt, i) => {
+    const names = rt.items.slice(0, 3).map(e => `<b>${esc(e.name)}</b>`).join(', ');
+    const jumps = rt.jumps == null ? '<span class="muted">?</span>' : rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps;
+    return `<tr data-key="${esc(rt.key)}" class="${i === 0 ? 'top' : ''} ${rt.key === ui.loadPick ? 'picked' : ''}">
+      <td class="l rank">${i + 1}</td>
+      <td class="l">${loc(rt.from)}</td><td class="l">${loc(rt.to)}</td><td>${jumps}</td>
+      <td class="l itm">${rt.items.length} item${rt.items.length === 1 ? '' : 's'}: ${names}${rt.items.length > 3 ? ` +${rt.items.length - 3} more` : ''}${rt.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
+      <td>${Math.round(rt.volume).toLocaleString()}</td><td>${n(rt.cost)}</td>
+      <td class="${rank === 'margin' ? 'metric' : ''}">${rt.margin.toFixed(1)}%</td>
+      <td class="${rank === 'profit' ? 'metric' : ''}">${n(rt.profit)}</td>
+      <td class="${rank === 'ppj' ? 'metric' : ''}">${n(rt.ppj)}</td>
+      <td class="${rank === 'iskm3' ? 'metric' : ''}">${n(rt.iskm3)}</td></tr>`;
+  }).join('');
+  more.hidden = routes.length <= ui.loadLimit;
+  more.textContent = `Show more (${(routes.length - ui.loadLimit).toLocaleString()} left)`;
+  if (picked) renderLoadDetail(picked);
+}
+
+function renderLoadDetail(rt) {
+  const holdName = Object.fromEntries(ship.holds.map(h => [String(h.attr), h.name]));
+  const jumps = rt.jumps == null ? '' : ` · ${rt.approach != null ? `${rt.approach} jumps from you, then ` : ''}${rt.jumps} jump${rt.jumps === 1 ? '' : 's'}`;
+  $('loadWhere').textContent = `Buy at ${rt.from.station}, sell at ${rt.to.station}${jumps}. Sell into buy orders; prices are the first and last order filled.`;
+  const n = (v) => formatIsk(v);
+  $('loadItems').innerHTML = rt.items.map(e => {
+    const holds = Object.keys(e.used).filter(p => p !== 'cargo').map(p => holdName[p]).filter(Boolean);
+    const px = e.worstBuy !== e.buy || e.worstSell !== e.sell ? `${n(e.buy)}–${n(e.worstBuy)} → ${n(e.sell)}–${n(e.worstSell)}` : `${n(e.buy)} → ${n(e.sell)}`;
+    return `<tr><td class="l">${esc(e.name)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
+      <td>${e.units.toLocaleString()}</td><td>${Math.round(e.volume).toLocaleString()}</td><td>${px}</td><td>${n(e.profit)}</td></tr>`;
+  }).join('') + `<tr class="total"><td class="l"><b>Total</b></td><td></td><td><b>${Math.round(rt.volume).toLocaleString()}</b></td>
+    <td><b>${n(rt.cost)}</b> spent</td><td><b>${n(rt.profit)}</b></td></tr>`;
+}
+
+function selectLoad(rt) {
+  ui.loadPick = rt?.key ?? null;
+  if (!rt) { if (ui.scanTrip) { ui.scanTrip = false; galaxy.setTrip(null); } renderLoads(); return; }
+  settings.graphItem = 'scan';
+  saveSettings();
+  ui.scanPick = null;
+  ui.tripPick = null;
+  ui.selectedHub = rt.from.hub?.id ?? null;
+  const geo = scanRowPath({ ...rt, name: 'cargo' });
+  ui.scanTrip = !!geo;
+  galaxy.setTrip(geo);
+  render();
+  if (settings.view === 'map') galaxy.fitPath(geo?.path || pathFor({ from: rt.from.hub, to: rt.to.hub }));
+}
+
+function bindLoads() {
+  $('loadBody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-key]');
+    if (tr) selectLoad(routeRows().find(x => x.key === tr.dataset.key));
+  });
+  $('loadClear').addEventListener('click', () => selectLoad(null));
+  $('loadMore').addEventListener('click', () => { ui.loadLimit += 50; renderLoads(); });
+  $('loadCopy').addEventListener('click', async () => {
+    const rt = routeRows().find(x => x.key === ui.loadPick);
+    if (!rt) return;
+    try { await navigator.clipboard.writeText(multibuyText(rt.items)); $('loadCopy').textContent = 'Copied'; }
+    catch { $('loadCopy').textContent = 'Copy failed'; }
+    setTimeout(() => { $('loadCopy').textContent = 'Copy for multibuy'; }, 1500);
+  });
 }
 
 const hubScan = scanClient('scan'), uniScan = scanClient('uscan');
@@ -855,6 +1145,7 @@ async function pollScan() {
 }
 
 async function startScan() {
+  if (allStations()) { tripStartScan(); return; }
   scan.notice = null;
   try {
     const res = await hubScan.start();
@@ -868,25 +1159,62 @@ async function startScan() {
   pollScan();
 }
 
+// Ship field: a ship picked by hand fills Cargo m³ with its base hold (unless that's locked to
+// your character) and adds its special holds for the items that fit them.
+const shipByName = new Map();
+function initShipList(catalog) {
+  const names = [];
+  for (const [id, info] of Object.entries(catalog)) {
+    if (info[2] !== SHIP_CATEGORY) continue;
+    shipByName.set(info[0].toLowerCase(), Number(id));
+    names.push(info[0]);
+  }
+  $('scShips').innerHTML = names.sort().map(n => `<option value="${esc(n)}">`).join('');
+  const id = ship.typeId || Number(settings.scan.ship);
+  $('scShip').value = id ? catalog[id]?.[0] || '' : '';
+}
+function useShip(typeId) {
+  const input = $('scShip');
+  ship.fromMe = !!typeId;
+  input.disabled = !!typeId;
+  input.classList.toggle('from-me', !!typeId);
+  input.title = typeId ? 'Your current ship. Turn off "Use my ship\'s cargo" in the character menu to pick one.' : '';
+  const id = typeId || Number(settings.scan.ship) || null;
+  input.value = id ? trip.catalog?.[id]?.[0] || '' : '';
+  loadShipHolds(id);
+}
+
 function bindScanFilters() {
-  const hubOpts = () => [new Option('Any hub', ''), ...HUBS.map(h => new Option(h.name, String(h.id)))];
-  $('scFrom').replaceChildren(...hubOpts());
-  $('scTo').replaceChildren(...hubOpts());
-  const fields = { scCargo: 'cargo', scBudget: 'budget', scMinProfit: 'minProfit', scFrom: 'from', scTo: 'to', scMaxMargin: 'maxMargin', scRank: 'rank', scQuery: 'q' };
+  const fields = { scScope: 'scope', scCargo: 'cargo', scBudget: 'budget', scMinProfit: 'minProfit', scFrom: 'from', scTo: 'to', scNear: 'near', scMaxMargin: 'maxMargin', scRank: 'rank', scQuery: 'q' };
+  syncScanOptions();
   let timer;
-  $('scHideShips').checked = !!settings.scan.hideShips;
-  $('scHideShips').addEventListener('change', () => { settings.scan.hideShips = $('scHideShips').checked; saveSettings(); render(); });
+  for (const [id, key] of Object.entries({ scHideShips: 'hideShips', scStructures: 'structures' })) {
+    $(id).checked = !!settings.scan[key];
+    $(id).addEventListener('change', () => { settings.scan[key] = $(id).checked; ui.scanLimit = 50; saveSettings(); render(); });
+  }
   for (const [id, key] of Object.entries(fields)) {
     const input = $(id);
     input.value = settings.scan[key];
     const isSelect = input.tagName === 'SELECT';
     input.addEventListener(isSelect ? 'change' : 'input', () => {
       settings.scan[key] = input.value;
-      ui.scanLimit = 50;
+      ui.scanLimit = 50; ui.loadLimit = 30;
+      if (key === 'scope') { ui.scanPick = null; if (ui.scanTrip) { ui.scanTrip = false; galaxy.setTrip(null); } }
       clearTimeout(timer);
       timer = setTimeout(() => { saveSettings(); render(); }, isSelect ? 0 : 200);
     });
   }
+  $('scShip').addEventListener('change', () => {
+    const v = $('scShip').value.trim().toLowerCase();
+    const id = v ? shipByName.get(v) : null;
+    $('scShip').classList.toggle('bad', !!v && !id);
+    if (v && !id) return;
+    settings.scan.ship = id ? String(id) : '';
+    const cargo = id ? trip.catalog?.[id]?.[3] : null;
+    if (cargo && !$('scCargo').disabled) { settings.scan.cargo = String(Math.floor(cargo)); $('scCargo').value = settings.scan.cargo; }
+    saveSettings();
+    loadShipHolds(id);
+  });
   $('scanBtn').addEventListener('click', startScan);
   $('scanMore').addEventListener('click', () => { ui.scanLimit += 100; renderScan(); });
 }
@@ -911,6 +1239,7 @@ async function tripPoll() {
   if (busy) trip.poll = setTimeout(tripPoll, 1500);
   else if (trip.status.result && trip.status.result.finishedAt !== trip.result?.finishedAt) await tripLoadResult();
   renderTrips();
+  if (allStations()) renderScan();
 }
 
 async function tripStartScan() {
@@ -987,6 +1316,7 @@ function tripGeometry(tr) {
 
 function selectTrip(tr) {
   ui.tripPick = tr?.key ?? null;
+  ui.scanTrip = false;
   if (!tr) { galaxy.setTrip(null); renderTrips(); return; }
   const geo = tripGeometry(tr);
   galaxy.setTrip({ path: geo.path, stops: geo.marks });
@@ -1043,6 +1373,7 @@ function renderTrips() {
   else if (!r) label.textContent = 'Needs a universe scan (a few minutes)';
   else {
     trips = tripList();
+    tabCount('trips', trips.length);
     const age = Math.round((Date.now() - r.finishedAt) / 60_000);
     label.textContent = `${trips.length} routes · universe scan from ${age < 1 ? 'just now' : `${age} min ago`}`;
   }
@@ -1082,7 +1413,7 @@ function bindTrips() {
   $('tpStart').addEventListener('change', () => {
     const id = trip.byName.get($('tpStart').value.trim().toLowerCase());
     if (id) { t.start = id; saveSettings(); }
-    renderTrips();
+    render(); // Near me (…) in Best arbitrage items follows it too
   });
   $('tripScanBtn').addEventListener('click', tripStartScan);
   $('tripBody').addEventListener('click', (e) => {
@@ -1109,7 +1440,7 @@ function followLocation(loc) {
   if (trip.graph) input.value = sysName(settings.trips.start);
   input.disabled = !!loc;
   input.title = loc ? 'Following your character — untick Follow to choose a system by hand' : '';
-  renderTrips();
+  render();
 }
 // Ship cargo → Cargo m³, wallet → Budget (both feed the market scan and multi-stop routes).
 function useFromMe(id, key, value, what) {
@@ -1122,9 +1453,10 @@ function useFromMe(id, key, value, what) {
 }
 const meCtl = createMe({
   el: $('me'), returnTo: '/', systemName: (id) => sysName(id), isk: formatIsk,
-  shipInfo: (id) => (trip.catalog?.[id] ? { name: trip.catalog[id][0], cargo: trip.catalog[id][3] ?? null } : null),
+  shipInfo: (id) => (trip.catalog?.[id] ? { name: trip.catalog[id][0], cargo: trip.catalog[id][2] === SHIP_CATEGORY ? trip.catalog[id][3] ?? null : null } : null),
   onFollow: followLocation,
   onCargo: (m3) => useFromMe('scCargo', 'cargo', m3, 'From your current ship (base hold)'),
+  onShip: useShip,
   onBudget: (isk) => useFromMe('scBudget', 'budget', isk, 'Your wallet balance'),
   onStatus: () => watch.load(),
 });
@@ -1138,6 +1470,48 @@ function initTripData(u) {
   $('tpStart').value = sysName(settings.trips.start);
   meCtl.reapply(); // system names are available now
   renderTrips();
+}
+
+// ---------------------------------------------------------------------------
+// Section tabs: one lower panel at a time (the map and item list stay put)
+// ---------------------------------------------------------------------------
+const TABS = ['scan', 'load', 'trips', 'table'];
+function tabCount(tab, n) {
+  const el = $(`tabN-${tab}`);
+  if (el) el.textContent = n == null ? '' : n > 999 ? `${Math.floor(n / 1000)}k+` : String(n);
+}
+function setTab(tab, { focus = false, user = true } = {}) {
+  if (!TABS.includes(tab)) tab = 'scan';
+  settings.tab = tab;
+  saveSettings();
+  for (const b of document.querySelectorAll('[data-tab]')) {
+    const on = b.dataset.tab === tab;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    if (on && focus) b.focus();
+  }
+  for (const s of document.querySelectorAll('[data-section]')) s.hidden = s.dataset.section !== tab;
+  // Switching while scrolled down a long table: start the new section just under the pinned bar.
+  if (!user) return;
+  const bar = document.querySelector('.section-tabs'), sec = document.querySelector(`[data-section="${tab}"]`);
+  const top = sec.getBoundingClientRect().top + scrollY - bar.offsetHeight - 8;
+  if (scrollY > top) scrollTo({ top });
+}
+function bindTabs() {
+  document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  // Arrow keys move along the tab bar; 1–4 anywhere outside a text field jump straight to a section.
+  document.querySelector('.section-tabs [role=tablist]').addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    setTab(TABS[(TABS.indexOf(settings.tab) + step + TABS.length) % TABS.length], { focus: true });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, select, textarea, [contenteditable]')) return;
+    const i = ['1', '2', '3', '4'].indexOf(e.key);
+    if (i >= 0) setTab(TABS[i]);
+  });
+  setTab(settings.tab, { user: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -1166,7 +1540,7 @@ galaxy.layout = settings.mapLayout;
 galaxy.secColors = settings.secColors;
 fetch('data/universe.json')
   .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-  .then(u => { galaxy.setUniverse(u); initTripData(u); $('mapMsg').hidden = true; render(); })
+  .then(u => { galaxy.setUniverse(u); initTripData(u); scan.memo = null; $('mapMsg').hidden = true; render(); })
   .catch(e => { $('mapMsg').textContent = `Star map data unavailable (${e.message}). Run “npm run build:map”, or use the Schematic view.`; });
 
 function setView(view) {
@@ -1219,10 +1593,12 @@ search.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) pickerShow([]); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.selectedHub && !e.target.closest?.('input, select')) selectHub(null); });
 
+bindTabs();
 bindScanFilters();
+bindLoads();
 bindTrips();
-fetch('data/types.json').then(r => r.json()).then(t => { trip.catalog = t; trip.memo = null; render(); meCtl.reapply(); }).catch(() => { trip.catalog = {}; });
-fetch('data/stations.json').then(r => r.json()).then(t => { trip.stations = t; renderTrips(); }).catch(() => {});
+fetch('data/types.json').then(r => r.json()).then(t => { trip.catalog = t; trip.memo = null; scan.memo = null; initShipList(t); render(); meCtl.reapply(); }).catch(() => { trip.catalog = {}; });
+fetch('data/stations.json').then(r => r.json()).then(t => { trip.stations = t; scan.memo = null; render(); }).catch(() => {});
 tripPoll();
 drawToggle = mountToggle($('whToggle'), sc);
 render();   // show last session's data (marked stale) immediately

@@ -4,7 +4,7 @@
 // Prices: EVE Tycoon's orders for each item in every region, player structures included (one call
 // per item, through the caching proxy). Only buy orders are kept.
 
-import { HUBS, formatIsk } from './arbitrage.js';
+import { HUBS, DEFAULT_TAX_PCT, formatIsk } from './arbitrage.js';
 import { normalizeTycoonOrder, isNpcStation } from './market-merge.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { buildRangeContext } from './ranges.js';
@@ -29,8 +29,10 @@ const CONCURRENCY = 3;
 const HOUR = 3_600_000;
 const KIND_LABEL = { ore: 'Ore', moon: 'Moon ore', ice: 'Ice', gas: 'Gas', mineral: 'Mineral' };
 
-const DEFAULTS = { home: JITA.id, flag: 'secure', tax: 0, maxJumps: '', minShare: '', structures: true, rank: 'isk', kind: '' };
+const DEFAULTS = { home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, taxV: 1, maxJumps: '', minShare: '', structures: true, rank: 'isk', kind: '' };
 const { wh: _oldWh, ...stored } = LS.get('mining.settings', {});   // wh moved to shortcuts.js
+// Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
+if (!stored.taxV && !Number(stored.tax)) delete stored.tax;
 const settings = { ...DEFAULTS, ...stored };
 const URL_FIELDS = [
   ['home', v => v > 0], ['flag', ['secure', 'shortest']], ['tax', v => v >= 0 && v <= 100], 'maxJumps', 'minShare', 'structures',
@@ -53,7 +55,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 const isk = (v) => formatIsk(v);
 const num = (v) => (v == null || !Number.isFinite(v) ? '—' : Math.abs(v) < 1000 ? String(Math.round(v)) : formatIsk(v, 1));
 const typeName = (t) => types?.[t]?.[0] || `Type ${t}`;
-const kindOf = (t) => (typeof types?.[t]?.[3] === 'string' ? types[t][3] : null);
+const kindOf = (t) => (typeof types?.[t]?.[4] === 'string' ? types[t][4] : null);
 const taxRate = () => (Number(settings.tax) || 0) / 100;
 
 function parseAmount(v) {
@@ -371,7 +373,7 @@ function fillItemList() {
   if (!types) return;
   const want = settings.kind;
   $('itemList').innerHTML = Object.entries(types)
-    .filter(([, v]) => typeof v[3] === 'string' && (!want || v[3] === want))
+    .filter(([, v]) => typeof v[4] === 'string' && (!want || v[4] === want))
     .map(([, v]) => v[0]).sort().map(n => `<option value="${esc(n)}">`).join('');
 }
 
@@ -408,7 +410,7 @@ function followLocation(loc) {
 function init() {
   meCtl = createMe({
     el: $('me'), returnTo: '/mining.html', systemName: sysName, isk,
-    shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][3] ?? null } : null),
+    shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][2] === 6 ? types[id][3] ?? null : null } : null),
     onFollow: followLocation, onStatus: () => render(),
   });
 

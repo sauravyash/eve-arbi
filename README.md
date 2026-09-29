@@ -21,7 +21,7 @@ Open http://localhost:8000. Set `PORT` to use a different port.
 On first start the server builds three static data files from Fuzzwork's mirror of CCP's Static
 Data Export (about 23 MB downloaded, once):
 - `public/data/universe.json`: systems and gates for the star map (about 335 KB)
-- `public/data/types.json`: item names, packaged volumes and categories, plus what kind of ore, gas, ice or mineral an item is for the Mining page (about 950 KB)
+- `public/data/types.json`: item names, packaged volumes, categories and groups, plus what kind of ore, gas, ice or mineral an item is for the Mining page (about 1 MB)
 - `public/data/stations.json`: NPC station names and systems (about 370 KB)
 
 To rebuild them later (say, after new systems are added to the game):
@@ -48,7 +48,8 @@ remembered per browser:
 | **Record my wormhole jumps** | Keeps checking your location in background tabs, so jumps without a stargate become route shortcuts on every page (see [Wormholes](#wormholes)). |
 
 - *Use my ship's cargo* uses the base hold from the SDE (`types.json` stores it for ships). It
-  doesn't include skills, expanded cargoholds, or ore, fleet or other specialised holds.
+  doesn't include skills or expanded cargoholds. On Hub arbitrage it also puts your ship in *Ship
+  holds*, so its ore, fleet and other specialised holds count for the items that fit them.
 - Location, online status and ship are checked every 20 s while the tab is visible, and the
   wallet every 2 minutes. A field filled from your character is locked and outlined in violet;
   turn the option off to edit it.
@@ -409,6 +410,10 @@ Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to 
 
 ## Using it
 
+- **Sections:** the tab bar under the map switches between *Best items*, *Single route*, *Multi-stop
+  routes* and *Watchlist routes*, each with its row count. Keys 1–4 (outside text fields) and the
+  arrow keys also switch. The bar stays pinned while you scroll, and the open tab is remembered and kept
+  in the URL. The map and item list stay visible on every tab.
 - **Refresh** is manual. After the first load, repeated clicks within the upstream cache window
   return cached data, so you can't hammer the APIs.
 - **Star map:** drag to pan, scroll or double-click to zoom. Hover a system for its security,
@@ -426,6 +431,32 @@ Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to 
   - Click a row to draw that haul on the map; the graph switches to *Whole market (scan)*, the
     best item per hub pair. ☆ adds an item to the watchlist.
   - *Hide ships* leaves out every item in the Ship category.
+  - **Markets:** *Trade hubs* ranks the hub scan. *All stations* ranks the universe scan instead (the
+    same one Multi-stop routes use; *Scan universe* runs it). It covers every NPC station and, with
+    *Player structures* ticked, structures too. Jumps are computed locally with your *Route* setting.
+  - **Buy at / Sell at:** a hub, *Anywhere*, *Trade hubs* or *Away from hubs* (All stations only), or
+    *Near me*. Near me means within *Jumps from me* of your location: the multi-stop *Start system*,
+    which follows your character when you're signed in with *Follow* on. When buying near you,
+    the Jumps column shows `to pickup + haul`, and profit per jump counts both.
+  - **Ship holds:** pick a ship, or turn on *Use my ship's cargo* to use the one you're flying. Items
+    that fit its special holds can use them on top of *Cargo m³* (`public/js/holds.js`): mining hold
+    (ore, ice, gas), ice, gas, mineral, salvage, ammo, planetary commodities, command center, fuel
+    bay (ice products, fuel blocks), booster, subsystem and mobile depot holds, and the fleet hangar
+    (anything). Hold sizes come from ESI's dogma attributes, are cached per ship, and are base sizes
+    (no skills). Ship-only bays are left out, because market ships are packaged. Picking a ship by hand
+    also fills *Cargo m³* with its base hold. Rows that needed the extra room say which holds they used.
+- **Single route, many items** (`public/js/manifest.js`) fills one hold on one trip. For each pickup →
+  drop-off pair in *Best arbitrage items* (same scan and filters), it packs the most profitable mix
+  of items into your *Cargo m³*, ship holds and *Budget*.
+  - It walks every item's order books and takes the best ISK per m³ (or per ISK, or a mix of both
+    when cargo and budget are both limited) until the hold or the wallet runs out.
+  - Items that fit a special hold fill it before the shared cargo hold.
+  - *Min profit* applies to the whole load, and routes are ranked with the same *Rank by*.
+  - Click a route for its shopping list: units, m³, first and last prices, profit per item, and
+    which hold each goes in. *Copy for multibuy* puts it on the clipboard as one `name quantity` line
+    per item, the format EVE's Multibuy window takes. The route is drawn on the map.
+  - With *All stations* most routes carry one or two items, because the universe scan keeps only a
+    handful of hauls per item.
 - **Multi-stop routes** (`public/js/trips.js`) chain hauls from the universe scan into one trip:
   buy item 1, sell it, buy item 2 where you sold (or after a few empty jumps), and so on.
   - Each haul sells its whole cargo before the next purchase, so *Cargo m³* and *Budget* apply
@@ -464,5 +495,6 @@ Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to 
   re-check big hauls in-game before buying.
 - Buy orders placed outside the hub system with a jump range that reaches it are ignored. This
   is conservative: it may miss some sell opportunities but never invents them.
-- Sales tax defaults to 0%. Set your own rate (it depends on your Accounting skill).
+- Sales tax defaults to 7.5%, EVE's base rate. Set your own: Accounting cuts it by 11% per level
+  (3.375% at level V). Broker fees for relisting aren't counted.
 - Hub IDs in `public/js/arbitrage.js` were verified against ESI on 2026-09-17.
