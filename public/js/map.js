@@ -13,15 +13,15 @@ export const secBand = (s) => (s > 0 && s < 0.05 ? 1 : Math.max(-10, Math.min(10
 export const secLabel = (s) => (secBand(s) / 10).toFixed(1);
 export const secColor = (s) => SEC_COLORS[secBand(s) + 10];
 
-// Security colours for the light map: the same hues pulled 32% toward black so yellows read on a pale background.
+// Security colours for the light map: the same hues pulled 40% toward black so yellows read on a pale background.
 const SEC_COLORS_LIGHT = SEC_COLORS.map((hex) => '#' + [1, 3, 5].map((k) =>
-  Math.round(parseInt(hex.slice(k, k + 2), 16) * 0.68).toString(16).padStart(2, '0')).join(''));
+  Math.round(parseInt(hex.slice(k, k + 2), 16) * 0.6).toString(16).padStart(2, '0')).join(''));
 
 // Canvas palettes; the light one follows <html data-theme="light"> (js/theme.js).
 const PALETTES = {
   dark: {
     bg: '#05080c', gate: [110, 135, 160], gateAlpha: [0.12, 0.35], sec: SEC_COLORS, plain: '#7f93a8',
-    region: 'rgba(160, 180, 200, ALPHA)', name: 'rgba(170, 186, 204, 0.75)', hover: '#fff',
+    dotAlpha: [0.55, 0.8], dotScale: 1, region: 'rgba(160, 180, 200, ALPHA)', name: 'rgba(170, 186, 204, 0.75)', hover: '#fff',
     teal: '#2dd4bf', tealGlow: 'rgba(45,212,191,0.35)', edge: '#9fb3c8', amber: '#e0a74a',
     violet: '#a78bfa', violetGlow: 'rgba(167,139,250,0.35)', onViolet: '#140d2b', tripText: '#e9e3ff',
     halo: 'rgba(5,8,12,0.92)', hubFill: '#0b1117', hubRing: '#dbe4ee', hubText: '#eef3f8',
@@ -29,7 +29,7 @@ const PALETTES = {
   },
   light: {
     bg: '#eaeff4', gate: [96, 116, 140], gateAlpha: [0.18, 0.42], sec: SEC_COLORS_LIGHT, plain: '#7d8b9c',
-    region: 'rgba(70, 88, 110, ALPHA)', name: 'rgba(52, 66, 84, 0.85)', hover: '#17212c',
+    dotAlpha: [0.8, 1], dotScale: 1.3, region: 'rgba(70, 88, 110, ALPHA)', name: 'rgba(52, 66, 84, 0.85)', hover: '#17212c',
     teal: '#0b7d72', tealGlow: 'rgba(11,125,114,0.22)', edge: '#6a8098', amber: '#a86400',
     violet: '#7045d6', violetGlow: 'rgba(112,69,214,0.22)', onViolet: '#ffffff', tripText: '#3b1f8f',
     halo: 'rgba(234,239,244,0.95)', hubFill: '#ffffff', hubRing: '#17212c', hubText: '#17212c',
@@ -330,10 +330,10 @@ export class GalaxyMap {
     ctx.stroke();
 
     // Systems, batched by security band
-    const r = clamp(scale * 0.06, 0.9, 3.2);
+    const r = clamp(scale * 0.06, 0.9, 3.2) * P.dotScale;
     const buckets = Array.from({ length: SEC_COLORS.length }, () => []);
     for (let i = 0; i < n; i++) if (onScreen(i, 4)) buckets[this.secColors ? this.u.band[i] : 0].push(i);
-    ctx.globalAlpha = this.model?.sel || this.model?.top ? 0.55 : 0.8;
+    ctx.globalAlpha = P.dotAlpha[this.model?.sel || this.model?.top ? 0 : 1];
     buckets.forEach((idx, band) => {
       if (!idx.length) return;
       ctx.fillStyle = this.secColors ? P.sec[band] : P.plain;
