@@ -439,3 +439,22 @@ tr:hover .copy, li:hover .copy, .copy:focus-visible { opacity: 1; }
 .copy.fail { opacity: 1; color: var(--red); }
 .item-list .copy { flex: none; margin: 0; }
 .nw { white-space: nowrap; }   /* keeps an item name and its copy button on one line */
+
+/* Cargo m³ + "Fit…" (js/fit-dialog.js) */
+.with-fit { display: inline-flex; align-items: center; gap: 4px; }
+.with-fit .fit-btn { padding: 4px 8px; }
+.with-fit .fit-btn:disabled { opacity: .5; cursor: not-allowed; }
+.fit-dialog { width: min(520px, calc(100vw - 32px)); background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2);
+  border-radius: var(--radius); padding: 16px; box-shadow: 0 16px 40px var(--shadow); }
+.fit-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.fit-dialog h3 { margin: 0 0 4px; font-size: 14px; color: var(--text); }
+.fit-dialog .hint { margin: 0 0 10px; }
+.fit-dialog textarea { display: block; width: 100%; resize: vertical; background: var(--bg); color: var(--text); border: 1px solid var(--line-2);
+  border-radius: 7px; padding: 8px; font: 12px/1.45 var(--mono); }
+.fit-skill { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.fit-skill select { background: var(--bg); color: var(--text); border: 1px solid var(--line-2); border-radius: 7px; padding: 4px 6px; font: inherit; }
+.fit-out { min-height: 1.45em; margin: 10px 0 0; font-size: 13px; }
+.fit-out .up { color: var(--teal); }
+.fit-out small { display: block; margin-top: 4px; color: var(--faint); font-size: 11.5px; }
+.fit-out.err { color: var(--amber); }
+.fit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }

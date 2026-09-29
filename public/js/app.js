@@ -10,6 +10,7 @@ import { createWatchlist, itemPic, removeButton, copyButton } from './watchlist.
 import { readUrl, writeUrl } from './url-state.js';
 import { shipHolds, capacityFor } from './holds.js';
 import { packRoute, multibuyText } from './manifest.js';
+import { mountFitButton } from './fit-dialog.js';
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -1215,6 +1216,7 @@ function bindScanFilters() {
     saveSettings();
     loadShipHolds(id);
   });
+  mountFitButton($('scCargo'), { types: () => trip.catalog, shipInput: $('scShip') });
   $('scanBtn').addEventListener('click', startScan);
   $('scanMore').addEventListener('click', () => { ui.scanLimit += 100; renderScan(); });
 }

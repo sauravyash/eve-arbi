@@ -14,6 +14,7 @@ import { scanClient, tabNote } from './scan-client.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { copyButton } from './watchlist.js';
+import { mountFitButton } from './fit-dialog.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -587,6 +588,7 @@ function init() {
     ['structures', 'structures']]) {
     bind(id, () => settings[key], (v) => { settings[key] = v; }, ev, reset);
   }
+  mountFitButton($('cargo'), { types: () => types });
   bind('sellHub', () => settings.sellHub, (v) => { settings.sellHub = v; }, 'change', () => { reset(); if (lp.offers) priceOffers(); });
   bind('mode', () => settings.mode, (v) => { settings.mode = v; }, 'change', reset);
   bind('scope', () => settings.scope, (v) => { settings.scope = v; });

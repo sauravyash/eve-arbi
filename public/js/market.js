@@ -14,6 +14,7 @@ import { createWatchlist, itemPic, removeButton, copyButton } from './watchlist.
 import { normalizeMyOrder, orderStanding, expiresAt } from './orders.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
+import { mountFitButton } from './fit-dialog.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -1242,6 +1243,7 @@ function init() {
   bindSetting('flag', 'flag');
   bindSetting('tax', 'tax', { parse: Number, event: 'input' });
   bindSetting('cargo', 'cargo', { event: 'input' });
+  mountFitButton($('cargo'), { types: () => types });
   bindSetting('budget', 'budget', { event: 'input' });
   // The scan's Max investment field is the same setting as the one in the top controls.
   $('usBudget').value = settings.budget;
