@@ -5,6 +5,7 @@
 //     Mokaam send no CORS headers (the others go through it too, for one cache and User-Agent)
 //   - /sso/* and /api/me/*: EVE sign-in, one Session Durable Object per browser, keyed by an
 //     HttpOnly cookie. Tokens stay in that object's storage and never reach the page.
+//   - /api/wanderer/connections: a Wanderer mapper's connections, token forwarded (../wanderer.js)
 //   - /api/config: tells the pages to run the market scans in the browser (public/js/scan-client.js)
 //
 // Settings (Workers → Settings → Variables): EVE_CLIENT_ID (enables sign-in), EVE_CALLBACK_URL
@@ -14,6 +15,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { createSso } from '../sso.js';
 import { compactItems } from '../public/js/contract-value.js';
 import { cleanItems } from '../public/js/watchlist.js';
+import { wandererConnections } from '../wanderer.js';
 
 const UPSTREAMS = {
   tycoon: { base: 'https://evetycoon.com/api/', maxConcurrent: 3 },
@@ -48,6 +50,11 @@ export default {
       const m = p.match(/^\/api\/(tycoon|esi|fuzzwork|goon|adam4eve|evepraisal|zkill|mokaam)\/(.*)$/);
       if (m) return await proxy(request, env, ctx, m[1], m[2] + url.search);
       if (p.startsWith('/sso/') || p === '/api/me' || p.startsWith('/api/me/')) return await account(request, env, url);
+      if (p === '/api/wanderer/connections') {
+        if (request.method !== 'GET') return json(405, { error: 'Method not allowed' });
+        const r = await wandererConnections(url.searchParams, request.headers.get('x-wanderer-token'), userAgent(env));
+        return new Response(r.body, { status: r.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+      }
       if (/^\/api\/(scan|uscan|cscan)(\/|$)/.test(p)) return json(404, { error: 'Scans run in your browser on the hosted site' });
       if (p.startsWith('/api/')) return json(404, { error: 'Not found' });
       return env.ASSETS.fetch(request);

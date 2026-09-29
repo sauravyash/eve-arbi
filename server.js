@@ -14,6 +14,7 @@ import { createUniverseScanner } from './public/js/scan/universe-scanner.js';
 import { createContractScanner } from './public/js/scan/contract-scanner.js';
 import { createSso } from './sso.js';
 import { cleanItems } from './public/js/watchlist.js';
+import { wandererConnections } from './wanderer.js';
 
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -304,6 +305,15 @@ http.createServer(async (req, res) => {
   try {
     if (u.pathname === '/api/config') send(res, 200, JSON.stringify({ serverScans: true }), { 'Content-Type': 'application/json' });
     else if (u.pathname.startsWith('/sso/') || u.pathname === '/api/me' || u.pathname.startsWith('/api/me/')) await ssoApi(req, res, u);
+    else if (u.pathname === '/api/wanderer/connections') {
+      // Carries a map token: only for pages on this machine, like the account endpoints.
+      if (!isLocalHost(req.headers.host)) send(res, 403, 'Forbidden');
+      else if (req.method !== 'GET') send(res, 405, 'Method not allowed');
+      else {
+        const r = await wandererConnections(u.searchParams, req.headers['x-wanderer-token'], USER_AGENT);
+        send(res, r.status, r.body, { 'Content-Type': 'application/json' });
+      }
+    }
     else if (scanMatch) await scanApi(req, res, scanMatch[2] || '', u.searchParams, scanners[scanMatch[1]]);
     else if (m) await proxy(req, res, m[1], m[2] + u.search);
     else await serveStatic(req, res, u.pathname);

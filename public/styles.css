@@ -424,3 +424,8 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .theme-btn .moon, :root[data-theme=light] .theme-btn .sun { display: none; }
 :root[data-theme=light] .theme-btn .moon { display: block; }
+
+/* Wormhole shortcuts switch (shortcuts.js mountToggle), in each page's settings bar. */
+.wh-toggle { flex-direction: row !important; align-items: center; gap: 5px; align-self: flex-end; padding-bottom: 7px; font-size: 12px; }
+.wh-toggle a { color: var(--teal); text-decoration: none; }
+.wh-toggle a:hover { text-decoration: underline; }

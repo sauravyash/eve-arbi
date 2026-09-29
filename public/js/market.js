@@ -8,6 +8,7 @@ import { buildGraph, jumpsFrom, jumpsBetween, systemInfo } from './galaxy.js';
 import { SHIP_CATEGORY } from './trips.js';
 import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges.js';
 import { createMe } from './me.js';
+import { createShortcuts, mountToggle } from './shortcuts.js';
 import { scanClient, tabNote } from './scan-client.js';
 import { createWatchlist, itemPic, removeButton } from './watchlist.js';
 import { normalizeMyOrder, orderStanding, expiresAt } from './orders.js';
@@ -85,7 +86,11 @@ const sourceState = {
 };
 for (const s of Object.values(sourceState)) Object.assign(s, { ok: 0, err: 0, at: null, lastErr: null });
 const ui = { loading: false, bookAll: false, lastError: null, timer: null, ver: 0 };
-let graph = null, types = null;
+let graph = null, types = null;               // graph: stargates only (names, order ranges)
+// Wormhole shortcuts (shortcuts.js): jumps use the gate graph plus the ones in use.
+let drawToggle = () => {};
+const sc = createShortcuts({ onChange: () => { drawToggle(); bump(); renderAll(); } });
+const travel = () => sc.travelGraph() || graph;
 
 const $ = (id) => document.getElementById(id);
 const refHub = () => HUBS.find(h => h.id === settings.refHub) || JITA;
@@ -270,7 +275,7 @@ async function loadDetail() {
 // ---------------------------------------------------------------------------
 const memo = new Map();
 const settingsKey = () => [settings.refHub, settings.home, settings.flag, settings.tax, settings.cargo, settings.budget,
-  settings.hideHubs, settings.structures, settings.showGhosts, !!graph, !!stationNames].join('|');
+  settings.hideHubs, settings.structures, settings.showGhosts, !!graph, !!stationNames, sc.key()].join('|');
 
 function collate(typeId) {
   const key = `${ui.ver}|${settingsKey()}`;
@@ -320,7 +325,7 @@ function computeCollation(typeId) {
     for (const c of pairsForType(typeId, entry, ctx, { minProfit: 0, keep: false, maxSources: 40, maxSteps: 200 })) {
       const to = { locationId: c.d, systemId: c.ds };
       if (!allow(to) || !reachable(to)) continue;
-      const j = c.fs === c.ds ? 0 : jumpsBetween(graph, c.fs, c.ds, settings.flag);
+      const j = c.fs === c.ds ? 0 : jumpsBetween(travel(), c.fs, c.ds, settings.flag);
       if (j == null) continue;
       const s = summarizeSteps(c.s, limits);
       if (s.units <= 0 || s.profit <= 0) continue;
@@ -342,7 +347,7 @@ function computeCollation(typeId) {
   return { merged, book, quote, hist, s, quotes, cheapest, dearest, hauls, universe, region };
 }
 
-function homeDist() { return jumpsFrom(graph, settings.home, settings.flag); }
+function homeDist() { return jumpsFrom(travel(), settings.home, settings.flag); }
 
 // Range matching needs the gate graph and where NPC stations are; built once both have loaded.
 let rangeCtx = null;
@@ -940,7 +945,7 @@ function usRows() {
   const q = f.q.trim().toLowerCase();
   // "Near": jumps from a chosen system to the pickup, the drop-off, or whichever end is closer.
   const nearId = nearSystem();
-  const nearDist = nearId ? jumpsFrom(graph, nearId, settings.flag) : null;
+  const nearDist = nearId ? jumpsFrom(travel(), nearId, settings.flag) : null;
   const nearMax = f.nearMax === '' ? Infinity : Number(f.nearMax);
   const distTo = (sys) => { const i = graph.indexOf.get(sys); const d = i == null ? -1 : nearDist[i]; return d < 0 ? null : d; };
   const rows = [];
@@ -952,7 +957,7 @@ function usRows() {
     if (f.hideShips && types?.[c.t]?.[2] === SHIP_CATEGORY) continue;
     const home = homeJumps(c.fs);
     if (home == null && settings.flag === 'secure') continue;
-    const j = c.fs === c.ds ? 0 : jumpsBetween(graph, c.fs, c.ds, settings.flag);
+    const j = c.fs === c.ds ? 0 : jumpsBetween(travel(), c.fs, c.ds, settings.flag);
     if (j == null || j + (home ?? 0) > maxJumps) continue;
     const s = summarizeSteps(c.s, { taxRate, unitVolume, maxVolume, maxCost });
     if (s.units <= 0 || s.profit <= 0 || s.profit < minProfit) continue;
@@ -1231,6 +1236,7 @@ function init() {
     addItem(t, types?.[t]?.[0] || `Type ${t}`);
     $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+  drawToggle = mountToggle($('whToggle'), sc);
   $('refHub').innerHTML = HUBS.map(h => `<option value="${h.id}">${h.name} — ${h.region}</option>`).join('');
   bindSetting('refHub', 'refHub', { parse: Number, reload: true });
   bindSetting('flag', 'flag');
@@ -1323,7 +1329,7 @@ function init() {
   if (!settings.selected && settings.items.length) settings.selected = settings.items[0].typeId;
   writeUrl(settings, DEFAULTS, URL_FIELDS);
   setAuto(settings.auto);
-  fetch('data/universe.json').then(r => r.json()).then(u => { graph = buildGraph(u); initHome(); bump(); renderAll(); })
+  fetch('data/universe.json').then(r => r.json()).then(u => { graph = buildGraph(u); sc.setBase(graph); initHome(); bump(); renderAll(); })
     .catch(() => { $('home').placeholder = 'Star map unavailable'; });
   loadTypes().then(() => { renderAll(); meCtl?.reapply(); }); // ship names and cargo need types.json
   loadStations().then(() => renderAll());

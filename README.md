@@ -45,7 +45,7 @@ remembered per browser:
 | **Follow my location** | Your current system becomes the home system (Market watch) and the start of multi-stop routes (Hub arbitrage). |
 | **Use my ship's cargo** | Your current ship's cargo hold fills *Cargo m³* on both pages. |
 | **Use my wallet as max investment** | Your wallet balance fills *Max investment* / *Budget* on both pages. |
-| **Record my wormhole jumps** | Keeps checking your location in background tabs, so jumps without a stargate become route shortcuts on the Mining page (see [Wormholes](#wormholes)). |
+| **Record my wormhole jumps** | Keeps checking your location in background tabs, so jumps without a stargate become route shortcuts on every page (see [Wormholes](#wormholes)). |
 
 - *Use my ship's cargo* uses the base hold from the SDE (`types.json` stores it for ships). It
   doesn't include skills or expanded cargoholds. On Hub arbitrage it also puts your ship in *Ship
@@ -113,7 +113,7 @@ How it's kept safe (`sso.js`):
 
 ## How it works
 
-- **`server.js`** serves `public/` and proxies `/api/tycoon/*` → `https://evetycoon.com/api/`,
+- **`server.js`** serves `public/`, forwards `/api/wanderer/connections` to a Wanderer mapper (see [Wormholes](#wormholes)), and proxies `/api/tycoon/*` → `https://evetycoon.com/api/`,
   `/api/fuzzwork/*`, `/api/goon/*`, `/api/evepraisal/*`, `/api/adam4eve/*`, `/api/mokaam/*`, `/api/zkill/*` (see Market watch),
   and `/api/esi/*` → `https://esi.evetech.net/latest/`. A proxy is required because EVE
   Tycoon sends no CORS headers. The proxy:
@@ -326,28 +326,52 @@ A fourth page that answers "where should I sell this?" for ore, moon ore, ice, g
 
 ### Wormholes
 
-ESI has no travel history, so there's no way to look back at jumps you made before. Instead:
+Wormhole shortcuts count in **every jump total on every page**:
+- Hub arbitrage: hub-to-hub routes and multi-stop trips
+- Market watch: hauls, jumps from home and *Near system*
+- Contracts: pickup, delivery and backhaul distances
+- Mining: jumps to each station
 
-- **Your jumps from now on.** While you're signed in, the location check every page already makes
-  (every 20 s) records each system change in this browser (`me.trail.<character>` in
-  `localStorage`, last 48 h). *Record my wormhole jumps* in the character menu (on by default) keeps
-  checking your location in background tabs too.
-- Two readings in a row in systems with **no stargate between them** count as a shortcut
+They're managed in the Mining page's *Wormhole shortcuts* panel. Each page's settings bar has a
+**Wormholes (n)** switch that turns them on or off everywhere, with a link to that panel.
+Everything is kept in `localStorage` (`wh.*`), so every page and tab shares it
+(`public/js/shortcuts.js`).
+
+Sources:
+
+| Source | What it adds | How |
+|---|---|---|
+| **Your characters' jumps** | Wormholes you or your alts took | Recorded from now on while signed in (below) |
+| **EVE Scout** | Thera and Turnur connections | Public API, `api.eve-scout.com`, called from the browser |
+| **Wanderer map** | Every connection on your group's map | Its API with the map's token, through `/api/wanderer/connections` |
+| **By hand** | Any pair of systems (J-codes work) | Resolved through ESI, forgotten after *Forget after* hours |
+
+- **Your jumps.** ESI has no travel history, so there's no way to look back at jumps made before.
+  Instead, while you're signed in, the location check every page already makes (every 20 s)
+  records each system change in this browser. It's kept per character (`me.trail.<character>`,
+  last 48 h), and every character that signs in on the browser counts. *Record my wormhole jumps*
+  in the character menu (on by default) keeps checking your location in background tabs too.
+  Two readings in a row in systems with **no stargate between them** count as a shortcut
   (`public/js/wormholes.js`):
   - Either end in wormhole space: a wormhole.
   - Two known-space systems: a K-space wormhole, jump bridge or cyno, marked *no gate*. Untick it if
     you can't fly it again.
   - Skipped: gaps over 90 s (the path in between is unknown), docked-to-docked changes (jump clones)
     and abyssal filaments.
-- **Thera and Turnur:** tick *Thera & Turnur (EVE Scout)* to add EVE Scout's public connections
-  (`api.eve-scout.com`, called straight from the browser).
-- **By hand:** add any pair of systems (J-codes work, resolved through ESI).
-- Shortcuts are forgotten after *Forget after* hours (default 16; most wormholes last 16–24 h). Untick
-  one to leave it out.
+- **Wanderer** ([wanderer.ltd](https://wanderer.ltd) or a self-hosted copy): enter the site, the map's
+  slug and its API token (map settings). Wanderer sends no CORS headers, so the request goes through
+  the app's server (`wanderer.js`). It forwards the token and never stores it; locally it answers only
+  pages on `localhost`. Only public `https://` hosts and Wanderer's two connections paths can be
+  reached, and redirects aren't followed. Connections refresh every 2 minutes; Wanderer drops them
+  when they collapse.
+- Other mappers: Pathfinder and Tripwire are no longer maintained and have no public API. Nexum
+  doesn't document one.
 
 Shortcuts are added to the gate graph for travel. Wormhole systems become nodes, so jumps work while
-you're sitting in a wormhole, and routes that use one show ⤳. Wormhole space never counts as
-high-sec. Buy-order ranges still follow stargates only, as they do in game.
+you're sitting in a wormhole, and routes that use one show ⤳ on the Mining page. On Hub arbitrage,
+each hub pair uses ESI's gate route or the path through shortcuts, whichever is shorter. The star map
+skips wormhole systems when drawing a route. Wormhole space never counts as high-sec. Buy-order
+ranges still follow stargates only, as they do in game.
 
 ## Hosting on Cloudflare
 
