@@ -57,7 +57,7 @@
 .detail-head img { border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
 .dh-title { flex: 1; min-width: 220px; }
 .dh-title h2 { font-size: 20px; text-transform: none; letter-spacing: 0; color: var(--text); }
-.links { margin: 6px 0 0; display: flex; gap: 14px; font-size: 12px; }
+.links { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; }
 .links a { color: var(--teal); text-decoration: none; }
 .links a:hover { text-decoration: underline; }
 .kpis { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -114,7 +114,9 @@ table.mini { margin-top: 8px; }
 
 /* off-hub focus */
 .hauls-panel { grid-area: hauls; min-width: 0; }
-.hauls-panel .table-head label { margin-left: auto; }
+.hauls-panel .table-head { flex-wrap: wrap; }
+.hauls-panel .table-head label { margin-left: auto; max-width: 100%; }
+.hauls-panel .table-head select { min-width: 0; max-width: 100%; }
 .buy-where { grid-area: buyw; min-width: 0; }
 .sell-where { grid-area: sellw; min-width: 0; }
 .controls .checks { display: flex; flex-direction: column; gap: 4px; justify-content: flex-end; }
@@ -147,7 +149,7 @@ td .place + small { display: block; font-size: 10.5px; }
 .us-table td { vertical-align: middle; }
 .us-table td .place + small { display: block; font-size: 10.5px; }
 .us-table .range-note, .hauls .range-note, .where-panel .range-note { display: block; font-size: 10.5px; color: var(--teal); font-family: system-ui, sans-serif; }
-.scan-filters fieldset.near { display: flex; gap: 10px 14px; margin: 0; padding: 4px 10px 6px; border: 1px solid var(--line-2); border-radius: 8px; }
+.scan-filters fieldset.near { display: flex; flex-wrap: wrap; min-width: 0; max-width: 100%; gap: 10px 14px; margin: 0; padding: 4px 10px 6px; border: 1px solid var(--line-2); border-radius: 8px; }
 .scan-filters #usNear { width: 130px; }
 .scan-filters input.bad, .scan-filters select.bad { border-color: var(--red); }
 .src-links { display: flex; gap: 4px; margin-top: 3px; }

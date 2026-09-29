@@ -72,6 +72,17 @@ test('watchlist hauls sell into a ranged buy order at the nearest in-range stati
   assert.ok(hauls.some(h => h.d === 2 && !h.x)); // the order's own station is still an option
 });
 
+test('watchlist hauls list a ranged order in its own system once, at its own station', () => {
+  // Stations 2 and 7 are both in 13; the solar-system-range order sits at 7, not the lowest ID.
+  const ctx = buildRangeContext(buildGraph(U), { 1: ['S1', 11], 2: ['S2', 13], 7: ['S7', 13] });
+  const entry = bookEntry([
+    o({ locationId: 1, systemId: 11, isBuyOrder: false, price: 100, volumeRemain: 5 }),
+    o({ locationId: 7, systemId: 13, isBuyOrder: true, price: 130, volumeRemain: 8, range: 'SOLARSYSTEM', regionId: 2 }),
+  ]);
+  const hauls = pairsForType(34, entry, ctx, { minProfit: 0, keep: false });
+  assert.deepEqual(hauls.map(h => h.d), [7]);
+});
+
 test('community API parsers', () => {
   const a = parseAdam({ 34: { buy_price: '3.70', sell_price: '3.69', buy_volume: '10', sell_volume: '20', lupdate: '2026-09-26 13:45:06' } },
     { 34: { percentile_buy: '3.6', percentile_sell: '3.8' } });
