@@ -11,8 +11,8 @@
 import { HUBS, buyOrderReachesHub, levels, matchSteps } from '../arbitrage.js';
 
 const ESI = 'https://esi.evetech.net/latest/';
-const MIN_PROFIT = 100_000;   // ISK, before tax/caps — drops noise, client filters further
-const MAX_STEPS = 60;         // fill steps kept per candidate
+export const MIN_PROFIT = 100_000;   // ISK, before tax/caps — drops noise, client filters further
+export const MAX_STEPS = 60;         // fill steps kept per candidate
 const RETRIES = 3;
 
 const RANGE = { station: 'STATION', solarsystem: 'SOLARSYSTEM', region: 'REGION' };
@@ -88,23 +88,8 @@ export function createScanner({ fetchUpstream, data, store, log = console.log })
 
     status.state = 'computing';
     const types = await data('types').catch(() => ({}));
-    const candidates = [];
     const typeIds = new Set(HUBS.flatMap(h => [...books[h.id].keys()]));
-    for (const t of typeIds) {
-      const perHub = HUBS.map(h => {
-        const e = books[h.id].get(t);
-        return e ? { hub: h, asks: levels(toOrders(e.a), false), bids: levels(toOrders(e.b), true) } : null;
-      }).filter(Boolean);
-      for (const A of perHub) {
-        if (!A.asks.length) continue;
-        for (const B of perHub) {
-          if (A === B || !B.bids.length || B.bids[0].price <= A.asks[0].price) continue;
-          const steps = matchSteps(A.asks, B.bids, 0, MAX_STEPS);
-          const profit = steps.reduce((s, [n, buy, sell]) => s + n * (sell - buy), 0);
-          if (profit >= MIN_PROFIT) candidates.push({ t, f: A.hub.id, d: B.hub.id, s: steps });
-        }
-      }
-    }
+    const candidates = hubCandidates(books);
 
     const usedTypes = {};
     for (const c of candidates) usedTypes[c.t] ||= types[c.t] || [`Type ${c.t}`, 0];
@@ -140,6 +125,32 @@ export function createScanner({ fetchUpstream, data, store, log = console.log })
       return { started: true };
     },
   };
+}
+
+/**
+ * Every profitable hub-to-hub haul. books[hubId]: Map typeId → {a: Map price→volume (sell orders at
+ * the hub station), b: Map price→volume (buy orders a seller docked there can fill)}.
+ * Also used by the universe scan, which builds these books from its own (see universe-scanner.js).
+ */
+export function hubCandidates(books) {
+  const candidates = [];
+  const typeIds = new Set(HUBS.flatMap(h => [...(books[h.id]?.keys() || [])]));
+  for (const t of typeIds) {
+    const perHub = HUBS.map(h => {
+      const e = books[h.id]?.get(t);
+      return e ? { hub: h, asks: levels(toOrders(e.a), false), bids: levels(toOrders(e.b), true) } : null;
+    }).filter(Boolean);
+    for (const A of perHub) {
+      if (!A.asks.length) continue;
+      for (const B of perHub) {
+        if (A === B || !B.bids.length || B.bids[0].price <= A.asks[0].price) continue;
+        const steps = matchSteps(A.asks, B.bids, 0, MAX_STEPS);
+        const profit = steps.reduce((s, [n, buy, sell]) => s + n * (sell - buy), 0);
+        if (profit >= MIN_PROFIT) candidates.push({ t, f: A.hub.id, d: B.hub.id, s: steps });
+      }
+    }
+  }
+  return candidates;
 }
 
 function toOrders(priceMap) {

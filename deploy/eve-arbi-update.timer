@@ -1,0 +1,11 @@
+# Runs eve-arbi-update.service 5 minutes after boot, then every 15 minutes.
+[Unit]
+Description=Update eve-arbi from git every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

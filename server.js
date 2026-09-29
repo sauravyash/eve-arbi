@@ -4,13 +4,13 @@
 // and backs off on 429/420 using Retry-After.
 
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { buildUniverse, buildTypes, buildStations, OUT_FILE as UNIVERSE_FILE, TYPES_FILE, STATIONS_FILE } from './scripts/build-universe.js';
-import { createScanner } from './public/js/scan/hub-scanner.js';
-import { createUniverseScanner } from './public/js/scan/universe-scanner.js';
+import { createUniverseScanner, hubView } from './public/js/scan/universe-scanner.js';
 import { createContractScanner } from './public/js/scan/contract-scanner.js';
 import { createSso } from './sso.js';
 import { cleanItems } from './public/js/watchlist.js';
@@ -24,6 +24,9 @@ const ROOT = path.join(APP_DIR, 'public');
 // Community APIs (Adam4EVE, Evepraisal) ask for a way to reach the operator in the User-Agent.
 // Override with CONTACT (e.g. an EVE character name); CONTACT="" sends none.
 const CONTACT = process.env.CONTACT ?? 'yash@yaa.sh';
+// Scan server for the hosted site (README, "Scans on your own server"): with SCAN_SECRET set, only
+// requests addressed to this machine, or carrying the secret (the Worker's), are answered.
+const SCAN_SECRET = process.env.SCAN_SECRET || '';
 const USER_AGENT = `eve-arbi/1.0 (local market tool; read-only${CONTACT ? `; ${CONTACT}` : ''})`;
 
 const UPSTREAMS = {
@@ -205,21 +208,27 @@ const store = {
   },
 };
 
-// Whole-market scan: the five hubs.
-const scanner = createScanner({ fetchUpstream, data, store });
-
 // Universe-wide scan: every region, every station (see universe-scanner.js).
-const universeScanner = createUniverseScanner({ fetchUpstream, data, store });
+const universeScanner = createUniverseScanner({ fetchUpstream, data, store, hubs: true });
+
+// Whole-market scan: the five hubs, worked out from the universe scan's order book, so both share
+// one set of ESI pages. (The browser build still runs hub-scanner.js on its own: it's smaller.)
+const scanner = hubView(universeScanner);
 
 // Public contracts valued against the hub markets (see contract-scanner.js).
 const contractScanner = createContractScanner({ fetchUpstream, data, store });
+
+// With SCAN_SECRET set, forced rescans from the hosted site's visitors wait this long after the last one.
+const REMOTE_FORCE_GAP = 5 * 60_000;
 
 async function scanApi(req, res, sub, search, scanner) {
   const json = (status, obj) => send(res, status, JSON.stringify(obj), { 'Content-Type': 'application/json' });
   if (sub === '' && req.method === 'GET') return json(200, scanner.status());
   if (sub === '' && req.method === 'POST') {
+    const last = scanner.status().result?.finishedAt || 0;
+    const force = search.get('force') === '1' && (!SCAN_SECRET || isLocalRequest(req) || Date.now() - last > REMOTE_FORCE_GAP);
     const outcome = await scanner.start({
-      force: search.get('force') === '1',
+      force,
       ...(search.has('scope') && { scope: search.get('scope') }),
       ...(search.has('minPrice') && { minPrice: Number(search.get('minPrice')) }),
     });
@@ -250,6 +259,14 @@ const sso = createSso({
 
 // Account endpoints answer only requests addressed to this machine (blocks DNS rebinding).
 const isLocalHost = (host = '') => /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
+// Addressed to this machine and not relayed by Cloudflare: a tunnel may be set to rewrite Host, and a
+// Worker's own requests carry CF-Worker.
+const isLocalRequest = (req) => isLocalHost(req.headers.host)
+  && !req.headers['cf-ray'] && !req.headers['cf-connecting-ip'] && !req.headers['cf-worker'];
+const hasScanSecret = (req) => {
+  const got = Buffer.from(String(req.headers['x-scan-secret'] || '')), want = Buffer.from(SCAN_SECRET);
+  return got.length === want.length && timingSafeEqual(got, want);
+};
 
 // Watchlists of signed-in characters (public/js/watchlist.js): .cache/watchlists.json,
 // {characterId: {hub: [...], market: [...]}}. Signed-out pages keep theirs in localStorage.
@@ -332,7 +349,8 @@ http.createServer(async (req, res) => {
   const scanMatch = u.pathname.match(/^\/api\/(scan|uscan|cscan)(\/result)?$/);
   const scanners = { scan: scanner, uscan: universeScanner, cscan: contractScanner };
   try {
-    if (u.pathname === '/api/config') send(res, 200, JSON.stringify({ serverScans: true }), { 'Content-Type': 'application/json' });
+    if (SCAN_SECRET && !isLocalRequest(req) && !hasScanSecret(req)) send(res, 403, 'Forbidden');
+    else if (u.pathname === '/api/config') send(res, 200, JSON.stringify({ serverScans: true }), { 'Content-Type': 'application/json' });
     else if (u.pathname.startsWith('/sso/') || u.pathname === '/api/me' || u.pathname.startsWith('/api/me/')) await ssoApi(req, res, u);
     else if (u.pathname === '/api/wanderer/connections') {
       // Carries a map token: only for pages on this machine, like the account endpoints.

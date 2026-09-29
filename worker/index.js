@@ -6,10 +6,14 @@
 //   - /sso/* and /api/me/*: EVE sign-in, one Session Durable Object per browser, keyed by an
 //     HttpOnly cookie. Tokens stay in that object's storage and never reach the page.
 //   - /api/wanderer/connections: a Wanderer mapper's connections, token forwarded (../wanderer.js)
-//   - /api/config: tells the pages to run the market scans in the browser (public/js/scan-client.js)
+//   - /api/{scan,uscan,cscan}*: forwarded to a scan server (server.js on your own machine, reached
+//     through a Cloudflare Tunnel) when SCAN_ORIGIN is set
+//   - /api/config: tells the pages whether that scan server is up; if not, they run the market scans
+//     in the browser (public/js/scan-client.js)
 //
 // Settings (Workers → Settings → Variables): EVE_CLIENT_ID (enables sign-in), EVE_CALLBACK_URL
-// (default: this site's /sso/callback), CONTACT (User-Agent contact for community APIs).
+// (default: this site's /sso/callback), CONTACT (User-Agent contact for community APIs),
+// SCAN_ORIGIN (the scan server's URL) and SCAN_SECRET (a secret; the same value as the server's).
 
 import { DurableObject } from 'cloudflare:workers';
 import { createSso } from '../sso.js';
@@ -45,7 +49,7 @@ export default {
     const url = new URL(request.url);
     const p = url.pathname;
     try {
-      if (p === '/api/config') return json(200, { serverScans: false, sso: !!env.EVE_CLIENT_ID, sharedContracts: !!env.CONTRACTS_DB });
+      if (p === '/api/config') return json(200, { serverScans: await scanServerUp(env), sso: !!env.EVE_CLIENT_ID, sharedContracts: !!env.CONTRACTS_DB });
       if (p === '/api/contract-items' && request.method === 'POST') return await contractItems(request, env, ctx);
       const m = p.match(/^\/api\/(tycoon|esi|fuzzwork|goon|adam4eve|evepraisal|zkill|mokaam)\/(.*)$/);
       if (m) return await proxy(request, env, ctx, m[1], m[2] + url.search);
@@ -55,7 +59,8 @@ export default {
         const r = await wandererConnections(url.searchParams, request.headers.get('x-wanderer-token'), userAgent(env));
         return new Response(r.body, { status: r.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
       }
-      if (/^\/api\/(scan|uscan|cscan)(\/|$)/.test(p)) return json(404, { error: 'Scans run in your browser on the hosted site' });
+      if (/^\/api\/(scan|uscan|cscan)(\/result)?$/.test(p) && env.SCAN_ORIGIN) return await scanServer(request, env, p + url.search);
+      if (/^\/api\/(scan|uscan|cscan)(\/|$)/.test(p)) return json(404, { error: 'Scans run in your browser on this site' });
       if (p.startsWith('/api/')) return json(404, { error: 'Not found' });
       return env.ASSETS.fetch(request);
     } catch (e) {
@@ -182,6 +187,39 @@ async function proxy(request, env, ctx, name, rest) {
   } catch (err) {
     if (hit) return respond(hit, 'STALE');
     return json(502, { error: String(err.message || err) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Scan server: server.js on your own machine runs the scans once for every visitor (README,
+// "Scans on your own server"). The pages ask /api/config once per load; while the server is down
+// they scan in the browser instead.
+// ---------------------------------------------------------------------------
+const SCAN_CHECK_MS = 30_000;
+let scanHealth = { up: false, at: 0 };
+
+const scanHeaders = (env) => ({ 'X-Scan-Secret': env.SCAN_SECRET || '', Accept: 'application/json' });
+
+async function scanServerUp(env) {
+  if (!env.SCAN_ORIGIN) return false;
+  if (Date.now() - scanHealth.at < SCAN_CHECK_MS) return scanHealth.up;
+  const up = await fetch(new URL('/api/config', env.SCAN_ORIGIN), { headers: scanHeaders(env), signal: AbortSignal.timeout(3000) })
+    .then(async r => r.ok && (await r.json()).serverScans === true).catch(() => false);
+  scanHealth = { up, at: Date.now() };
+  return up;
+}
+
+async function scanServer(request, env, pathAndQuery) {
+  if (!['GET', 'POST'].includes(request.method)) return json(405, { error: 'Method not allowed' });
+  try {
+    const r = await fetch(new URL(pathAndQuery, env.SCAN_ORIGIN), {
+      method: request.method, headers: scanHeaders(env), signal: AbortSignal.timeout(30_000),
+    });
+    if (r.status === 403) return json(502, { error: 'The scan server refused this site: check SCAN_SECRET' });
+    return new Response(r.body, { status: r.status, headers: { 'Content-Type': r.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store' } });
+  } catch (e) {
+    scanHealth = { up: false, at: Date.now() };
+    return json(502, { error: `Scan server unreachable (${e.message || e}); reload to scan in your browser` });
   }
 }
 
