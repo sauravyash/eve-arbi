@@ -361,6 +361,12 @@ function rangeContext() {
 }
 const loadStations = () => (stationNames ? Promise.resolve(stationNames)
   : fetch('data/stations.json').then(r => (r.ok ? r.json() : {})).catch(() => ({})).then(t => { stationNames ||= t; bump(); return stationNames; }));
+// High-sec-only routes can't leave a low-/null-sec home, so every station is filtered out; say why.
+function homeBlocked() {
+  if (!graph || settings.flag !== 'secure' || homeJumps(settings.home) != null) return null;
+  const sys = systemInfo(graph, settings.home);
+  return sys ? `${esc(sys.name)} (${secLabel(sys.sec)}) is not high-sec, so high-sec-only routes can't leave it and every station is filtered out. Set Route to Shortest, or choose a high-sec home system.` : null;
+}
 function homeJumps(systemId) {
   if (!graph) return null;
   const i = graph.indexOf.get(systemId);
@@ -531,7 +537,7 @@ function renderBoard() {
   const rows = sortRows(boardRows());
   $('boardCount').textContent = `· ${settings.items.length} item${settings.items.length === 1 ? '' : 's'}`;
   const home = graph ? systemInfo(graph, settings.home) : null;
-  $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''} · click a row for detail`;
+  $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''}${homeBlocked() ? ' (not high-sec: set Route to Shortest)' : ''} · click a row for detail`;
   if (!rows.length) {
     $('boardBody').innerHTML = `<tr class="empty"><td colspan="10">Your watchlist is empty. Add items with the <b>Add item</b> search above${watch.mode === 'account' ? ' — it’s saved to your character' : ''}.</td></tr>`;
     return;
@@ -628,6 +634,7 @@ function renderHauls(c, typeId) {
     <td>${r.jumps}</td><td>${num(r.units)}</td><td>${num(r.volume)}</td><td>${isk(r.cost)}</td>
     <td>${isk(r.buy)} → ${isk(r.sell)}</td><td>${pct(r.margin)}</td>
     <td class="metric">${isk(r.profit)}</td><td>${isk(r.perJump)}</td></tr>`).join('')
+    || (homeBlocked() ? `<tr class="empty"><td colspan="10">${homeBlocked()}</td></tr>` : '')
     || `<tr class="empty"><td colspan="10">No profitable station-to-station hauls with these settings${settings.flag === 'secure' ? ' (try Shortest route to include low-sec)' : ''}.</td></tr>`;
 }
 
@@ -639,9 +646,9 @@ function renderWhere(c) {
     <td>${jumpsCell(q.systemId)}</td></tr>`;
   const vsRef = (p, r) => (r ? (p - r) / r * 100 : null);
   $('buyWhere').innerHTML = c.cheapest.slice(0, 12).map(q => row(q, q.bestAsk, vsRef(q.bestAsk, ref.sell), q.askVolume, -1)).join('')
-    || '<tr class="empty"><td colspan="5">No sell orders outside the filters</td></tr>';
+    || `<tr class="empty"><td colspan="5">${homeBlocked() || 'No sell orders outside the filters'}</td></tr>`;
   $('sellWhere').innerHTML = c.dearest.slice(0, 12).map(q => row(q, q.bestBid, vsRef(q.bestBid, ref.buy), q.bidVolume, 1)).join('')
-    || '<tr class="empty"><td colspan="5">No buy orders outside the filters</td></tr>';
+    || `<tr class="empty"><td colspan="5">${homeBlocked() || 'No buy orders outside the filters'}</td></tr>`;
 }
 
 function renderSourceTable(id, c) {
