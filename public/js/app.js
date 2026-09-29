@@ -1,6 +1,6 @@
 import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
 import { scanClient, tabNote } from './scan-client.js';
-import { GalaxyMap } from './map.js';
+import { GalaxyMap, secColor, secLabel } from './map.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
 import { isNpcStation } from './market-merge.js';
@@ -395,8 +395,76 @@ function edgeTitle(s, r) {
   return lines.join('\n');
 }
 
+// In-game style route strip: one square per system, coloured by security. Each strip carries its
+// systems (data-path) and stop labels (data-mark), so the hover tip (bindRouteTip) works anywhere.
+// marks: [[index into path, label]]; defaults to pickup and drop-off.
+function routeStrip(path, marks) {
+  if (!path?.length || !trip.graph) return null;
+  const last = path.length - 1;
+  const at = new Map();
+  for (const [i, label] of marks || [[0, 'Pickup · buy here'], [last, 'Drop-off · sell here']]) at.set(i, at.has(i) ? `${at.get(i)} · ${label}` : label);
+  const squares = path.map((id, i) => {
+    const s = systemInfo(trip.graph, id);
+    const mark = at.get(i);
+    return `<i data-n="${i}"${mark ? ` class="end" data-mark="${esc(mark)}"` : ''} style="--sec:${s ? secColor(s.sec) : 'var(--faint)'}"></i>`;
+  }).join('');
+  return `<span class="route-strip" data-path="${path.join(',')}" role="img"
+    aria-label="${last} jump${last === 1 ? '' : 's'}: ${esc(path.map(sysName).join(', '))}">${squares}</span>`;
+}
+
+function bindRouteTip() {
+  const tip = document.createElement('div');
+  tip.className = 'route-tip';
+  tip.hidden = true;
+  document.body.append(tip);
+  document.addEventListener('mouseover', (e) => {
+    const sq = e.target.closest?.('.route-strip i');
+    if (!sq || !trip.graph) { tip.hidden = true; return; }
+    const path = sq.parentElement.dataset.path.split(',').map(Number);
+    const n = Number(sq.dataset.n), last = path.length - 1;
+    const s = systemInfo(trip.graph, path[n]);
+    const jumps = (k) => `${k} jump${k === 1 ? '' : 's'}`;
+    const where = [sq.dataset.mark, n === 0 ? '' : n === last ? jumps(last) : `${jumps(n)} in · ${last - n} to go`].filter(Boolean).join(' · ');
+    tip.innerHTML = s
+      ? `<b>${esc(s.name)}</b> <span class="sec" style="--sec:${secColor(s.sec)}">${secLabel(s.sec)}</span> <span class="reg">&lt; ${esc(s.region || '')}</span><div>${esc(where)}</div>`
+      : `<b>${esc(sysName(path[n]))}</b><div>${esc(where)}</div>`;
+    tip.hidden = false;
+    const r = sq.getBoundingClientRect();
+    tip.style.left = `${Math.max(4, Math.min(r.left - 8, innerWidth - tip.offsetWidth - 4))}px`;
+    tip.style.top = `${r.top - tip.offsetHeight - 6 < 4 ? r.bottom + 6 : r.top - tip.offsetHeight - 6}px`;
+  });
+}
+
+// The row picked in Best items / Single route, while the map is showing it.
+function focusPick() {
+  if (settings.graphItem !== 'scan') return null;
+  const pick = ui.scanPick ? scan.rows.find(r => r.key === ui.scanPick)
+    : ui.loadPick ? routeRows().find(r => r.key === ui.loadPick) : null;
+  return pick && (pick.from.hub?.id ?? null) === ui.selectedHub ? pick : null;
+}
+
 function renderFocus(routes) {
   const box = $('focus');
+  const tr = ui.tripPick && trip.result && trip.graph ? tripList().find(t => t.key === ui.tripPick) : null;
+  if (tr) {
+    const geo = tripGeometry(tr);
+    const last = geo.stops.at(-1);
+    box.innerHTML = `Multi-stop: <strong>${esc(sysName(settings.trips.start))}</strong> ${routeStrip(geo.path, tripMarks(geo.path, geo.marks)) || '→'}
+      <strong>${esc(sysName(last.systemId))}</strong> · ${geo.stops.length} stops · <span class="big">${formatIsk(tr.perJump)}</span> profit/jump
+      · ${formatIsk(tr.profit)} profit · ${tr.jumps} jumps`;
+    return;
+  }
+  const pick = focusPick();
+  if (pick) {
+    const path = pick.from.hub && pick.to.hub ? pathFor({ from: pick.from.hub, to: pick.to.hub })
+      : trip.graph ? pathBetween(travel(), pick.from.systemId, pick.to.systemId, tripFlag()) : null;
+    const what = pick.items ? `${pick.items.length} item${pick.items.length === 1 ? '' : 's'}` : esc(pick.name);
+    const jumps = pick.jumps == null ? '' : ` · ${pick.approach != null ? `${pick.approach} + ` : ''}${pick.jumps} jumps`;
+    box.innerHTML = `Picked: <strong>${esc(pick.from.name)}</strong> ${routeStrip(path) || '→'} <strong>${esc(pick.to.name)}</strong> · ${what}
+      ${pick.ppj != null ? `· <span class="big">${formatIsk(pick.ppj)}</span> profit/jump` : ''} · ${formatIsk(pick.profit)} profit${jumps}
+      ${pick.stale ? '<span class="badge stale">OLD</span>' : ''}`;
+    return;
+  }
   const scored = routes.filter(r => r.metric != null && (!ui.selectedHub || r.from.id === ui.selectedHub));
   const best = scored.reduce((acc, r) => better(r, acc), null);
   const where = ui.selectedHub ? `from <strong>${esc(hubById[ui.selectedHub].name)}</strong>` : 'overall';
@@ -407,12 +475,12 @@ function renderFocus(routes) {
     return;
   }
   if (best.metric <= 0) {
-    box.innerHTML = `No profitable route ${where} right now. Best is ${esc(best.from.name)} → ${esc(best.to.name)} (${esc(best.item.name)}) at ${formatIsk(best.metric)}/jump.`;
+    box.innerHTML = `No profitable route ${where} right now. Best is ${esc(best.from.name)} ${routeStrip(pathFor(best)) || '→'} ${esc(best.to.name)} (${esc(best.item.name)}) at ${formatIsk(best.metric)}/jump.`;
     return;
   }
   const unitLabel = settings.graphItem === 'scan' ? 'profit/jump (whole haul)'
     : settings.metric === 'depth' && settings.sellMode === 'instant' ? 'ISK/jump (depth)' : 'ISK/jump per unit';
-  box.innerHTML = `Best ${where}: <strong>${esc(best.from.name)} → ${esc(best.to.name)}</strong> · ${esc(best.item.name)}
+  box.innerHTML = `Best ${where}: <strong>${esc(best.from.name)}</strong> ${routeStrip(pathFor(best)) || '→'} <strong>${esc(best.to.name)}</strong> · ${esc(best.item.name)}
     · <span class="big">${formatIsk(best.metric)}</span> ${unitLabel}
     · ${best.jumps} jumps · buy ${formatIsk(best.buy)} / sell ${formatIsk(best.sell)}
     ${best.units != null ? ` · ${best.units.toLocaleString()} units deep (${formatIsk(best.depthProfit)})` : ''}
@@ -1297,6 +1365,15 @@ function tripCachePut(key, trips) {
 const sysName = (id) => (trip.graph ? systemInfo(trip.graph, id)?.name : null) || `System ${id}`;
 const stationName = (loc, sys) => trip.stations[loc]?.[0] || (isNpcStation(loc) ? `Station ${loc}` : `Structure in ${sysName(sys)}`);
 
+// Where each waypoint falls on a trip's path, for routeStrip: [[path index, label]].
+function tripMarks(path, marks) {
+  let i = 0;
+  return marks.map((m) => {
+    while (i < path.length - 1 && path[i] !== m.systemId) i++;
+    return [i, m.n ? `Stop ${m.n}: ${m.label.split(' — ')[1] || ''}` : 'Start'];
+  });
+}
+
 // Full gate path: start → first pickup → … → last drop-off, plus the numbered waypoints.
 function tripGeometry(tr) {
   const stops = tripStops(tr);
@@ -1319,12 +1396,12 @@ function tripGeometry(tr) {
 function selectTrip(tr) {
   ui.tripPick = tr?.key ?? null;
   ui.scanTrip = false;
-  if (!tr) { galaxy.setTrip(null); renderTrips(); return; }
+  if (!tr) { galaxy.setTrip(null); render(); return; }
   const geo = tripGeometry(tr);
   galaxy.setTrip({ path: geo.path, stops: geo.marks });
   if (settings.view !== 'map') setView('map');
   galaxy.fitPath(geo.path);
-  renderTrips();
+  render();
   $('mapView').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
@@ -1334,13 +1411,15 @@ function tripStopsHtml(tr) {
   const rows = [`<li><span class="n start">0</span><span class="where">${esc(sysName(at))}<small>start</small></span></li>`];
   geo.stops.forEach((st, i) => {
     const hop = tripDistFrom(at)(st.systemId);
+    const seg = hop ? pathBetween(travel(), at, st.systemId, tripFlag()) : null;
+    const strip = seg && routeStrip(seg, [[0, i ? `Stop ${i}` : 'Start'], [seg.length - 1, `Stop ${i + 1}`]]);
     at = st.systemId;
     const sell = st.sell ? `Sell <b>${formatIsk(st.sell.units, 1)} ${esc(st.sell.name)}</b>${copyButton(st.sell.name)} → <span class="up">+${formatIsk(st.sell.profit)}</span>` : '';
     const buy = st.buy ? `Buy <b>${formatIsk(st.buy.units, 1)} ${esc(st.buy.name)}</b>${copyButton(st.buy.name)} for ${formatIsk(st.buy.cost)}${st.buy.x ? ' (sell point uses ranged buy orders)' : ''}` : '';
     rows.push(`<li><span class="n">${i + 1}</span>
       <span class="where">${esc(stationName(st.locationId, st.systemId))}<small>${esc(sysName(st.systemId))}</small></span>
       <span class="act">${[sell, buy].filter(Boolean).join('<br>')}</span>
-      <span class="hop">${hop == null ? '' : hop === 0 ? 'same system' : `${hop} jump${hop === 1 ? '' : 's'} from previous stop`}</span></li>`);
+      <span class="hop">${hop == null ? '' : hop === 0 ? 'same system' : `${strip || ''}${hop} jump${hop === 1 ? '' : 's'} from previous stop`}</span></li>`);
   });
   return rows.join('');
 }
@@ -1598,6 +1677,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.selec
 bindTabs();
 bindScanFilters();
 bindLoads();
+bindRouteTip();
 bindTrips();
 fetch('data/types.json').then(r => r.json()).then(t => { trip.catalog = t; trip.memo = null; scan.memo = null; initShipList(t); render(); meCtl.reapply(); }).catch(() => { trip.catalog = {}; });
 fetch('data/stations.json').then(r => r.json()).then(t => { trip.stations = t; scan.memo = null; render(); }).catch(() => {});

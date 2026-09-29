@@ -211,6 +211,18 @@ label.check input { accent-color: var(--teal); }
 .focus { min-height: 44px; margin: 6px 4px 8px; font-size: 13px; color: var(--muted); }
 .focus strong { color: var(--text); }
 .focus .big { color: var(--teal); font: 600 15px var(--mono); }
+/* route strip: one square per system, security-coloured, pickup and drop-off hollow like the in-game route */
+.route-strip { display: inline-flex; flex-wrap: wrap; gap: 2px; vertical-align: middle; max-width: 100%; margin: 0 4px; padding: 3px 0; }
+.route-strip i { width: 9px; height: 9px; background: var(--sec); cursor: default; }
+.route-strip i.end { background: none; box-shadow: inset 0 0 0 2px var(--sec); }
+.route-strip i:hover { outline: 1px solid var(--text); outline-offset: 1px; }
+.route-tip {
+  position: fixed; pointer-events: none; z-index: 50; white-space: nowrap;
+  background: var(--tip-bg); color: var(--muted); border: 1px solid var(--line-2); border-radius: 6px;
+  padding: 5px 9px; font-size: 12px; box-shadow: 0 8px 24px var(--shadow);
+}
+.route-tip b { color: var(--text); }
+.route-tip .sec { font: 600 12px var(--mono); }
 .legend { list-style: none; padding: 10px 4px 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 .legend li { display: flex; align-items: center; gap: 6px; }
 .sw { display: inline-block; width: 22px; height: 0; border-top: 3px solid; border-radius: 2px; }
@@ -409,6 +421,8 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .trip-stops .act b { color: var(--text); font-weight: 600; }
 .trip-stops .act .up { color: var(--teal); }
 .trip-stops .hop { color: var(--faint); font-size: 11px; }
+.trip-stops .hop .route-strip { display: flex; margin: 2px 0 3px; }
+.trip-stops .hop .route-strip i { width: 8px; height: 8px; }
 
 /* security status text: inline --sec from secColor(); darkened in light theme so yellows stay legible */
 .sec[style*="--sec"] { color: var(--sec); }
