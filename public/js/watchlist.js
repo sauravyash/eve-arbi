@@ -31,6 +31,25 @@ export const itemPic = (typeId, name, size = 32) =>
   `<a class="item-pic" href="${wikiUrl(name)}" target="_blank" rel="noopener" title="${esc(name)} on EVE University wiki">`
   + `<img src="https://images.evetech.net/types/${typeId}/icon?size=${size <= 32 ? 32 : 64}" alt="" width="${size}" height="${size}" loading="lazy"></a>`;
 
+/** A small button that copies an item name to the clipboard (e.g. to paste into EVE's market search). */
+export const copyButton = (name) =>
+  `<button class="copy" type="button" data-copy="${esc(name)}" aria-label="Copy ${esc(name)}" title="Copy name">`
+  + '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg></button>';
+
+// One capture-phase handler for every copy button, so the click never reaches the row's own select handler.
+globalThis.document?.addEventListener('click', async (e) => {
+  const btn = e.target.closest?.('button[data-copy]');
+  if (!btn) return;
+  e.stopPropagation();
+  e.preventDefault();
+  let ok = true;
+  try { await navigator.clipboard.writeText(btn.dataset.copy); } catch { ok = false; }
+  btn.classList.add(ok ? 'done' : 'fail');
+  btn.title = ok ? 'Copied' : 'Copy failed';
+  clearTimeout(btn._t);
+  btn._t = setTimeout(() => { btn.classList.remove('done', 'fail'); btn.title = 'Copy name'; }, 1200);
+}, true);
+
 /** A Remove button; pages handle clicks on [data-remove]. */
 export const removeButton = (typeId, name) =>
   `<button class="del" type="button" data-remove="${typeId}" aria-label="Remove ${esc(name)} from watchlist" title="Remove from watchlist">`

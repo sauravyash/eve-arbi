@@ -10,7 +10,7 @@ import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges
 import { createMe } from './me.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
 import { scanClient, tabNote } from './scan-client.js';
-import { createWatchlist, itemPic, removeButton } from './watchlist.js';
+import { createWatchlist, itemPic, removeButton, copyButton } from './watchlist.js';
 import { normalizeMyOrder, orderStanding, expiresAt } from './orders.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
@@ -552,7 +552,7 @@ function renderBoard() {
         <small>${esc(sysName(r.haul.from.systemId))} → ${esc(sysName(r.haul.to.systemId))}</small></span>`
       : `<span class="muted">${graph ? 'none found' : 'loading map…'}</span>`;
     return `<tr data-id="${r.it.typeId}" class="${sel ? 'picked' : ''}">
-      <td class="l item">${itemPic(r.it.typeId, r.it.name, 28)}<span>${esc(r.it.name)}</span>
+      <td class="l item">${itemPic(r.it.typeId, r.it.name, 28)}<span>${esc(r.it.name)}</span>${copyButton(r.it.name)}
         ${loading ? '<i class="dot loading"></i>' : ''}${err ? `<span class="badge stale" title="${esc(r.errors.join('; '))}">ERR</span>` : ''}</td>
       <td>${isk(r.ref)}</td>
       <td class="l">${cheap}</td>
@@ -1029,7 +1029,7 @@ function renderUscan() {
   const watching = new Set(settings.items.map(i => i.typeId));
   body.innerHTML = rows.slice(0, us.limit).map((r, i) => `<tr data-t="${r.c.t}" class="${i === 0 ? 'top' : ''}">
     <td class="l rank">${i + 1}</td>
-    <td class="l item"><img src="${icon(r.c.t)}" alt="" width="24" height="24" loading="lazy"><span>${esc(r.name)}</span>${watching.has(r.c.t) ? '<span class="badge ov">watching</span>' : ''}</td>
+    <td class="l item"><img src="${icon(r.c.t)}" alt="" width="24" height="24" loading="lazy"><span>${esc(r.name)}</span>${copyButton(r.name)}${watching.has(r.c.t) ? '<span class="badge ov">watching</span>' : ''}</td>
     <td class="l">${placeHtml({ locationId: r.c.f, systemId: r.c.fs }, { compact: true })}<small class="muted">${r.homeJumps ?? '?'}j from home</small>${nearNote(r.nearPick, 'pickup')}${srcLinks(r.c.t, r.c.fs, 'sell')}</td>
     <td class="l">${placeHtml({ locationId: r.c.d, systemId: r.c.ds }, { compact: true })}${r.c.x
       ? '<small class="range-note" title="Some of the buy orders filled here were placed at other stations; their range reaches this one.">sells into ranged buy orders</small>' : ''}${nearNote(r.nearDrop, 'dropoff')}${srcLinks(r.c.t, r.c.ds, 'buy')}</td>
@@ -1127,7 +1127,7 @@ function renderMyOrders() {
     const left = expiresAt(o) - Date.now();
     return `<tr data-t="${o.typeId}" class="${bad({ s }) ? 'bad' : ''}">
       <td class="l"><span class="side ${o.isBuyOrder ? 'buy' : 'sell'}">${o.isBuyOrder ? 'BUY' : 'SELL'}</span>${o.owner === 'corporation' ? ' <span class="badge ov">corp</span>' : ''}</td>
-      <td class="l item"><img src="${icon(o.typeId)}" alt="" width="24" height="24" loading="lazy"><span>${esc(itemName(o.typeId))}</span></td>
+      <td class="l item"><img src="${icon(o.typeId)}" alt="" width="24" height="24" loading="lazy"><span>${esc(itemName(o.typeId))}</span>${copyButton(itemName(o.typeId))}</td>
       <td class="l">${placeHtml({ locationId: o.locationId, systemId: o.systemId }, { compact: true })}</td>
       <td>${isk(o.price)}</td><td>${num(o.volumeRemain)} / ${num(o.volumeTotal)}</td>
       <td>${isk(s.best)}</td><td class="l">${standing}</td>

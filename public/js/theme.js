@@ -8,7 +8,10 @@
   try { stored = localStorage.getItem(KEY); } catch {}
 
   const apply = (theme) => {
-    root.dataset.theme = theme;
+    if (root.dataset.theme !== theme) {
+      root.dataset.theme = theme;
+      dispatchEvent(new Event('themechange')); // canvases (star map) repaint
+    }
     const btn = document.getElementById('themeBtn');
     if (btn) {
       const label = `Switch to ${theme === 'light' ? 'dark' : 'light'} theme`;

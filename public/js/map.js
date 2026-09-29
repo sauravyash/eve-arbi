@@ -13,7 +13,30 @@ export const secBand = (s) => (s > 0 && s < 0.05 ? 1 : Math.max(-10, Math.min(10
 export const secLabel = (s) => (secBand(s) / 10).toFixed(1);
 export const secColor = (s) => SEC_COLORS[secBand(s) + 10];
 
-const TEAL = '#2dd4bf', EDGE = '#9fb3c8', AMBER = '#e0a74a', VIOLET = '#a78bfa';
+// Security colours for the light map: the same hues pulled 32% toward black so yellows read on a pale background.
+const SEC_COLORS_LIGHT = SEC_COLORS.map((hex) => '#' + [1, 3, 5].map((k) =>
+  Math.round(parseInt(hex.slice(k, k + 2), 16) * 0.68).toString(16).padStart(2, '0')).join(''));
+
+// Canvas palettes; the light one follows <html data-theme="light"> (js/theme.js).
+const PALETTES = {
+  dark: {
+    bg: '#05080c', gate: [110, 135, 160], gateAlpha: [0.12, 0.35], sec: SEC_COLORS, plain: '#7f93a8',
+    region: 'rgba(160, 180, 200, ALPHA)', name: 'rgba(170, 186, 204, 0.75)', hover: '#fff',
+    teal: '#2dd4bf', tealGlow: 'rgba(45,212,191,0.35)', edge: '#9fb3c8', amber: '#e0a74a',
+    violet: '#a78bfa', violetGlow: 'rgba(167,139,250,0.35)', onViolet: '#140d2b', tripText: '#e9e3ff',
+    halo: 'rgba(5,8,12,0.92)', hubFill: '#0b1117', hubRing: '#dbe4ee', hubText: '#eef3f8',
+    pill: 'rgba(11,15,20,0.92)', pillStrong: 'rgba(6,37,34,0.95)', glow: 14,
+  },
+  light: {
+    bg: '#eaeff4', gate: [96, 116, 140], gateAlpha: [0.18, 0.42], sec: SEC_COLORS_LIGHT, plain: '#7d8b9c',
+    region: 'rgba(70, 88, 110, ALPHA)', name: 'rgba(52, 66, 84, 0.85)', hover: '#17212c',
+    teal: '#0b7d72', tealGlow: 'rgba(11,125,114,0.22)', edge: '#6a8098', amber: '#a86400',
+    violet: '#7045d6', violetGlow: 'rgba(112,69,214,0.22)', onViolet: '#ffffff', tripText: '#3b1f8f',
+    halo: 'rgba(234,239,244,0.95)', hubFill: '#ffffff', hubRing: '#17212c', hubText: '#17212c',
+    pill: 'rgba(255,255,255,0.95)', pillStrong: 'rgba(226,244,240,0.97)', glow: 8,
+  },
+};
+const palette = () => PALETTES[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
 const MIN_SCALE = 0.5, MAX_SCALE = 400; // px per light year
 
 export class GalaxyMap {
@@ -32,6 +55,7 @@ export class GalaxyMap {
     this._raf = 0;
 
     new ResizeObserver(() => this.resize()).observe(canvas);
+    addEventListener('themechange', () => this.draw());
     this.bindInput();
   }
 
@@ -279,7 +303,8 @@ export class GalaxyMap {
     if (!w || !h) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#05080c';
+    const P = palette();
+    ctx.fillStyle = P.bg;
     ctx.fillRect(0, 0, w, h);
     if (!this.u) return;
     if (!this.fitted && this.model) this.fitHubs();
@@ -300,7 +325,7 @@ export class GalaxyMap {
       if (!onScreen(a, 200) && !onScreen(b, 200)) continue;
       ctx.moveTo(sx[a], sy[a]); ctx.lineTo(sx[b], sy[b]);
     }
-    ctx.strokeStyle = `rgba(110, 135, 160, ${clamp(0.1 + scale / 120, 0.12, 0.35)})`;
+    ctx.strokeStyle = `rgba(${P.gate}, ${clamp(0.1 + scale / 120, ...P.gateAlpha)})`;
     ctx.lineWidth = 0.7;
     ctx.stroke();
 
@@ -311,7 +336,7 @@ export class GalaxyMap {
     ctx.globalAlpha = this.model?.sel || this.model?.top ? 0.55 : 0.8;
     buckets.forEach((idx, band) => {
       if (!idx.length) return;
-      ctx.fillStyle = this.secColors ? SEC_COLORS[band] : '#7f93a8';
+      ctx.fillStyle = this.secColors ? P.sec[band] : P.plain;
       ctx.beginPath();
       for (const i of idx) { ctx.moveTo(sx[i] + r, sy[i]); ctx.arc(sx[i], sy[i], r, 0, Math.PI * 2); }
       ctx.fill();
@@ -325,7 +350,7 @@ export class GalaxyMap {
     for (let i = 0; i < n; i++) if (onScreen(i, 0)) visible++;
     if (visible > 220) {
       ctx.font = '600 10px "Segoe UI", system-ui, sans-serif';
-      ctx.fillStyle = `rgba(160, 180, 200, ${scale < 3 ? 0.4 : 0.55})`;
+      ctx.fillStyle = P.region.replace('ALPHA', scale < 3 ? 0.4 : 0.55);
       this.u.regionCentre[this.layout].forEach((c, ri) => {
         if (!c) return;
         const px = c[0] * scale + ox, py = c[1] * scale + oy;
@@ -334,16 +359,16 @@ export class GalaxyMap {
       });
     } else {
       ctx.font = '10px "Segoe UI", system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(170, 186, 204, 0.75)';
+      ctx.fillStyle = P.name;
       for (let i = 0; i < n; i++) if (onScreen(i, 0)) ctx.fillText(this.u.name[i], sx[i], sy[i] + r + 7);
     }
 
-    this.paintRoutes(ctx, sx, sy);
-    this.paintHubs(ctx, sx, sy);
-    this.paintTrip(ctx, sx, sy);
+    this.paintRoutes(ctx, sx, sy, P);
+    this.paintHubs(ctx, sx, sy, P);
+    this.paintTrip(ctx, sx, sy, P);
 
     if (this.hover >= 0) {
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = P.hover;
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(sx[this.hover], sy[this.hover], r + 4, 0, Math.PI * 2); ctx.stroke();
     }
@@ -360,7 +385,7 @@ export class GalaxyMap {
     return pts.length > 1 ? pts : null;
   }
 
-  paintRoutes(ctx, sx, sy) {
+  paintRoutes(ctx, sx, sy, P) {
     const m = this.model;
     if (!m) return;
     ctx.lineJoin = 'round';
@@ -376,12 +401,12 @@ export class GalaxyMap {
       if (!pts) continue;
       const isTop = s === m.top;
       const ratio = m.maxV > 0 ? Math.sqrt(s.route.metric / m.maxV) : 0;
-      const color = s.route.stale ? AMBER : isTop ? TEAL : EDGE;
+      const color = s.route.stale ? P.amber : isTop ? P.teal : P.edge;
       ctx.setLineDash(s.route.stale ? [8, 6] : []);
       if (isTop) {
         ctx.save();
-        ctx.shadowColor = TEAL; ctx.shadowBlur = 14;
-        stroke(ctx, pts, 'rgba(45,212,191,0.35)', 9, fade);
+        ctx.shadowColor = P.teal; ctx.shadowBlur = P.glow;
+        stroke(ctx, pts, P.tealGlow, 9, fade);
         ctx.restore();
       }
       stroke(ctx, pts, color, isTop ? 3.2 : 1.4 + ratio * 2.6, (isTop ? 1 : 0.35 + 0.5 * ratio) * fade);
@@ -397,11 +422,11 @@ export class GalaxyMap {
       if (this.trip || (!isTop && !m.sel)) continue;
       const [lx, ly] = pts[Math.floor(pts.length / 2)];
       const text = `${formatIsk(s.route.metric, s.route.metric >= 1e6 ? 2 : 1)}/j · ${s.route.jumps}j`;
-      pill(ctx, text, lx, ly - 16, isTop ? TEAL : EDGE, isTop);
+      pill(ctx, text, lx, ly - 16, isTop ? P.teal : P.edge, isTop ? P.pillStrong : P.pill);
     }
   }
 
-  paintTrip(ctx, sx, sy) {
+  paintTrip(ctx, sx, sy, P) {
     const t = this.trip;
     if (!t) return;
     const pts = [];
@@ -412,11 +437,11 @@ export class GalaxyMap {
     if (pts.length > 1) {
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.save();
-      ctx.shadowColor = VIOLET; ctx.shadowBlur = 12;
-      stroke(ctx, pts, 'rgba(167,139,250,0.35)', 9);
+      ctx.shadowColor = P.violet; ctx.shadowBlur = P.glow;
+      stroke(ctx, pts, P.violetGlow, 9);
       ctx.restore();
-      stroke(ctx, pts, VIOLET, 3);
-      arrows(ctx, pts, VIOLET, 80, 5.5);
+      stroke(ctx, pts, P.violet, 3);
+      arrows(ctx, pts, P.violet, 80, 5.5);
     }
     // Numbered waypoints; several stops in one system share a marker.
     const bySystem = new Map();
@@ -434,21 +459,21 @@ export class GalaxyMap {
       ctx.font = '700 11px "Segoe UI", system-ui, sans-serif';
       const r = Math.max(10, ctx.measureText(label).width / 2 + 6);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = VIOLET; ctx.fill();
-      ctx.lineWidth = 2; ctx.strokeStyle = '#05080c'; ctx.stroke();
-      ctx.fillStyle = '#140d2b'; ctx.textAlign = 'center';
+      ctx.fillStyle = P.violet; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = P.bg; ctx.stroke();
+      ctx.fillStyle = P.onViolet; ctx.textAlign = 'center';
       ctx.fillText(label, x, y + 0.5);
       const text = list.map(st => st.label).join(' · ');
       ctx.font = '600 11.5px "Segoe UI", system-ui, sans-serif';
       ctx.textAlign = 'left';
-      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(5,8,12,0.92)';
+      ctx.lineWidth = 4; ctx.strokeStyle = P.halo;
       ctx.strokeText(text, x + r + 5, y);
-      ctx.fillStyle = '#e9e3ff';
+      ctx.fillStyle = P.tripText;
       ctx.fillText(text, x + r + 5, y);
     }
   }
 
-  paintHubs(ctx, sx, sy) {
+  paintHubs(ctx, sx, sy, P) {
     const m = this.model;
     if (!m) return;
     const topR = m.top?.route;
@@ -459,18 +484,18 @@ export class GalaxyMap {
       const isSrc = m.sel ? h.id === m.sel : topR?.from.id === h.id;
       const isDst = topR && (!m.sel || topR.from.id === m.sel) && topR.to.id === h.id;
       ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2);
-      ctx.fillStyle = isSrc ? TEAL : '#0b1117';
+      ctx.fillStyle = isSrc ? P.teal : P.hubFill;
       ctx.fill();
       ctx.lineWidth = 2;
-      ctx.strokeStyle = isSrc || isDst ? TEAL : '#dbe4ee';
+      ctx.strokeStyle = isSrc || isDst ? P.teal : P.hubRing;
       ctx.stroke();
       ctx.font = '600 13px "Segoe UI", system-ui, sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.lineWidth = 4;
-      ctx.strokeStyle = 'rgba(5,8,12,0.9)';
+      ctx.strokeStyle = P.halo;
       ctx.strokeText(h.name, x + 12, y);
-      ctx.fillStyle = isSrc || isDst ? TEAL : '#eef3f8';
+      ctx.fillStyle = isSrc || isDst ? P.teal : P.hubText;
       ctx.fillText(h.name, x + 12, y);
     }
   }
@@ -511,12 +536,12 @@ function arrows(ctx, pts, color, spacing, size) {
   }
 }
 
-function pill(ctx, text, x, y, color, strong) {
+function pill(ctx, text, x, y, color, fill) {
   ctx.font = '600 11px ui-monospace, "Cascadia Mono", Consolas, monospace';
   const w = ctx.measureText(text).width + 14, h = 20;
   ctx.beginPath();
   ctx.roundRect(x - w / 2, y - h / 2, w, h, 10);
-  ctx.fillStyle = strong ? 'rgba(6,37,34,0.95)' : 'rgba(11,15,20,0.92)';
+  ctx.fillStyle = fill;
   ctx.fill();
   ctx.lineWidth = 1;
   ctx.strokeStyle = color;

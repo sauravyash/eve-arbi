@@ -6,7 +6,7 @@ import { createShortcuts, mountToggle } from './shortcuts.js';
 import { isNpcStation } from './market-merge.js';
 import { evaluateLegs, planTrips, tripStops, SHIP_CATEGORY } from './trips.js';
 import { createMe } from './me.js';
-import { createWatchlist, itemPic, removeButton } from './watchlist.js';
+import { createWatchlist, itemPic, removeButton, copyButton } from './watchlist.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { shipHolds, capacityFor } from './holds.js';
 import { packRoute, multibuyText } from './manifest.js';
@@ -435,7 +435,7 @@ function renderItems() {
     const li = document.createElement('li');
     const tip = { ok: 'Fresh', loading: 'Loading…', stale: `Stale: ${m?.error || ''}`, error: `Failed: ${m?.error || ''}`, cached: 'Saved from last session — refresh for live data', none: 'Not loaded' }[status];
     li.innerHTML = `${itemPic(item.typeId, item.name, 24)}<span class="dot ${status === 'cached' ? 'stale' : status}" title="${esc(tip)}"></span>
-      <span class="nm" title="${esc(item.name)}">${esc(item.name)}</span><span class="id">${item.typeId}</span>
+      <span class="nm" title="${esc(item.name)}">${esc(item.name)}</span>${copyButton(item.name)}<span class="id">${item.typeId}</span>
       ${removeButton(item.typeId, item.name)}`;
     li.querySelector('[data-remove]').addEventListener('click', () => removeItem(item.typeId));
     return li;
@@ -627,7 +627,7 @@ function renderTable(routes) {
   body.innerHTML = rows.map((r, i) => `
     <tr data-i="${i}" class="${r === topRow && r.metric > 0 ? 'top' : ''}">
       <td class="l">${esc(r.from.name)}<span class="arrow">→</span>${esc(r.to.name)}${r.stale ? '<span class="badge stale">STALE</span>' : ''}${r.overridden ? '<span class="badge ov">OVR</span>' : ''}</td>
-      <td class="l">${esc(r.item.name)}</td>
+      <td class="l">${esc(r.item.name)}${copyButton(r.item.name)}</td>
       <td>${r.jumps ?? '<span class="muted">?</span>'}</td>
       <td>${n(r.buy)}</td>
       <td>${n(r.sell)}</td>
@@ -1004,7 +1004,7 @@ function renderScanTable() {
     <tr data-i="${i}" class="${i === 0 ? 'top' : ''} ${row.key === ui.scanPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
       <td class="l item" title="${esc(row.name)}"><button class="star ${w ? 'on' : ''}" type="button" data-star
-        aria-label="${w ? 'In watchlist' : `Add ${esc(row.name)} to watchlist`}">${w ? '★' : '☆'}</button>${esc(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
+        aria-label="${w ? 'In watchlist' : `Add ${esc(row.name)} to watchlist`}">${w ? '★' : '☆'}</button>${esc(row.name)}${copyButton(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
       <td class="l">${loc(row.from)}</td>
       <td class="l">${loc(row.to, row.ranged ? '<small class="note">sells into ranged buy orders</small>' : '')}</td>
       <td>${jumpsCell}</td>
@@ -1088,7 +1088,7 @@ function renderLoadDetail(rt) {
   $('loadItems').innerHTML = rt.items.map(e => {
     const holds = Object.keys(e.used).filter(p => p !== 'cargo').map(p => holdName[p]).filter(Boolean);
     const px = e.worstBuy !== e.buy || e.worstSell !== e.sell ? `${n(e.buy)}–${n(e.worstBuy)} → ${n(e.sell)}–${n(e.worstSell)}` : `${n(e.buy)} → ${n(e.sell)}`;
-    return `<tr><td class="l">${esc(e.name)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
+    return `<tr><td class="l">${esc(e.name)}${copyButton(e.name)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
       <td>${e.units.toLocaleString()}</td><td>${Math.round(e.volume).toLocaleString()}</td><td>${px}</td><td>${n(e.profit)}</td></tr>`;
   }).join('') + `<tr class="total"><td class="l"><b>Total</b></td><td></td><td><b>${Math.round(rt.volume).toLocaleString()}</b></td>
     <td><b>${n(rt.cost)}</b> spent</td><td><b>${n(rt.profit)}</b></td></tr>`;

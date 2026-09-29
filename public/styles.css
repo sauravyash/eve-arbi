@@ -413,8 +413,6 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 /* security status text: inline --sec from secColor(); darkened in light theme so yellows stay legible */
 .sec[style*="--sec"] { color: var(--sec); }
 :root[data-theme=light] .sec[style*="--sec"] { color: color-mix(in oklab, var(--sec) 62%, #000); }
-/* the star map is always a dark "space" viewport */
-.map-msg { color: #8494a6; }
 
 /* theme toggle */
 .theme-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 8px;
@@ -429,3 +427,14 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .wh-toggle { flex-direction: row !important; align-items: center; gap: 5px; align-self: flex-end; padding-bottom: 7px; font-size: 12px; }
 .wh-toggle a { color: var(--teal); text-decoration: none; }
 .wh-toggle a:hover { text-decoration: underline; }
+
+/* copy-name button beside item names (watchlist.js copyButton) */
+.copy { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; margin: 0 2px 0 5px; vertical-align: -4px;
+  background: none; border: 1px solid transparent; border-radius: 5px; color: var(--faint); cursor: pointer; opacity: .55; }
+.copy svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+tr:hover .copy, li:hover .copy, .copy:focus-visible { opacity: 1; }
+.copy:hover { color: var(--teal); border-color: var(--line-2); background: var(--bg-2); }
+.copy:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+.copy.done { opacity: 1; color: var(--teal); border-color: var(--teal-dim); }
+.copy.fail { opacity: 1; color: var(--red); }
+.item-list .copy { flex: none; margin: 0; }

@@ -13,6 +13,7 @@ import { createShortcuts, mountToggle } from './shortcuts.js';
 import { scanClient, tabNote } from './scan-client.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
+import { copyButton } from './watchlist.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -255,7 +256,7 @@ function renderItems() {
     const open = cs.open === c.id;
     return `<tr data-id="${c.id}" class="${i === 0 ? 'top' : ''}${open ? ' open' : ''}">
       <td class="l rank">${i + 1}</td>
-      <td class="l item">${t0 != null ? `<img src="${icon(t0)}" alt="" width="24" height="24" loading="lazy">` : ''}<span title="${esc(label.main)}">${esc(label.main)}</span>
+      <td class="l item">${t0 != null ? `<img src="${icon(t0)}" alt="" width="24" height="24" loading="lazy">` : ''}<span title="${esc(label.main)}">${esc(label.main)}</span>${t0 != null ? copyButton(typeName(t0)) : ''}
         ${label.sub ? `<small>${esc(label.sub)}</small>` : ''}${notes.length ? `<small class="${row.unpriced || row.thin ? 'warn' : ''}">${esc(notes.join(' · '))}</small>` : ''}</td>
       <td class="l">${placeHtml(c.l, c.s, c.g)}</td>
       <td>${row.jumps ?? '?'}<small class="sub">${row.jHome ?? '?'} + ${row.jHaul ?? '?'} to ${esc(hub.name)}</small></td>
@@ -278,7 +279,7 @@ function itemsDetail(row) {
     const [bid, ask] = px[t]?.[hub.id] || [];
     const cls = !inc ? 'want' : bpc ? 'bpc' : '';
     const unit = bpc ? null : !inc ? ask : settings.mode === 'relist' ? (ask ?? bid) : bid;
-    return `<tr class="${cls}"><td class="l item"><img src="${icon(t)}" alt="" width="20" height="20" loading="lazy">${esc(typeName(t))}
+    return `<tr class="${cls}"><td class="l item"><img src="${icon(t)}" alt="" width="20" height="20" loading="lazy">${esc(typeName(t))}${copyButton(typeName(t))}
         ${bpc ? ' <span class="badge ov">BPC</span>' : ''}${!inc ? ' <span class="badge stale">you supply</span>' : ''}</td>
       <td>${num(q)}</td><td>${isk(bid)}</td><td>${isk(ask)}</td><td>${unit == null ? '—' : isk(unit * q)}</td></tr>`;
   }).join('');
@@ -513,7 +514,7 @@ function renderLp(fetchVolumes = true) {
     const unit = prices[o.type_id];
     return `<tr class="${i === 0 && r.perLp > 0 ? 'top' : ''}">
       <td class="l rank">${i + 1}</td>
-      <td class="l item"><img src="${icon(o.type_id)}" alt="" width="24" height="24" loading="lazy"><span>${o.quantity > 1 ? `${num(o.quantity)} × ` : ''}${esc(typeName(o.type_id))}</span>
+      <td class="l item"><img src="${icon(o.type_id)}" alt="" width="24" height="24" loading="lazy"><span>${o.quantity > 1 ? `${num(o.quantity)} × ` : ''}${esc(typeName(o.type_id))}</span>${copyButton(typeName(o.type_id))}
         ${r.bp ? '<small class="warn">blueprint copy — value depends on manufacturing</small>' : ''}</td>
       <td>${num(o.lp_cost)}</td><td>${isk(o.isk_cost)}</td>
       <td>${req ? `${isk(r.reqCost)}<small class="sub" title="${esc(req)}">${esc(req)}</small>` : '—'}${r.reqMissing ? '<small class="warn">some not on the market</small>' : ''}</td>

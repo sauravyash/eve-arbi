@@ -12,7 +12,7 @@ import { priceLoad, parsePaste } from './mining-value.js';
 import { shortcutsOn, isJSpace } from './wormholes.js';
 import { createShortcuts, SOURCE_LABEL } from './shortcuts.js';
 import { createMe } from './me.js';
-import { itemPic, removeButton } from './watchlist.js';
+import { itemPic, removeButton, copyButton } from './watchlist.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 
@@ -223,7 +223,7 @@ function renderLoad(v) {
     const price = (line) => (line?.best != null ? isk(line.best) : '—');
     const status = b?.loading ? '<span class="muted">loading…</span>' : b?.error ? `<span class="neg" title="${esc(b.error)}">failed</span>` : null;
     return `<tr data-t="${t}">
-      <td class="l item">${itemPic(t, name, 24)} <span>${esc(name)}</span>${kind ? `<span class="badge ov">${KIND_LABEL[kind]}</span>` : ''}</td>
+      <td class="l item">${itemPic(t, name, 24)} <span>${esc(name)}</span>${copyButton(name)}${kind ? `<span class="badge ov">${KIND_LABEL[kind]}</span>` : ''}</td>
       <td><input class="qty" type="text" inputmode="numeric" data-qty="${t}" value="${it.qty}" aria-label="Units of ${esc(name)}"></td>
       <td>${num(it.qty * (types?.[t]?.[1] || 0))}</td>
       <td>${status || price(p?.jita)}</td>
@@ -282,7 +282,7 @@ function renderStations(v) {
     if (ui.open !== r.locationId) return main;
     const lines = r.lines.map(l => {
       const it = load.items.find(x => x.typeId === l.typeId);
-      return `<tr><td class="l">${esc(typeName(l.typeId))}</td><td>${num(l.units)} / ${num(it?.qty)}</td><td>${l.units ? isk(avg(l)) : '—'}</td>
+      return `<tr><td class="l">${esc(typeName(l.typeId))}${copyButton(typeName(l.typeId))}</td><td>${num(l.units)} / ${num(it?.qty)}</td><td>${l.units ? isk(avg(l)) : '—'}</td>
         <td>${l.best != null ? isk(l.best) : '—'}</td><td>${isk(l.isk)}</td></tr>`;
     }).join('');
     return `${main}<tr class="items-row"><td></td><td colspan="6" class="l">
@@ -303,7 +303,7 @@ function renderPerItem(v) {
     const nl = p.near?.lines[p.k], al = p.any?.lines[p.k];
     const partial = (l) => (l && l.units < p.qty ? ` <small class="warn-num" title="Only ${num(l.units)} of ${num(p.qty)} units sell there">${Math.round(l.units / p.qty * 100)}%</small>` : '');
     return `<tr class="static">
-      <td class="l item">${itemPic(p.typeId, typeName(p.typeId), 24)} <span>${esc(typeName(p.typeId))}</span></td>
+      <td class="l item">${itemPic(p.typeId, typeName(p.typeId), 24)} <span>${esc(typeName(p.typeId))}</span>${copyButton(typeName(p.typeId))}</td>
       <td>${num(p.qty)}</td>
       ${nearPlace}${nearJumps}
       <td>${nl?.units ? isk(avg(nl)) : '—'}</td>
