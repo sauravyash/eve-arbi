@@ -297,9 +297,9 @@ function renderGraph({ shown, top, maxV, sel }) {
   el('feGaussianBlur', { stdDeviation: '3.5', result: 'b' }, glow);
   const merge = el('feMerge', {}, glow);
   el('feMergeNode', { in: 'b' }, merge); el('feMergeNode', { in: 'SourceGraphic' }, merge);
-  for (const [id, color] of [['ah-best', '#2dd4bf'], ['ah-pos', '#8aa0b8']]) {
+  for (const [id, color] of [['ah-best', 'var(--teal)'], ['ah-pos', 'var(--edge)']]) {
     const mk = el('marker', { id, viewBox: '0 0 10 10', refX: '5', refY: '5', markerWidth: '3.2', markerHeight: '3.2', orient: 'auto', markerUnits: 'strokeWidth' }, defs);
-    el('path', { d: 'M1,1 L9,5 L1,9 z', fill: color }, mk);
+    el('path', { d: 'M1,1 L9,5 L1,9 z', style: `fill: ${color}` }, mk);
   }
   el('rect', { class: 'bg', x: 0, y: 0, width: 640, height: 560 }, svg).addEventListener('click', () => selectHub(null));
 

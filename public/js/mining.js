@@ -98,7 +98,7 @@ function secSpan(id) {
   const i = base?.indexOf.get(id);
   if (i == null) return isJSpace(id) ? '<span class="sec wh">WH</span>' : '';
   const sec = base.sec[i];
-  return `<span class="sec" style="color:${secColor(sec)}">${secLabel(sec)}</span>`;
+  return `<span class="sec" style="--sec:${secColor(sec)}">${secLabel(sec)}</span>`;
 }
 
 // Every shortcut on offer, newest first; `use` is false for ones you switched off.

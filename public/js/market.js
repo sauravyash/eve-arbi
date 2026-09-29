@@ -417,7 +417,7 @@ const SRC_LETTER = { esi: 'E', tycoon: 'T', fuzzwork: 'F', goon: 'G', evepraisal
 
 function secSpan(sec) {
   if (sec == null) return '';
-  return `<span class="sec" style="color:${secColor(sec)}">${secLabel(sec)}</span>`;
+  return `<span class="sec" style="--sec:${secColor(sec)}">${secLabel(sec)}</span>`;
 }
 // "Station name" with system, security and region, for any location in the merged book.
 function placeHtml(q, { compact = false } = {}) {

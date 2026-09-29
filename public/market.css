@@ -1,5 +1,5 @@
 /* Market watch page — builds on styles.css tokens and components. */
-:root { --up: #4ade80; --down: #f0716b; --tyc: #a78bfa; }
+:root { --up: var(--green); --down: var(--red); --tyc: var(--violet); }
 
 .controls label.grow { flex: 1; min-width: 240px; max-width: 520px; }
 .controls .picker { display: block; margin: 0; }
@@ -90,13 +90,13 @@ table.mini { margin-top: 8px; }
 .c-axis { fill: var(--faint); font: 10.5px var(--mono); }
 .c-band { fill: rgba(45,212,191,.1); }
 .c-line { fill: none; stroke: var(--teal); stroke-width: 1.8; stroke-linejoin: round; }
-.c-vol { fill: #2a3847; }
+.c-vol { fill: var(--vol); }
 .c-vol.tyc { fill: var(--tyc); opacity: .55; }
 .c-cross { stroke: var(--faint); stroke-dasharray: 3 3; }
 .c-dot { fill: var(--teal); stroke: var(--bg); stroke-width: 2; }
 .c-empty { fill: var(--muted); font-size: 13px; text-anchor: middle; }
 .sw.band { border-top-width: 8px; border-color: rgba(45,212,191,.25); }
-.sw.vol { border-top-width: 8px; border-color: #2a3847; width: 10px; }
+.sw.vol { border-top-width: 8px; border-color: var(--vol); width: 10px; }
 .sw.tyc { border-top-width: 8px; border-color: var(--tyc); width: 10px; opacity: .7; }
 .chart-wrap .map-tip { width: 200px; }
 
@@ -164,7 +164,7 @@ td .place + small { display: block; font-size: 10.5px; }
 .orders-table td.item img { vertical-align: middle; margin-right: 8px; border-radius: 4px; background: var(--bg); }
 .orders-table .side { font: 600 10.5px system-ui; padding: 2px 6px; border-radius: 4px; }
 .orders-table .side.sell { background: rgba(45,212,191,.14); color: var(--teal); }
-.orders-table .side.buy { background: rgba(167,139,250,.16); color: #a78bfa; }
+.orders-table .side.buy { background: rgba(167,139,250,.16); color: var(--tyc); }
 .orders-table .standing.best { color: var(--up); }
 .orders-table .standing.bad { color: var(--down); font-weight: 600; }
 .orders-table .standing small { display: block; color: var(--faint); font-weight: 400; font-size: 10.5px; }

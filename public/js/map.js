@@ -248,7 +248,7 @@ export class GalaxyMap {
     const { name, sec, region, regions } = this.u;
     const onRoutes = this.routesThrough(this.u.id[i]);
     const t = this.tooltip;
-    t.innerHTML = `<b>${esc(name[i])}</b> <span class="sec" style="color:${secColor(sec[i])}">${secLabel(sec[i])}</span>
+    t.innerHTML = `<b>${esc(name[i])}</b> <span class="sec" style="--sec:${secColor(sec[i])}">${secLabel(sec[i])}</span>
       <div class="reg">${esc(regions[region[i]].name)}</div>
       ${hub ? '<div class="hint">Click to show best outgoing route</div>' : ''}
       ${onRoutes.length ? `<div class="on">${onRoutes.map(esc).join('<br>')}</div>` : ''}`;

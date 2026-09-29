@@ -84,7 +84,7 @@ function left(ms) {
   if (d <= 0) return 'expired';
   return d > 86_400_000 ? `${Math.floor(d / 86_400_000)}d` : `${Math.ceil(d / 3_600_000)}h`;
 }
-const secSpan = (sec) => (sec == null ? '' : `<span class="sec" style="color:${secColor(sec)}">${secLabel(sec)}</span>`);
+const secSpan = (sec) => (sec == null ? '' : `<span class="sec" style="--sec:${secColor(sec)}">${secLabel(sec)}</span>`);
 
 // "Station name" with system, security and region. Structures have no public names.
 function placeHtml(locationId, systemId, regionId) {

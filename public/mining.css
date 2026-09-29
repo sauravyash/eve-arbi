@@ -23,8 +23,8 @@
 .mn-lines { width: auto; min-width: 520px; }
 .mn-lines td { padding: 4px 10px; font-size: 12px; }
 .routes .warn-num { color: var(--amber); }
-.wh-mark { color: var(--tyc, #a78bfa); margin-left: 3px; font-family: system-ui, sans-serif; }
-.sec.wh { color: var(--tyc, #a78bfa); }
+.wh-mark { color: var(--tyc); margin-left: 3px; font-family: system-ui, sans-serif; }
+.sec.wh { color: var(--tyc); }
 .mn-wh tr.off td { opacity: .5; }
 .mn-wh-opts { align-items: flex-end; }
 .mn-wh-opts .check { flex-direction: row; align-items: center; padding-bottom: 7px; }
