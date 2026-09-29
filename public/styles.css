@@ -112,16 +112,26 @@ label.check input { accent-color: var(--teal); }
 .layout {
   display: grid; gap: 16px; padding: 16px 24px 32px;
   grid-template-columns: minmax(0, 1fr) 360px;
-  grid-template-areas: "graph side" "trips trips" "scan scan" "load load" "table table";
+  grid-template-areas: "graph side" "tabs tabs" "work work";
 }
 @media (max-width: 1000px) {
-  .layout { grid-template-columns: 1fr; grid-template-areas: "graph" "side" "trips" "scan" "load" "table"; padding: 12px; }
+  .layout { grid-template-columns: 1fr; grid-template-areas: "graph" "side" "tabs" "work"; padding: 12px; }
   .topbar, .controls { padding-left: 12px; padding-right: 12px; }
 }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
 .graph-panel { grid-area: graph; display: flex; flex-direction: column; }
 .side { grid-area: side; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.table-panel { grid-area: table; min-width: 0; }
+.table-panel { grid-area: work; min-width: 0; }
+.layout > [data-section][hidden] { display: none; }
+/* Section tabs: one of the four lower panels at a time, bar stays reachable while scrolling. */
+.section-tabs { grid-area: tabs; position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
+  margin: 0 -4px -4px; padding: 6px 4px; background: var(--bg); }
+.section-tabs .tabs { max-width: 100%; overflow-x: auto; }
+.section-tabs .tabs button { white-space: nowrap; }
+.section-tabs .tab-n { color: var(--faint); font-weight: 400; font-size: 11.5px; margin-left: 3px; }
+.section-tabs .tab-n:empty { display: none; }
+.section-tabs .keys { margin: 0; }
+@media (max-width: 700px) { .section-tabs .keys { display: none; } }
 
 /* graph */
 #graph { width: 100%; height: auto; max-height: 68vh; display: block; user-select: none; }
@@ -285,8 +295,8 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
   background: linear-gradient(90deg, #2fefef, #48f0c0, #00ef47, #00f000, #8fef2f, #efef00, #d77700, #f06000, #f04800, #d73000, #f00000, #da0636, #b6115f, #921981, #6e1f9e); }
 
 /* whole-market scan */
-.scan-panel { grid-area: scan; min-width: 0; }
-.load-panel { grid-area: load; min-width: 0; }
+.scan-panel { grid-area: work; min-width: 0; }
+.load-panel { grid-area: work; min-width: 0; }
 .load-table td.itm { white-space: normal; min-width: 220px; max-width: 320px; font-family: inherit; font-size: 12px; color: var(--muted); }
 .load-table td.itm b { color: var(--text); font-weight: 600; }
 .load-table tr.picked { background: rgba(167,139,250,.12); box-shadow: inset 3px 0 0 #a78bfa; }
@@ -317,7 +327,7 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .scan-foot .hint { flex: 1; margin-bottom: 0; }
 
 /* multi-stop routes */
-.trips-panel { grid-area: trips; min-width: 0; }
+.trips-panel { grid-area: work; min-width: 0; }
 .trips-panel .checks { display: flex; flex-direction: column; gap: 4px; justify-content: flex-end; }
 .trips-panel .checks label.check { flex-direction: row; font-size: 12px; }
 .scan-filters input[type=text]#tpStart { width: 140px; }

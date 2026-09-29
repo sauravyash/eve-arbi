@@ -386,6 +386,10 @@ Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to 
 
 ## Using it
 
+- **Sections:** the tab bar under the map switches between *Best items*, *Single route*, *Multi-stop
+  routes* and *Watchlist routes*, each with its row count. Keys 1–4 (outside text fields) and the
+  arrow keys also switch. The bar stays pinned while you scroll, and the open tab is remembered and kept
+  in the URL. The map and item list stay visible on every tab.
 - **Refresh** is manual. After the first load, repeated clicks within the upstream cache window
   return cached data, so you can't hammer the APIs.
 - **Star map:** drag to pan, scroll or double-click to zoom. Hover a system for its security,

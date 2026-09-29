@@ -28,7 +28,7 @@ const JUMP_TTL = 24 * 3600_000;
 
 const DEFAULTS = {
   items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, graphItem: 'all', showAll: false,
-  view: 'map', mapLayout: '3d', secColors: true,
+  view: 'map', mapLayout: '3d', secColors: true, tab: 'scan',
   scan: { scope: 'hubs', cargo: '', ship: '', budget: '', minProfit: '5m', from: '', to: '', near: '0', maxMargin: '100', rank: 'ppj', q: '', hideShips: false, structures: false },
   trips: { start: 30000142, legs: '3', link: '3', minProfit: '1m', rank: 'perJump', hideShips: false, hideHubs: false, structures: false },
 };
@@ -43,7 +43,7 @@ const hubIds = ['', ...HUBS.map(h => String(h.id))];
 const scanEnds = [...hubIds, 'hubs', 'offhub', 'me'];
 const URL_FIELDS = [
   ['flag', ['secure', 'shortest', 'insecure']], ['sellMode', ['instant', 'relist']], ['metric', ['unit', 'depth']],
-  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['3d', '2d']], 'secColors',
+  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['tab', ['scan', 'load', 'trips', 'table']], ['mapLayout', ['3d', '2d']], 'secColors',
   ['scan.scope', ['hubs', 'all']], 'scan.cargo', ['scan.ship', v => v === '' || Number(v) > 0], 'scan.budget', 'scan.minProfit',
   ['scan.from', scanEnds], ['scan.to', scanEnds], ['scan.near', v => v === '' || Number(v) >= 0], 'scan.maxMargin',
   ['scan.rank', ['ppj', 'profit', 'iskm3', 'margin']], 'scan.q', 'scan.hideShips', 'scan.structures',
@@ -590,6 +590,7 @@ function renderTable(routes) {
   let rows = routes.filter(r => r.status !== 'nomarket');
   if (ui.selectedHub) rows = rows.filter(r => r.from.id === ui.selectedHub);
   if (!settings.showAll) rows = rows.filter(r => r.metric > 0);
+  tabCount('table', settings.items.length ? rows.length : null);
   const col = COLUMNS.find(c => c.key === sortKey);
   rows.sort((a, b) => {
     const va = col.val(a), vb = col.val(b);
@@ -958,6 +959,7 @@ function renderScanTable() {
   }
 
   scan.rows = scanRows();
+  tabCount('scan', r ? scan.rows.length : null);
   const body = $('scanBody'), more = $('scanMore');
   if (!r || !scan.rows.length) {
     const nearMe = settings.scan.from === 'me' || settings.scan.to === 'me';
@@ -1028,6 +1030,7 @@ function renderScanTable() {
 function renderLoads() {
   const all = allStations(), r = all ? trip.result : scan.result;
   const routes = routeRows();
+  tabCount('load', r ? routes.length : null);
   const body = $('loadBody'), more = $('loadMore'), label = $('loadStatus');
   label.textContent = r ? `${routes.length.toLocaleString()} route${routes.length === 1 ? '' : 's'}` : '';
   const picked = ui.loadPick && routes.find(x => x.key === ui.loadPick);
@@ -1353,6 +1356,7 @@ function renderTrips() {
   else if (!r) label.textContent = 'Needs a universe scan (a few minutes)';
   else {
     trips = tripList();
+    tabCount('trips', trips.length);
     const age = Math.round((Date.now() - r.finishedAt) / 60_000);
     label.textContent = `${trips.length} routes · universe scan from ${age < 1 ? 'just now' : `${age} min ago`}`;
   }
@@ -1451,6 +1455,48 @@ function initTripData(u) {
 }
 
 // ---------------------------------------------------------------------------
+// Section tabs: one lower panel at a time (the map and item list stay put)
+// ---------------------------------------------------------------------------
+const TABS = ['scan', 'load', 'trips', 'table'];
+function tabCount(tab, n) {
+  const el = $(`tabN-${tab}`);
+  if (el) el.textContent = n == null ? '' : n > 999 ? `${Math.floor(n / 1000)}k+` : String(n);
+}
+function setTab(tab, { focus = false, user = true } = {}) {
+  if (!TABS.includes(tab)) tab = 'scan';
+  settings.tab = tab;
+  saveSettings();
+  for (const b of document.querySelectorAll('[data-tab]')) {
+    const on = b.dataset.tab === tab;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    if (on && focus) b.focus();
+  }
+  for (const s of document.querySelectorAll('[data-section]')) s.hidden = s.dataset.section !== tab;
+  // Switching while scrolled down a long table: start the new section just under the pinned bar.
+  if (!user) return;
+  const bar = document.querySelector('.section-tabs'), sec = document.querySelector(`[data-section="${tab}"]`);
+  const top = sec.getBoundingClientRect().top + scrollY - bar.offsetHeight - 8;
+  if (scrollY > top) scrollTo({ top });
+}
+function bindTabs() {
+  document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  // Arrow keys move along the tab bar; 1–4 anywhere outside a text field jump straight to a section.
+  document.querySelector('.section-tabs [role=tablist]').addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    setTab(TABS[(TABS.indexOf(settings.tab) + step + TABS.length) % TABS.length], { focus: true });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, select, textarea, [contenteditable]')) return;
+    const i = ['1', '2', '3', '4'].indexOf(e.key);
+    if (i >= 0) setTab(TABS[i]);
+  });
+  setTab(settings.tab, { user: false });
+}
+
+// ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
 function bindSetting(id, key, { parse = v => v, after } = {}) {
@@ -1529,6 +1575,7 @@ search.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) pickerShow([]); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.selectedHub && !e.target.closest?.('input, select')) selectHub(null); });
 
+bindTabs();
 bindScanFilters();
 bindLoads();
 bindTrips();

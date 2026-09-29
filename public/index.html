@@ -124,7 +124,17 @@
       </details>
     </aside>
 
-    <section class="panel trips-panel" aria-label="Multi-stop trade routes">
+    <nav class="section-tabs" aria-label="Sections">
+      <div class="tabs" role="tablist" aria-label="Section">
+        <button type="button" role="tab" id="tab-scan" data-tab="scan" aria-controls="sec-scan" title="Shortcut: 1">Best items <span class="tab-n" id="tabN-scan"></span></button>
+        <button type="button" role="tab" id="tab-load" data-tab="load" aria-controls="sec-load" title="Shortcut: 2">Single route <span class="tab-n" id="tabN-load"></span></button>
+        <button type="button" role="tab" id="tab-trips" data-tab="trips" aria-controls="sec-trips" title="Shortcut: 3">Multi-stop routes <span class="tab-n" id="tabN-trips"></span></button>
+        <button type="button" role="tab" id="tab-table" data-tab="table" aria-controls="sec-table" title="Shortcut: 4">Watchlist routes <span class="tab-n" id="tabN-table"></span></button>
+      </div>
+      <span class="hint keys">Keys 1–4 switch sections</span>
+    </nav>
+
+    <section class="panel trips-panel" id="sec-trips" role="tabpanel" aria-labelledby="tab-trips" data-section="trips" aria-label="Multi-stop trade routes">
       <div class="table-head">
         <h2>Multi-stop routes <span class="count">· chained hauls across New Eden</span></h2>
         <span id="tripStatus" class="scan-status" role="status" aria-live="polite"></span>
@@ -179,7 +189,7 @@
         scan (Market watch page). Click a route to draw it on the star map as numbered waypoints.</p>
     </section>
 
-    <section class="panel scan-panel" aria-label="Best arbitrage items across the whole market">
+    <section class="panel scan-panel" id="sec-scan" role="tabpanel" aria-labelledby="tab-scan" data-section="scan" aria-label="Best arbitrage items across the whole market">
       <div class="table-head">
         <h2>Best arbitrage items <span class="count">· whole market</span></h2>
         <span id="scanStatus" class="scan-status" role="status" aria-live="polite"></span>
@@ -236,7 +246,7 @@
       </div>
     </section>
 
-    <section class="panel load-panel" aria-label="Single route, many items">
+    <section class="panel load-panel" id="sec-load" role="tabpanel" aria-labelledby="tab-load" data-section="load" aria-label="Single route, many items">
       <div class="table-head">
         <h2>Single route, many items <span class="count">· fill one hold on one trip</span></h2>
         <span id="loadStatus" class="scan-status" role="status" aria-live="polite"></span>
@@ -272,7 +282,7 @@
       </div>
     </section>
 
-    <section class="panel table-panel" aria-label="Routes">
+    <section class="panel table-panel" id="sec-table" role="tabpanel" aria-labelledby="tab-table" data-section="table" aria-label="Routes">
       <div class="table-head">
         <h2>Routes</h2>
         <span id="originChip" class="chip" hidden></span>
