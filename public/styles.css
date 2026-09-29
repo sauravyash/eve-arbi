@@ -361,3 +361,7 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .trip-stops .act b { color: var(--text); font-weight: 600; }
 .trip-stops .act .up { color: var(--teal); }
 .trip-stops .hop { color: var(--faint); font-size: 11px; }
+/* Wormhole shortcuts switch (shortcuts.js mountToggle), in each page's settings bar. */
+.wh-toggle { flex-direction: row !important; align-items: center; gap: 5px; align-self: flex-end; padding-bottom: 7px; font-size: 12px; }
+.wh-toggle a { color: var(--teal); text-decoration: none; }
+.wh-toggle a:hover { text-decoration: underline; }

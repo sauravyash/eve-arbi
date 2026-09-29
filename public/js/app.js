@@ -2,6 +2,7 @@ import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summari
 import { scanClient, tabNote } from './scan-client.js';
 import { GalaxyMap } from './map.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
+import { createShortcuts, mountToggle } from './shortcuts.js';
 import { isNpcStation } from './market-merge.js';
 import { evaluateLegs, planTrips, tripStops, SHIP_CATEGORY } from './trips.js';
 import { createMe } from './me.js';
@@ -160,17 +161,32 @@ async function refresh() {
 // ---------------------------------------------------------------------------
 // Route computation
 // ---------------------------------------------------------------------------
+// Wormhole shortcuts (shortcuts.js). ESI's routes only know stargates, so while shortcuts are in
+// use each hub pair also gets a local path through them, and the shorter one wins.
+let drawToggle = () => {};
+const sc = createShortcuts({ onChange: () => { drawToggle(); trip.memo = null; scan.memo = null; render(); renderTrips(); } });
+const travel = () => sc.travelGraph() || trip.graph;
+
+// System path between two hubs (lower hub ID first), or null until ESI answers.
+function hubPath(k) {
+  const esi = jumpCache[settings.flag]?.pairs[k] || null;
+  if (!trip.graph || !sc.inUse()) return esi;
+  const [a, b] = k.split('-').map(Number);
+  const local = pathBetween(travel(), a, b, tripFlag());
+  return local && (!esi || local.length < esi.length) ? local : esi;
+}
+
 function jumpsFor(a, b) {
   const k = pairKey(a, b);
   const o = Number(overrides.jumps[k]);
   if (overrides.jumps[k] !== '' && overrides.jumps[k] != null && o > 0) return o;
-  const path = jumpCache[settings.flag]?.pairs[k];
+  const path = hubPath(k);
   return path ? path.length - 1 : null;
 }
 
-// Gate-by-gate system path for a route, in travel direction.
+// Gate-by-gate system path for a route, in travel direction (wormhole systems are skipped on the map).
 function pathFor(r) {
-  const path = jumpCache[settings.flag]?.pairs[pairKey(r.from.id, r.to.id)];
+  const path = hubPath(pairKey(r.from.id, r.to.id));
   if (!path) return null;
   return r.from.id < r.to.id ? path : [...path].reverse();
 }
@@ -658,7 +674,7 @@ function renderOverrides() {
   const labels = [];
   for (let i = 0; i < HUBS.length; i++) for (let j = i + 1; j < HUBS.length; j++) {
     const k = pairKey(HUBS[i].id, HUBS[j].id);
-    const live = jumpCache[settings.flag]?.pairs[k] ? jumpCache[settings.flag].pairs[k].length - 1 : null;
+    const live = hubPath(k) ? hubPath(k).length - 1 : null;
     const lab = document.createElement('label');
     lab.innerHTML = `${esc(HUBS[i].name)}–${esc(HUBS[j].name)} <input type="number" min="1" step="1" data-pair="${k}" placeholder="${live ?? '?'}" value="${overrides.jumps[k] ?? ''}">`;
     labels.push(lab);
@@ -755,7 +771,7 @@ function scanRows() {
   if (!r) return [];
   const f = settings.scan;
   const memoKey = [all, r.finishedAt, JSON.stringify(f), settings.taxPct, settings.flag, settings.trips.start, ship.typeId, ship.holds.length,
-    all ? '' : `${Object.keys(jumpCache[settings.flag]?.pairs || {}).length}${JSON.stringify(overrides.jumps)}`].join('|');
+    all ? '' : `${Object.keys(jumpCache[settings.flag]?.pairs || {}).length}${JSON.stringify(overrides.jumps)}`, sc.key()].join('|');
   if (scan.memo?.key === memoKey) return scan.memo.rows;
 
   const taxRate = (Number(settings.taxPct) || 0) / 100;
@@ -887,7 +903,7 @@ function scanRowPath(row) {
     { systemId: row.to.systemId, label: `Sell ${row.name} at ${row.to.station}` }];
   const path = [];
   for (let i = 1; i < pts.length; i++) {
-    const seg = pathBetween(trip.graph, pts[i - 1].systemId, pts[i].systemId, flag) || [pts[i - 1].systemId, pts[i].systemId];
+    const seg = pathBetween(travel(), pts[i - 1].systemId, pts[i].systemId, flag) || [pts[i - 1].systemId, pts[i].systemId];
     path.push(...(path.length ? seg.slice(1) : seg));
   }
   const first = row.approach != null ? 0 : 1;
@@ -1233,14 +1249,15 @@ async function tripStartScan() {
 }
 
 function tripDistFrom(sys) {
-  const d = jumpsFrom(trip.graph, sys, tripFlag());
-  return (to) => { const i = trip.graph.indexOf.get(to); return i == null || d[i] < 0 ? null : d[i]; };
+  const g = travel();
+  const d = jumpsFrom(g, sys, tripFlag());
+  return (to) => { const i = g.indexOf.get(to); return i == null || d[i] < 0 ? null : d[i]; };
 }
 
 function tripList() {
   const r = trip.result, t = settings.trips;
   if (!r || !trip.graph || !trip.catalog) return [];
-  const key = [r.finishedAt, JSON.stringify(t), settings.taxPct, settings.scan.cargo, settings.scan.budget, tripFlag()].join('|');
+  const key = [r.finishedAt, JSON.stringify(t), settings.taxPct, settings.scan.cargo, settings.scan.budget, tripFlag(), sc.key()].join('|');
   if (trip.memo?.key === key) return trip.memo.trips;
   const cached = tripCacheGet(key);
   if (cached) { trip.memo = { key, trips: cached }; return cached; }
@@ -1284,7 +1301,7 @@ function tripGeometry(tr) {
   const path = [];
   let at = settings.trips.start;
   for (const st of stops) {
-    const seg = pathBetween(trip.graph, at, st.systemId, tripFlag()) || [at, st.systemId];
+    const seg = pathBetween(travel(), at, st.systemId, tripFlag()) || [at, st.systemId];
     path.push(...(path.length ? seg.slice(1) : seg));
     at = st.systemId;
   }
@@ -1446,6 +1463,7 @@ const meCtl = createMe({
 
 function initTripData(u) {
   trip.graph = buildGraph(u);
+  sc.setBase(trip.graph);
   for (let i = 0; i < trip.graph.n; i++) trip.byName.set(trip.graph.name[i].toLowerCase(), trip.graph.id[i]);
   $('tpSystems').innerHTML = [...trip.graph.name].sort().map(n => `<option value="${esc(n)}">`).join('');
   if (!trip.graph.indexOf.has(settings.trips.start)) { settings.trips.start = DEFAULTS.trips.start; saveSettings(); } // unknown ID from a link
@@ -1582,6 +1600,7 @@ bindTrips();
 fetch('data/types.json').then(r => r.json()).then(t => { trip.catalog = t; trip.memo = null; scan.memo = null; initShipList(t); render(); meCtl.reapply(); }).catch(() => { trip.catalog = {}; });
 fetch('data/stations.json').then(r => r.json()).then(t => { trip.stations = t; scan.memo = null; render(); }).catch(() => {});
 tripPoll();
+drawToggle = mountToggle($('whToggle'), sc);
 render();   // show last session's data (marked stale) immediately
 refresh();  // then fetch once; further refreshes are manual
 pollScan().then(st => { if (st.state === 'idle' && !st.result) startScan(); });
