@@ -979,6 +979,19 @@ function scanRowPath(row) {
   return { path, stops: pts.map((p, i) => ({ ...p, n: i + first })) };
 }
 
+// Pickup → drop-off system path for a Best items row (its route strip), cached per route.
+const rowPaths = new Map();
+function rowPath(row) {
+  if (row.jumps == null || !trip.graph) return null;
+  const k = `${row.from.systemId}-${row.to.systemId}-${settings.flag}-${sc.key()}-${!!(row.from.hub && row.to.hub)}`;
+  if (rowPaths.has(k)) return rowPaths.get(k);
+  const path = row.from.hub && row.to.hub && row.from.hub !== row.to.hub ? pathFor({ from: row.from.hub, to: row.to.hub })
+    : pathBetween(travel(), row.from.systemId, row.to.systemId, tripFlag());
+  if (rowPaths.size > 2000) rowPaths.clear();
+  if (path) rowPaths.set(k, path); // hub paths can still be loading; retry next render
+  return path;
+}
+
 // Buy at / Sell at options depend on the market and your location's name.
 function syncScanOptions() {
   const all = allStations(), where = trip.graph ? sysName(settings.trips.start) : 'your location';
@@ -1076,7 +1089,7 @@ function renderScanTable() {
         aria-label="${w ? 'In watchlist' : `Add ${esc(row.name)} to watchlist`}">${w ? '★' : '☆'}</button>${esc(row.name)}${copyButton(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
       <td class="l">${loc(row.from)}</td>
       <td class="l">${loc(row.to, row.ranged ? '<small class="note">sells into ranged buy orders</small>' : '')}</td>
-      <td>${jumpsCell}</td>
+      <td class="jumps">${jumpsCell}${routeStrip(rowPath(row)) || ''}</td>
       <td>${row.units.toLocaleString()}</td>
       <td>${row.vol ? Math.round(row.volume).toLocaleString() : '<span class="muted">?</span>'}${holds}</td>
       <td>${n(row.cost)}</td>
