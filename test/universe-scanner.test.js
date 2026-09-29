@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ingestOrders, mergeRegion, pairsForType, buildScanContext, rangeCode, REGION, TOP_LEVELS } from '../public/js/scan/universe-scanner.js';
+import { ingestOrders, mergeRegion, pairsForType, buildScanContext, rangeCode, REGION, TOP_LEVELS, hubBooks, hubView } from '../public/js/scan/universe-scanner.js';
+import { hubCandidates, MAX_STEPS as HUB_STEPS, MIN_PROFIT as HUB_MIN_PROFIT } from '../public/js/scan/hub-scanner.js';
+import { HUBS } from '../public/js/arbitrage.js';
 
 const ord = (o) => ({ type_id: 34, min_volume: 1, volume_remain: 10, range: 'region', ...o });
 
@@ -73,4 +75,62 @@ test('one sell point fills several orders it can reach, best price first', () =>
   const r = pairs([bid({ r: 2, lv: [[130, 5]] }), bid({ l: 111, s: 11, g: 1, r: -1, lv: [[110, 5]] })]);
   const at111 = r.find(p => p.d === 111);
   assert.equal(at111.units, 10); // 5 @130 via range + 5 @110 in the station
+});
+
+// --- hub-to-hub result from the universe book (server.js) -------------------------------------
+const [JITA, AMARR] = HUBS;
+
+test('hubBooks: sell orders at the hub station; buy orders that reach it, as the hub scan counts them', () => {
+  const book = new Map([[34, {
+    asks: [
+      { l: JITA.stationId, s: JITA.id, a: [[100, 5e4], [101, 7e4]] },
+      { l: 999, s: JITA.id, a: [[90, 1]] },                                   // another station in Jita: not the hub's
+    ],
+    bids: [
+      { l: AMARR.stationId, s: AMARR.id, r: -1, g: AMARR.regionId, lv: [[130, 2e4]] },  // station range, at the hub
+      { l: 777, s: AMARR.id, r: 0, g: AMARR.regionId, lv: [[125, 3e4]] },               // same system
+      { l: 778, s: 1, r: REGION, g: AMARR.regionId, lv: [[125, 4e4], [120, 1e4]] },  // region range, same region
+      { l: 779, s: 1, r: 5, g: AMARR.regionId, lv: [[140, 9]] },                      // 5 jumps from elsewhere: not counted
+      { l: 780, s: AMARR.id, r: -1, g: AMARR.regionId, lv: [[150, 9]] },              // station range, other station
+      { l: 781, s: 2, r: REGION, g: JITA.regionId, lv: [[160, 9]] },                  // other region
+    ],
+  }]]);
+  const books = hubBooks(book);
+  assert.deepEqual([...books[JITA.id].get(34).a], [[100, 5e4], [101, 7e4]]);
+  assert.deepEqual([...books[AMARR.id].get(34).b], [[130, 2e4], [125, 7e4], [120, 1e4]]);
+  assert.equal(books[AMARR.id].get(34).a.size, 0);
+  const [c] = hubCandidates(books).filter(x => x.f === JITA.id && x.d === AMARR.id);
+  assert.deepEqual(c, { t: 34, f: JITA.id, d: AMARR.id, s: [[2e4, 100, 130], [3e4, 100, 125], [4e4, 101, 125], [1e4, 101, 120]] });
+});
+
+test('mergeRegion keeps hub-deep levels in hub systems only', () => {
+  const scratch = new Map(), book = new Map();
+  const orders = [];
+  for (let i = 0; i < HUB_STEPS + 5; i++) {
+    orders.push(ord({ location_id: JITA.stationId, system_id: JITA.id, is_buy_order: false, price: 100 + i }));
+    orders.push(ord({ location_id: 5, system_id: 50, is_buy_order: false, price: 100 + i }));
+  }
+  ingestOrders(scratch, orders, JITA.regionId);
+  mergeRegion(book, scratch);
+  const [hub, other] = book.get(34).asks;
+  assert.equal(hub.a.length, Math.max(TOP_LEVELS, HUB_STEPS));
+  assert.equal(other.a.length, TOP_LEVELS);
+});
+
+test('hubView: the hub scan is a view of the universe scan', async () => {
+  let hub = null, started = [];
+  const universe = {
+    ready: Promise.resolve(),
+    status: () => ({ state: 'idle', done: 0, total: 0 }),
+    hubResult: () => hub,
+    start: async (o) => { started.push(o); return o.force || !hub ? { started: true } : { started: false, reason: 'fresh' }; },
+  };
+  const view = hubView(universe);
+  assert.equal(view.status().result, null);
+  assert.deepEqual(await view.start(), { started: true });
+  assert.deepEqual(started.pop(), { force: true }, 'no hub result yet: scan even if the universe result is fresh');
+  hub = { finishedAt: 1, expiresAt: 2, candidates: [{}, {}], warnings: [], minProfit: HUB_MIN_PROFIT };
+  assert.deepEqual(await view.start(), { started: false, reason: 'fresh', result: { finishedAt: 1, expiresAt: 2, candidates: 2, warnings: [] } });
+  assert.deepEqual(started.pop(), { force: false });
+  assert.equal(view.result(), hub);
 });

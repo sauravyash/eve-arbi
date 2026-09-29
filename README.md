@@ -144,6 +144,13 @@ How it's kept safe (`sso.js`):
     by profit/jump, total profit, ISK/m³ or margin.
   - Scans are manual and reused until ESI's cache expires (about 5 minutes). The result is cached
     in `.cache/market-scan.json` so it survives restarts.
+  - **On the server** (`npm start`), this scan is worked out from the [universe scan](#universe-scan)
+    instead of fetched separately (`hubView` in `universe-scanner.js`): the hub regions are part of
+    it, and it keeps 60 price levels at stations in hub systems, as deep as a hub haul goes. *Scan
+    market* runs the universe scan (~1,600 pages), and both results come from one set of ESI pages
+    rather than ~2,500. Checked against this scan on the same data: identical hauls and fill steps.
+    The browser build (Cloudflare without a scan server) still runs this scan on its own, since
+    it's smaller.
   - Buy orders with a minimum quantity above 1 are ignored everywhere; that's a common bait-order
     pattern.
 - **Star map** (`scripts/build-universe.js`, `public/js/map.js`): every known-space system and
@@ -385,10 +392,12 @@ ranges still follow stargates only, as they do in game.
 The same pages also run as a Cloudflare Worker (`wrangler.jsonc`, `worker/index.js`), on the free
 plan. Differences from `npm start`:
 
-- **Scans run in your browser.** Workers can't hold a scan (128 MB memory, 10 ms CPU on the free
-  plan), so `public/js/scan-client.js` runs the same scanners in a Web Worker, calling ESI directly
-  (it allows CORS). Results are kept in IndexedDB. A scan stops if you close or reload its tab;
-  contract contents already opened are kept, so the next scan picks up where it left off.
+- **Scans run in your browser**, unless you [run them on your own server](#scans-on-your-own-server).
+  Workers can't hold a scan (128 MB memory, 10 ms CPU on the free plan; the universe scan's order
+  book alone is ~250 MB), so `public/js/scan-client.js` runs the same scanners in a Web Worker,
+  calling ESI directly (it allows CORS). Results are kept in IndexedDB. A scan stops if you close or
+  reload its tab; contract contents already opened are kept, so the next scan picks up where it
+  left off.
 - **The proxy** (`/api/{tycoon,esi,…}`) is the Worker: EVE Tycoon, Goonmetrics, Adam4EVE and
   Mokaam send no CORS headers. It caches in the isolate's memory and, on a custom domain, in
   Cloudflare's cache (the Cache API does nothing on `workers.dev`). Browsers keep fresh answers
@@ -415,6 +424,49 @@ Setup, in the Cloudflare dashboard (Workers → Create → Import a repository):
    `keep_vars` in `wrangler.jsonc` keeps them across deploys.
 
 Try it locally with `npm run cf:dev` (put `EVE_CLIENT_ID=…` in `.dev.vars` to test sign-in).
+
+### Scans on your own server
+
+The hosted site can hand its scans to `server.js` running on a machine of yours (a homelab LXC, a
+small VPS), reached through a Cloudflare Tunnel. The server scans once for every visitor, so ESI
+sees one universe scan per ~5 minutes however many people are on the site, and nobody has to keep
+a tab open. Everything else (pages, proxy, sign-in, watchlists, shared contracts) stays on
+Cloudflare.
+
+- The Worker forwards `/api/scan`, `/api/uscan` and `/api/cscan` (and their `/result`) to
+  `SCAN_ORIGIN`, sending `SCAN_SECRET` in an `X-Scan-Secret` header.
+- `/api/config` checks the server (every 30 s at most). While it's down or refuses the secret,
+  pages scan in the browser as before; a page that loses the server mid-visit shows an error and
+  scans in the browser after a reload.
+- With `SCAN_SECRET` set, the server answers only requests addressed to itself (`localhost`) or
+  carrying the secret, so the rest of it (sign-in, the proxy) isn't reachable through the tunnel.
+  Requests relayed by Cloudflare (`CF-Ray`, `CF-Connecting-IP`, `CF-Worker`) always need the secret.
+- Visitors can't force back-to-back rescans: a forced scan through the Worker waits 5 minutes after
+  the last one. Unforced scans are reused until ESI's data expires anyway.
+- The server keeps its own contract cache (`.cache/contract-items.json`); the D1 shared-contracts
+  table is only used by browser scans.
+
+Setup:
+1. **The machine:** Node 18+, ~1 GB RAM (the universe scan peaks around 450–600 MB) and a few hundred
+   MB of disk for `.cache`. Clone the repo and start it with a long random secret, e.g. as a systemd
+   service:
+   ```ini
+   [Service]
+   WorkingDirectory=/opt/eve-arbi
+   Environment=SCAN_SECRET=<long random string, e.g. from: openssl rand -hex 32>
+   ExecStart=/usr/bin/node server.js
+   Restart=on-failure
+   ```
+   It listens on `127.0.0.1:8000` (set `PORT`/`HOST` to change it). The first start builds
+   `public/data/` from the SDE.
+2. **The tunnel:** install `cloudflared` on the same machine and create a tunnel (Zero Trust →
+   Networks → Tunnels) with a public hostname, e.g. `scan.example.com`, pointing at
+   `http://localhost:8000`. No ports need opening.
+3. **The Worker:** under *Settings → Variables and secrets*, add `SCAN_ORIGIN` =
+   `https://scan.example.com` and `SCAN_SECRET` (type *Secret*) with the same value as the server's.
+   `keep_vars` keeps them across deploys.
+
+To check it, open `/api/config` on the site: `"serverScans": true` means the pages are using it.
 
 ## Using it
 
