@@ -159,7 +159,7 @@ export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk 
         ${opt('follow', 'Follow my location', where ? `Start from ${where}, updated every 20 s` : 'Waiting for your location', has('location'), 'Needs the location scope — sign in again')}
         ${opt('useShip', 'Use my ship\'s cargo', ship?.cargo ? `${Math.round(ship.cargo).toLocaleString()} m³ base hold (no skills, expanders or special holds)` : 'Your ship has no cargo hold', has('ship') && !!ship?.cargo, has('ship') ? 'Your current ship has no cargo hold' : 'Needs the ship scope — sign in again')}
         ${opt('useWallet', 'Use my wallet as max investment', me.wallet != null ? `${isk(me.wallet)} ISK` : 'Loading balance…', has('wallet'), 'Needs the wallet scope — sign in again')}
-        ${opt('track', 'Record my wormhole jumps', 'Keeps checking your location in background tabs, so jumps without a stargate become route shortcuts (Mining page)', has('location'), 'Needs the location scope — sign in again')}
+        ${opt('track', 'Record my wormhole jumps', 'Keeps checking your location in background tabs, so jumps without a stargate become route shortcuts on every page', has('location'), 'Needs the location scope — sign in again')}
         ${errs.map(([k, m]) => `<div class="me-warn">${esc(k)}: ${esc(m)}</div>`).join('')}
         <button class="btn small ghost" type="button" data-me="logout">Sign out</button>
       </div>

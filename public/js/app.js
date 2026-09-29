@@ -3,6 +3,7 @@ import { scanClient, tabNote } from './scan-client.js';
 import { GalaxyMap, secColor, secLabel } from './map.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
+import { shortcutsOn, isJSpace } from './wormholes.js';
 import { isNpcStation } from './market-merge.js';
 import { evaluateLegs, planTrips, tripStops, SHIP_CATEGORY } from './trips.js';
 import { createMe } from './me.js';
@@ -177,10 +178,13 @@ function hubPath(k) {
   return local && (!esi || local.length < esi.length) ? local : esi;
 }
 
+const jumpOverride = (k) => (overrides.jumps[k] !== '' && overrides.jumps[k] != null && Number(overrides.jumps[k]) > 0 ? Number(overrides.jumps[k]) : null);
+const jumpsOverridden = (r) => jumpOverride(pairKey(r.from.id, r.to.id)) != null;
+
 function jumpsFor(a, b) {
   const k = pairKey(a, b);
-  const o = Number(overrides.jumps[k]);
-  if (overrides.jumps[k] !== '' && overrides.jumps[k] != null && o > 0) return o;
+  const o = jumpOverride(k);
+  if (o != null) return o;
   const path = hubPath(k);
   return path ? path.length - 1 : null;
 }
@@ -190,6 +194,19 @@ function pathFor(r) {
   const path = hubPath(pairKey(r.from.id, r.to.id));
   if (!path) return null;
   return r.from.id < r.to.id ? path : [...path].reverse();
+}
+
+// System path for any pickup → drop-off pair: the hub route for two hubs, else the travel graph.
+function pathBetweenEnds(from, to) {
+  if (from.hub && to.hub) return pathFor({ from: from.hub, to: to.hub });
+  return trip.graph ? pathBetween(travel(), from.systemId, to.systemId, tripFlag()) : null;
+}
+
+// ⤳ after a jump count when its route takes wormhole shortcuts (paths from pathFor/pathBetween).
+function whMark(...paths) {
+  if (!sc.inUse()) return '';
+  const g = travel(), n = paths.reduce((sum, p) => sum + shortcutsOn(g, p), 0);
+  return n ? `<span class="wh-mark" title="Route uses ${n} wormhole shortcut${n > 1 ? 's' : ''}">⤳</span>` : '';
 }
 
 function metricOf(r) {
@@ -403,10 +420,14 @@ function routeStrip(path, marks) {
   const last = path.length - 1;
   const at = new Map();
   for (const [i, label] of marks || [[0, 'Pickup · buy here'], [last, 'Drop-off · sell here']]) at.set(i, at.has(i) ? `${at.get(i)} · ${label}` : label);
+  const g = travel();
+  sc.resolveNames(path.filter(id => !trip.graph.indexOf.has(id)));
   const squares = path.map((id, i) => {
-    const s = systemInfo(trip.graph, id);
+    const s = systemInfo(g, id);
     const mark = at.get(i);
-    return `<i data-n="${i}"${mark ? ` class="end" data-mark="${esc(mark)}"` : ''} style="--sec:${s ? secColor(s.sec) : 'var(--faint)'}"></i>`;
+    // Round: reached through a wormhole shortcut rather than a stargate.
+    const cls = [mark && 'end', i && g.shortcuts?.has(pairKey(path[i - 1], id)) && 'wh'].filter(Boolean).join(' ');
+    return `<i data-n="${i}"${cls ? ` class="${cls}"` : ''}${mark ? ` data-mark="${esc(mark)}"` : ''} style="--sec:${s ? secColor(s.sec) : 'var(--faint)'}"></i>`;
   }).join('');
   return `<span class="route-strip" data-path="${path.join(',')}" role="img"
     aria-label="${last} jump${last === 1 ? '' : 's'}: ${esc(path.map(sysName).join(', '))}">${squares}</span>`;
@@ -424,10 +445,10 @@ function bindRouteTip() {
     const n = Number(sq.dataset.n), last = path.length - 1;
     const s = systemInfo(trip.graph, path[n]);
     const jumps = (k) => `${k} jump${k === 1 ? '' : 's'}`;
-    const where = [sq.dataset.mark, n === 0 ? '' : n === last ? jumps(last) : `${jumps(n)} in · ${last - n} to go`].filter(Boolean).join(' · ');
+    const where = [sq.dataset.mark, sq.classList.contains('wh') && 'via wormhole', n === 0 ? '' : n === last ? jumps(last) : `${jumps(n)} in · ${last - n} to go`].filter(Boolean).join(' · ');
     tip.innerHTML = s
       ? `<b>${esc(s.name)}</b> <span class="sec" style="--sec:${secColor(s.sec)}">${secLabel(s.sec)}</span> <span class="reg">&lt; ${esc(s.region || '')}</span><div>${esc(where)}</div>`
-      : `<b>${esc(sysName(path[n]))}</b><div>${esc(where)}</div>`;
+      : `<b>${esc(sysName(path[n]))}</b>${isJSpace(path[n]) ? ' <span class="reg">Wormhole space</span>' : ''}<div>${esc(where)}</div>`;
     tip.hidden = false;
     const r = sq.getBoundingClientRect();
     tip.style.left = `${Math.max(4, Math.min(r.left - 8, innerWidth - tip.offsetWidth - 4))}px`;
@@ -451,15 +472,14 @@ function renderFocus(routes) {
     const last = geo.stops.at(-1);
     box.innerHTML = `Multi-stop: <strong>${esc(sysName(settings.trips.start))}</strong> ${routeStrip(geo.path, tripMarks(geo.path, geo.marks)) || '→'}
       <strong>${esc(sysName(last.systemId))}</strong> · ${geo.stops.length} stops · <span class="big">${formatIsk(tr.perJump)}</span> profit/jump
-      · ${formatIsk(tr.profit)} profit · ${tr.jumps} jumps`;
+      · ${formatIsk(tr.profit)} profit · ${tr.jumps} jumps${whMark(geo.path)}`;
     return;
   }
   const pick = focusPick();
   if (pick) {
-    const path = pick.from.hub && pick.to.hub ? pathFor({ from: pick.from.hub, to: pick.to.hub })
-      : trip.graph ? pathBetween(travel(), pick.from.systemId, pick.to.systemId, tripFlag()) : null;
+    const path = pathBetweenEnds(pick.from, pick.to);
     const what = pick.items ? `${pick.items.length} item${pick.items.length === 1 ? '' : 's'}` : esc(pick.name);
-    const jumps = pick.jumps == null ? '' : ` · ${pick.approach != null ? `${pick.approach} + ` : ''}${pick.jumps} jumps`;
+    const jumps = pick.jumps == null ? '' : ` · ${pick.approach != null ? `${pick.approach} + ` : ''}${pick.jumps} jumps${whMark(path)}`;
     box.innerHTML = `Picked: <strong>${esc(pick.from.name)}</strong> ${routeStrip(path) || '→'} <strong>${esc(pick.to.name)}</strong> · ${what}
       ${pick.ppj != null ? `· <span class="big">${formatIsk(pick.ppj)}</span> profit/jump` : ''} · ${formatIsk(pick.profit)} profit${jumps}
       ${pick.stale ? '<span class="badge stale">OLD</span>' : ''}`;
@@ -482,7 +502,7 @@ function renderFocus(routes) {
     : settings.metric === 'depth' && settings.sellMode === 'instant' ? 'ISK/jump (depth)' : 'ISK/jump per unit';
   box.innerHTML = `Best ${where}: <strong>${esc(best.from.name)}</strong> ${routeStrip(pathFor(best)) || '→'} <strong>${esc(best.to.name)}</strong> · ${esc(best.item.name)}
     · <span class="big">${formatIsk(best.metric)}</span> ${unitLabel}
-    · ${best.jumps} jumps · buy ${formatIsk(best.buy)} / sell ${formatIsk(best.sell)}
+    · ${best.jumps} jumps${best.overridden ? '' : whMark(pathFor(best))} · buy ${formatIsk(best.buy)} / sell ${formatIsk(best.sell)}
     ${best.units != null ? ` · ${best.units.toLocaleString()} units deep (${formatIsk(best.depthProfit)})` : ''}
     ${best.stale ? '<span class="badge stale">STALE</span>' : ''}${best.overridden ? '<span class="badge ov">OVERRIDE</span>' : ''}`;
 }
@@ -697,7 +717,7 @@ function renderTable(routes) {
     <tr data-i="${i}" class="${r === topRow && r.metric > 0 ? 'top' : ''}">
       <td class="l">${esc(r.from.name)}<span class="arrow">→</span>${esc(r.to.name)}${r.stale ? '<span class="badge stale">STALE</span>' : ''}${r.overridden ? '<span class="badge ov">OVR</span>' : ''}</td>
       <td class="l">${esc(r.item.name)}${copyButton(r.item.name)}</td>
-      <td>${r.jumps ?? '<span class="muted">?</span>'}</td>
+      <td>${r.jumps == null ? '<span class="muted">?</span>' : `${r.jumps}${jumpsOverridden(r) ? '' : whMark(pathFor(r))}`}</td>
       <td>${n(r.buy)}</td>
       <td>${n(r.sell)}</td>
       <td>${n(r.spread)}</td>
@@ -962,6 +982,14 @@ function scanGraphRoutes() {
   return [...best.values()];
 }
 
+// ⤳ for a Best items / Single route row: the approach from your location and the haul itself.
+function routeWhMark(row) {
+  if (!sc.inUse() || !trip.graph) return '';
+  const haul = row.from.hub && row.to.hub && jumpOverride(pairKey(row.from.hub.id, row.to.hub.id)) != null ? null : pathBetweenEnds(row.from, row.to);
+  const approach = row.approach != null ? pathBetween(travel(), settings.trips.start, row.from.systemId, tripFlag()) : null;
+  return whMark(haul, approach);
+}
+
 // A picked row that isn't a plain hub-to-hub haul is drawn like a multi-stop trip: your
 // location (when buying near you), the pickup, the drop-off.
 function scanRowPath(row) {
@@ -1077,9 +1105,9 @@ function renderScanTable() {
   const rank = settings.scan.rank;
   body.innerHTML = shown.map((row, i) => {
     const w = watched.has(row.typeId);
-    const jumpsCell = row.jumps == null ? '<span class="muted">?</span>'
+    const jumpsCell = (row.jumps == null ? '<span class="muted">?</span>'
       : row.approach != null ? `<span title="${jumpsOf(row.approach)} from you to the pickup, then ${jumpsOf(row.jumps)} to the drop-off">${row.approach} + ${row.jumps}</span>`
-      : row.jumps;
+      : row.jumps) + (row.jumps == null ? '' : routeWhMark(row));
     const holds = row.holds.length
       ? `<small class="hold" title="Also uses the ${esc(row.holds.map(h => h.name.toLowerCase()).join(' and '))}">+ ${esc(row.holds.map(h => h.name).join(', '))}</small>` : '';
     return `
@@ -1146,7 +1174,7 @@ function renderLoads() {
   const rank = settings.scan.rank;
   body.innerHTML = shown.map((rt, i) => {
     const names = rt.items.slice(0, 3).map(e => `<span class="nw"><b>${esc(e.name)}</b>${copyButton(e.name)}</span>`).join(', ');
-    const jumps = rt.jumps == null ? '<span class="muted">?</span>' : rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps;
+    const jumps = rt.jumps == null ? '<span class="muted">?</span>' : `${rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps}${routeWhMark(rt)}`;
     return `<tr data-key="${esc(rt.key)}" class="${i === 0 ? 'top' : ''} ${rt.key === ui.loadPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
       <td class="l">${loc(rt.from)}</td><td class="l">${loc(rt.to)}</td><td class="jumps">${jumps}${routeStrip(rowPath(rt)) || ''}</td>
@@ -1375,7 +1403,8 @@ function tripCachePut(key, trips) {
   }
 }
 
-const sysName = (id) => (trip.graph ? systemInfo(trip.graph, id)?.name : null) || `System ${id}`;
+// Wormhole systems aren't in universe.json: shortcuts.js looks their names up.
+const sysName = (id) => (trip.graph ? systemInfo(trip.graph, id)?.name : null) || sc.sysName(id);
 const stationName = (loc, sys) => trip.stations[loc]?.[0] || (isNpcStation(loc) ? `Station ${loc}` : `Structure in ${sysName(sys)}`);
 
 // Where each waypoint falls on a trip's path, for routeStrip: [[path index, label]].
@@ -1457,7 +1486,7 @@ function renderTrips() {
   $('tripScanBtn').textContent = busy ? 'Scanning…' : r ? 'Rescan universe' : 'Scan universe';
   bar.hidden = !busy;
   if (busy) bar.firstElementChild.style.width = `${st.total ? Math.round(100 * st.done / st.total) : 3}%`;
-  const startOk = !!trip.graph && trip.graph.indexOf.has(settings.trips.start);
+  const startOk = !!trip.graph && travel().indexOf.has(settings.trips.start);
   $('tpStart').classList.toggle('bad', !!trip.graph && !startOk);
 
   const body = $('tripBody');
@@ -1481,7 +1510,7 @@ function renderTrips() {
       return `<tr data-key="${esc(tr.key)}" class="${tr.key === ui.tripPick ? 'picked' : ''}">
         <td class="l rank">${i + 1}</td>
         <td class="l route">${route}<span class="itm">${items}</span></td>
-        <td>${tr.legs.length}</td><td>${tr.jumps}</td><td>${formatIsk(tr.peakCost)}</td>
+        <td>${tr.legs.length}</td><td>${tr.jumps}${sc.inUse() ? whMark(tripGeometry(tr).path) : ''}</td><td>${formatIsk(tr.peakCost)}</td>
         <td>${formatIsk(tr.profit)}</td><td class="metric">${formatIsk(tr.perJump)}</td></tr>`;
     }).join('') || '<tr class="empty"><td colspan="7">No chained routes with these settings — try more empty jumps between hauls or a lower min profit.</td></tr>';
   }
@@ -1504,9 +1533,12 @@ function bindTrips() {
     $(id).checked = !!t[key];
     $(id).addEventListener('change', () => { t[key] = $(id).checked; saveSettings(); renderTrips(); });
   }
-  $('tpStart').addEventListener('change', () => {
-    const id = trip.byName.get($('tpStart').value.trim().toLowerCase());
-    if (id) { t.start = id; saveSettings(); }
+  $('tpStart').addEventListener('change', async () => {
+    const text = $('tpStart').value.trim();
+    // Known space locally; J-codes and Thera through ESI (they only route once a shortcut reaches them).
+    let id = trip.byName.get(text.toLowerCase());
+    if (!id && text) { try { id = await sc.systemByName(text); } catch { /* keep the old start */ } }
+    if (id) { t.start = id; saveSettings(); trip.memo = null; scan.memo = null; }
     render(); // Near me (…) in Best arbitrage items follows it too
   });
   $('tripScanBtn').addEventListener('click', tripStartScan);
@@ -1527,7 +1559,8 @@ function bindTrips() {
 // Signed in with Follow on: multi-stop routes start where your character is (see me.js).
 function followLocation(loc) {
   const input = $('tpStart');
-  if (loc && trip.graph?.indexOf.has(loc.systemId) && loc.systemId !== settings.trips.start) {
+  // In wormhole space too, once a shortcut (say, your own recorded jump) links that system in.
+  if (loc && trip.graph && (travel().indexOf.has(loc.systemId) || isJSpace(loc.systemId)) && loc.systemId !== settings.trips.start) {
     settings.trips.start = loc.systemId; saveSettings(); trip.memo = null;
     if (ui.tripPick) selectTrip(null);
   }
@@ -1560,7 +1593,8 @@ function initTripData(u) {
   sc.setBase(trip.graph);
   for (let i = 0; i < trip.graph.n; i++) trip.byName.set(trip.graph.name[i].toLowerCase(), trip.graph.id[i]);
   $('tpSystems').innerHTML = [...trip.graph.name].sort().map(n => `<option value="${esc(n)}">`).join('');
-  if (!trip.graph.indexOf.has(settings.trips.start)) { settings.trips.start = DEFAULTS.trips.start; saveSettings(); } // unknown ID from a link
+  if (!trip.graph.indexOf.has(settings.trips.start) && !isJSpace(settings.trips.start)) { settings.trips.start = DEFAULTS.trips.start; saveSettings(); } // unknown ID from a link
+  sc.resolveNames([settings.trips.start]);
   $('tpStart').value = sysName(settings.trips.start);
   meCtl.reapply(); // system names are available now
   renderTrips();

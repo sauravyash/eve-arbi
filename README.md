@@ -372,8 +372,11 @@ Sources:
   doesn't document one.
 
 Shortcuts are added to the gate graph for travel. Wormhole systems become nodes, so jumps work while
-you're sitting in a wormhole, and routes that use one show ⤳ on the Mining page. On Hub arbitrage,
-each hub pair uses ESI's gate route or the path through shortcuts, whichever is shorter. The star map
+you're sitting in a wormhole. Jump counts whose route uses one show ⤳ (Mining, and every Hub arbitrage
+table and summary). On Hub arbitrage, each hub pair uses ESI's gate route or the path through shortcuts,
+whichever is shorter; route strips draw systems reached through a wormhole as round dots, and a
+multi-stop route can start in a wormhole system (type its J-code, or follow your character there).
+Wormhole space is used by *Shortest* and *Prefer low/null* routes only; *Safest (high-sec)* avoids it. The star map
 skips wormhole systems when drawing a route. Wormhole space never counts as high-sec. Buy-order
 ranges still follow stargates only, as they do in game.
 
