@@ -122,6 +122,8 @@ How it's kept safe (`sso.js`):
   - caps concurrency per upstream
   - backs off on 429/420 using `Retry-After`
   - serves the last good copy (`X-Cache: STALE`) if the upstream fails
+  - saves that cache to `.cache/proxy-cache.json.gz` (30 s after a change, and on Ctrl+C), so a
+    restart doesn't re-fetch what the pages had already loaded
   - lets the browser keep each fresh answer until that same expiry (`Cache-Control: max-age`), so
     reloads, other tabs and repeat lookups don't reach the proxy at all. Stale copies aren't kept.
 - **Prices** come from `GET /v1/market/orders/{typeId}`. One call returns every region's book,

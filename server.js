@@ -15,6 +15,7 @@ import { createContractScanner } from './public/js/scan/contract-scanner.js';
 import { createSso } from './sso.js';
 import { cleanItems } from './public/js/watchlist.js';
 import { wandererConnections } from './wanderer.js';
+import { loadCache, saveCache, saveCacheSync } from './proxy-store.js';
 
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -44,8 +45,27 @@ const UPSTREAMS = {
 const POST_ALLOW = [/^esi\/universe\/ids\/$/, /^esi\/universe\/names\/$/];
 
 const MIN_TTL = 60_000, DEFAULT_TTL = 5 * 60_000, MAX_ENTRIES = 1000;
-const cache = new Map();    // url -> {status, body, type, expires, fetchedAt}
+// url -> {status, body, type, expires, fetchedAt}; kept in .cache so it survives restarts
+const PROXY_CACHE_FILE = path.join(APP_DIR, '.cache', 'proxy-cache.json.gz');
+const cache = await loadCache(PROXY_CACHE_FILE);
 const inflight = new Map(); // url -> Promise
+
+// Saved 30 s after the first change since the last save, and on exit.
+let saveTimer = null, dirty = false;
+function cacheChanged() {
+  dirty = true;
+  saveTimer ||= setTimeout(() => {
+    saveTimer = null; dirty = false;
+    saveCache(PROXY_CACHE_FILE, cache).catch(e => console.warn(`Proxy cache not saved: ${e.message}`));
+  }, 30_000);
+  saveTimer.unref();
+}
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    if (dirty) try { saveCacheSync(PROXY_CACHE_FILE, cache); } catch (e) { console.warn(`Proxy cache not saved: ${e.message}`); }
+    process.exit(0);
+  });
+}
 
 // --- per-upstream concurrency gate with Retry-After backoff -----------------
 const gates = Object.fromEntries(Object.keys(UPSTREAMS).map(k => [k, { active: 0, queue: [], blockedUntil: 0, lastStart: 0 }]));
@@ -124,6 +144,7 @@ async function proxy(req, res, name, rest) {
                       pages: r.pages, lastModified: r.lastModified };
       cache.set(url, entry);
       if (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value);
+      cacheChanged();
       return sendCached(res, entry, 'MISS');
     }
     if (hit) return sendCached(res, hit, 'STALE'); // upstream error: fall back to last good copy
