@@ -176,6 +176,10 @@ A second page built for finding deals **away from the trade hubs**, where spread
 because fewer traders are watching. For each watched item it looks at every station and
 structure in New Eden, not just Jita/Amarr/Dodixie/Rens/Hek, and ranks station-to-station hauls.
 
+The page has three tabs under the settings: **Universe scan**, **My orders** and **Watchlist** (the
+watched items and the selected item's detail). The open tab is remembered and kept in the link
+(`?tab=`). Clicking an item in the scan or in your orders adds it to the watchlist and opens it there.
+
 - **Best hauls:** buy from sell orders at station A, then sell at station B into every buy order
   that can be filled there.
   - Buy-order ranges count, using the same logic as the universe scan (`public/js/ranges.js`):
@@ -201,7 +205,7 @@ structure in New Eden, not just Jita/Amarr/Dodixie/Rens/Hek, and ranks station-t
 
 ### Universe scan
 
-The *Universe scan* panel (`public/js/scan/universe-scanner.js`, `POST /api/uscan`) finds hauls for **every item**,
+The *Universe scan* tab (`public/js/scan/universe-scanner.js`, `POST /api/uscan`) finds hauls for **every item**,
 not just your watchlist.
 - **Coverage:** it pulls every order in all 67 known-space regions from ESI's bulk
   `/markets/{region}/orders/` endpoint. That's ~1,600 pages; a full scan took 98 s in testing,

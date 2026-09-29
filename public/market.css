@@ -17,6 +17,14 @@
 
 /* layout */
 .mw-layout { display: flex; flex-direction: column; gap: 16px; padding: 16px 24px 32px; }
+/* Section tabs: one section at a time; the bar stays reachable while scrolling. */
+.mw-tabs { position: sticky; top: 0; z-index: 5; margin: -6px -4px -6px; padding: 6px 4px; background: var(--bg); }
+.mw-tabs .tabs { max-width: 100%; overflow-x: auto; }
+.mw-tabs .tabs button { white-space: nowrap; }
+.mw-tabs .tab-n { color: var(--faint); font-weight: 400; font-size: 11.5px; margin-left: 5px; }
+.mw-tabs .tab-n.warn { color: var(--amber); font-weight: 600; }
+.mw-tabs .tab-n:empty { display: none; }
+.tab-panel { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .detail { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   grid-template-areas: "head head" "hauls hauls" "buyw sellw" "src collate" "hist hubs" "book book"; }
 .detail[hidden] { display: none; }

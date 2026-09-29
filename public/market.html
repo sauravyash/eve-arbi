@@ -70,7 +70,15 @@
   <ul id="sources" class="sources" aria-label="Data sources"></ul>
 
   <main class="mw-layout">
-    <section class="panel uscan-panel" aria-label="Universe-wide haul scan">
+    <nav class="mw-tabs" aria-label="Market sections">
+      <div class="tabs" role="tablist" aria-label="Market sections" id="tabs">
+        <button type="button" role="tab" id="tab-uscan" aria-controls="panel-uscan" data-tab="uscan">Universe scan</button>
+        <button type="button" role="tab" id="tab-orders" aria-controls="panel-orders" data-tab="orders">My orders<span id="ordersTabN" class="tab-n"></span></button>
+        <button type="button" role="tab" id="tab-watch" aria-controls="panel-watch" data-tab="watch">Watchlist<span id="watchTabN" class="tab-n"></span></button>
+      </div>
+    </nav>
+
+    <section class="panel uscan-panel" id="panel-uscan" role="tabpanel" aria-labelledby="tab-uscan">
       <div class="table-head">
         <h2>Universe scan <span class="count">· every item, every station</span></h2>
         <span id="usStatus" class="scan-status" role="status" aria-live="polite"></span>
@@ -125,7 +133,7 @@
       </div>
     </section>
 
-    <section id="ordersPanel" class="panel orders-panel" aria-label="My market orders" hidden>
+    <section id="panel-orders" class="panel orders-panel" role="tabpanel" aria-labelledby="tab-orders" hidden>
       <div class="table-head">
         <h2>My orders <span id="ordersCount" class="count"></span></h2>
         <span id="ordersStatus" class="scan-status" role="status" aria-live="polite"></span>
@@ -147,6 +155,7 @@
         rival prices are live. Click a row to add the item to your watchlist.</p>
     </section>
 
+    <div id="panel-watch" class="tab-panel" role="tabpanel" aria-labelledby="tab-watch" hidden>
     <section class="panel board-panel" aria-label="Watchlist">
       <div class="table-head">
         <h2>Watchlist <span id="boardCount" class="count"></span></h2>
@@ -282,6 +291,7 @@
           are merged by order ID; the fresher copy wins. Ghosts are NPC-station orders only Tycoon still lists — ESI no longer has them.</p>
       </section>
     </section>
+    </div>
   </main>
 
   <script type="module" src="js/market.js"></script>
