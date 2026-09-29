@@ -448,22 +448,29 @@ Cloudflare.
 
 Setup:
 1. **The machine:** Node 18+, ~1 GB RAM (the universe scan peaks around 450–600 MB) and a few hundred
-   MB of disk for `.cache`. Clone the repo and start it with a long random secret, e.g. as a systemd
-   service:
-   ```ini
-   [Service]
-   WorkingDirectory=/opt/eve-arbi
-   Environment=SCAN_SECRET=<long random string, e.g. from: openssl rand -hex 32>
-   ExecStart=/usr/bin/node server.js
-   Restart=on-failure
+   MB of disk for `.cache`. Clone the repo to `/opt/eve-arbi` and install the service from `deploy/`,
+   with a long random secret:
+   ```bash
+   git clone https://github.com/sauravyash/eve-arbi /opt/eve-arbi
+   echo "SCAN_SECRET=$(openssl rand -hex 32)" > /etc/eve-arbi.env && chmod 600 /etc/eve-arbi.env
+   cp /opt/eve-arbi/deploy/eve-arbi*.service /opt/eve-arbi/deploy/eve-arbi-update.timer /etc/systemd/system/
+   systemctl daemon-reload
+   systemctl enable --now eve-arbi               # the server
+   systemctl enable --now eve-arbi-update.timer  # optional: keep it up to date
    ```
-   It listens on `127.0.0.1:8000` (set `PORT`/`HOST` to change it). The first start builds
-   `public/data/` from the SDE.
+   It listens on `127.0.0.1:8000` (set `PORT`/`HOST` in `/etc/eve-arbi.env` to change it). The first
+   start builds `public/data/` from the SDE.
+   - **Updates** (`eve-arbi-update.timer`, optional): every 15 minutes `deploy/update.sh` runs
+     `git pull --ff-only` and, only if that brought new commits, restarts the server. It waits for a
+     running universe or contract scan to finish first (up to 10 minutes). If the branch can't be
+     fast-forwarded (history rewritten), it changes nothing and the run fails: see
+     `journalctl -u eve-arbi-update`. Run it by hand with `systemctl start eve-arbi-update`.
 2. **The tunnel:** install `cloudflared` on the same machine and create a tunnel (Zero Trust →
    Networks → Tunnels) with a public hostname, e.g. `scan.example.com`, pointing at
    `http://localhost:8000`. No ports need opening.
 3. **The Worker:** under *Settings → Variables and secrets*, add `SCAN_ORIGIN` =
-   `https://scan.example.com` and `SCAN_SECRET` (type *Secret*) with the same value as the server's.
+   `https://scan.example.com` and `SCAN_SECRET` (type *Secret*) with the same value as the server's
+   (`cat /etc/eve-arbi.env`).
    `keep_vars` keeps them across deploys.
 
 To check it, open `/api/config` on the site: `"serverScans": true` means the pages are using it.

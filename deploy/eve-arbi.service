@@ -1,0 +1,14 @@
+# The scan server (README, "Scans on your own server"). Put SCAN_SECRET=… in /etc/eve-arbi.env.
+[Unit]
+Description=eve-arbi scan server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/eve-arbi
+EnvironmentFile=/etc/eve-arbi.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

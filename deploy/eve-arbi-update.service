@@ -1,0 +1,11 @@
+# Pulls /opt/eve-arbi and restarts eve-arbi.service when it changed (deploy/update.sh).
+[Unit]
+Description=Update eve-arbi from git
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Same PORT as the server, so the script can see whether a scan is running.
+EnvironmentFile=-/etc/eve-arbi.env
+ExecStart=/opt/eve-arbi/deploy/update.sh
