@@ -103,11 +103,14 @@ function remember(target, entry) {
   for (const [k, v] of mem) { if (memBytes <= MEM_BYTES) break; mem.delete(k); memBytes -= v.body.byteLength; }
 }
 
+// Fresh copies may be kept by the browser until the upstream expiry, so reloads and other tabs
+// don't cost a Worker request. A stale fallback isn't kept: the next request should retry upstream.
 function respond(e, state) {
+  const left = Math.floor((e.expires - Date.now()) / 1000);
   return new Response(e.body, {
     status: e.status,
     headers: {
-      'Content-Type': e.type, 'Cache-Control': 'no-store', 'X-Cache': state,
+      'Content-Type': e.type, 'Cache-Control': state !== 'STALE' && left > 0 ? `max-age=${left}` : 'no-store', 'X-Cache': state,
       'X-Fetched-At': new Date(e.fetchedAt).toISOString(), 'X-Expires-At': new Date(e.expires).toISOString(),
       ...(e.pages && { 'X-Pages': e.pages }), ...(e.lastModified && { 'X-Upstream-Modified': e.lastModified }),
     },

@@ -122,6 +122,8 @@ How it's kept safe (`sso.js`):
   - caps concurrency per upstream
   - backs off on 429/420 using `Retry-After`
   - serves the last good copy (`X-Cache: STALE`) if the upstream fails
+  - lets the browser keep each fresh answer until that same expiry (`Cache-Control: max-age`), so
+    reloads, other tabs and repeat lookups don't reach the proxy at all. Stale copies aren't kept.
 - **Prices** come from `GET /v1/market/orders/{typeId}`. One call returns every region's book,
   so each item needs one request no matter how many hubs there are. Prices are pinned to each
   hub's main station rather than region-wide stats, which can include orders 15 jumps away.
@@ -384,7 +386,8 @@ plan. Differences from `npm start`:
   contract contents already opened are kept, so the next scan picks up where it left off.
 - **The proxy** (`/api/{tycoon,esi,…}`) is the Worker: EVE Tycoon, Goonmetrics, Adam4EVE and
   Mokaam send no CORS headers. It caches in the isolate's memory and, on a custom domain, in
-  Cloudflare's cache (the Cache API does nothing on `workers.dev`).
+  Cloudflare's cache (the Cache API does nothing on `workers.dev`). Browsers keep fresh answers
+  until the upstream expiry too, so repeat visits don't count against the Worker's request quota.
 - **Watchlists of signed-in characters** are in D1 (`USERS_DB`), one row per character and list.
 - **Contract contents are shared** (D1, `/api/contract-items`). A contract's items never change, so
   once anyone's scan has opened a contract, everyone else gets it from the database: after the

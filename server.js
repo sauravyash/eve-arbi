@@ -134,8 +134,16 @@ async function proxy(req, res, name, rest) {
   }
 }
 
+// Fresh copies may be kept by the browser until the upstream expiry, so reloads and other tabs
+// don't ask again. A stale fallback isn't kept: the next request should retry upstream.
+const browserCache = (e, state) => {
+  const left = Math.floor((e.expires - Date.now()) / 1000);
+  return state !== 'STALE' && left > 0 ? `max-age=${left}` : 'no-store';
+};
+
 function sendCached(res, e, state) {
   send(res, e.status, e.body, {
+    'Cache-Control': browserCache(e, state),
     'Content-Type': e.type,
     'X-Cache': state,
     'X-Fetched-At': new Date(e.fetchedAt).toISOString(),
