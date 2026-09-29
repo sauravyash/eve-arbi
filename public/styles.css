@@ -438,3 +438,4 @@ tr:hover .copy, li:hover .copy, .copy:focus-visible { opacity: 1; }
 .copy.done { opacity: 1; color: var(--teal); border-color: var(--teal-dim); }
 .copy.fail { opacity: 1; color: var(--red); }
 .item-list .copy { flex: none; margin: 0; }
+.nw { white-space: nowrap; }   /* keeps an item name and its copy button on one line */

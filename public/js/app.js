@@ -1063,7 +1063,7 @@ function renderLoads() {
   const loc = (e) => `<div class="loc"><b>${esc(e.name)}</b><small title="${esc(e.station)}">${esc(e.station)}</small></div>`;
   const rank = settings.scan.rank;
   body.innerHTML = shown.map((rt, i) => {
-    const names = rt.items.slice(0, 3).map(e => `<b>${esc(e.name)}</b>`).join(', ');
+    const names = rt.items.slice(0, 3).map(e => `<span class="nw"><b>${esc(e.name)}</b>${copyButton(e.name)}</span>`).join(', ');
     const jumps = rt.jumps == null ? '<span class="muted">?</span>' : rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps;
     return `<tr data-key="${esc(rt.key)}" class="${i === 0 ? 'top' : ''} ${rt.key === ui.loadPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
@@ -1333,8 +1333,8 @@ function tripStopsHtml(tr) {
   geo.stops.forEach((st, i) => {
     const hop = tripDistFrom(at)(st.systemId);
     at = st.systemId;
-    const sell = st.sell ? `Sell <b>${formatIsk(st.sell.units, 1)} ${esc(st.sell.name)}</b> → <span class="up">+${formatIsk(st.sell.profit)}</span>` : '';
-    const buy = st.buy ? `Buy <b>${formatIsk(st.buy.units, 1)} ${esc(st.buy.name)}</b> for ${formatIsk(st.buy.cost)}${st.buy.x ? ' (sell point uses ranged buy orders)' : ''}` : '';
+    const sell = st.sell ? `Sell <b>${formatIsk(st.sell.units, 1)} ${esc(st.sell.name)}</b>${copyButton(st.sell.name)} → <span class="up">+${formatIsk(st.sell.profit)}</span>` : '';
+    const buy = st.buy ? `Buy <b>${formatIsk(st.buy.units, 1)} ${esc(st.buy.name)}</b>${copyButton(st.buy.name)} for ${formatIsk(st.buy.cost)}${st.buy.x ? ' (sell point uses ranged buy orders)' : ''}` : '';
     rows.push(`<li><span class="n">${i + 1}</span>
       <span class="where">${esc(stationName(st.locationId, st.systemId))}<small>${esc(sysName(st.systemId))}</small></span>
       <span class="act">${[sell, buy].filter(Boolean).join('<br>')}</span>
@@ -1383,7 +1383,7 @@ function renderTrips() {
     body.innerHTML = trips.slice(0, 30).map((tr, i) => {
       const route = [settings.trips.start, ...tripStops(tr).map(s => s.systemId)]
         .filter((s, k, a) => s !== a[k - 1]).map(s => `<span class="sys">${esc(sysName(s))}</span>`).join(' → ');
-      const items = tr.legs.map(l => esc(l.name)).join(' · ');
+      const items = tr.legs.map(l => `<span class="nw">${esc(l.name)}${copyButton(l.name)}</span>`).join(' · ');
       return `<tr data-key="${esc(tr.key)}" class="${tr.key === ui.tripPick ? 'picked' : ''}">
         <td class="l rank">${i + 1}</td>
         <td class="l route">${route}<span class="itm">${items}</span></td>
