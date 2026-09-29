@@ -198,7 +198,17 @@ async function serveStatic(req, res, pathname) {
 // --- scans (public/js/scan/*; the Cloudflare build runs the same code in the browser) ----------
 // Static data from public/data, results kept as .cache/{key}.json so they survive restarts.
 const DATA_FILES = { types: TYPES_FILE, universe: UNIVERSE_FILE, stations: STATIONS_FILE };
-const data = async (name) => JSON.parse(await readFile(DATA_FILES[name], 'utf8'));
+// Built from the SDE on first start (bottom of this file). A scan that finds a file missing waits for
+// that build, or starts one, instead of failing; a failed build is tried again by the next scan.
+const BUILDS = { universe: buildUniverse, stations: buildStations, types: buildTypes };
+const building = {};
+const build = (name) => (building[name] ||= BUILDS[name]().finally(() => { building[name] = null; }));
+const data = async (name) => {
+  const read = async () => JSON.parse(await readFile(DATA_FILES[name], 'utf8'));
+  try { return await read(); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  try { await build(name); } catch (e) { throw new Error(`${name}.json is missing and building it failed (${e.message}); retry with "npm run build:map"`); }
+  return read();
+};
 const CACHE_DIR = path.join(APP_DIR, '.cache');
 const store = {
   get: (key) => readFile(path.join(CACHE_DIR, `${key}.json`), 'utf8').then(JSON.parse, () => undefined),
@@ -371,10 +381,10 @@ http.createServer(async (req, res) => {
 }).listen(PORT, HOST, () => console.log(`EVE hub arbitrage → http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`));
 
 // Static data (changes only with new EVE content): build once if missing.
-access(UNIVERSE_FILE).catch(() => buildUniverse().catch(e =>
+access(UNIVERSE_FILE).catch(() => build('universe').catch(e =>
   console.error(`Star map build failed (${e.message}). The schematic view still works; retry with "npm run build:map".`)));
-access(STATIONS_FILE).catch(() => buildStations().catch(e =>
+access(STATIONS_FILE).catch(() => build('stations').catch(e =>
   console.error(`Station list build failed (${e.message}); the universe scan will show station IDs. Retry with "npm run build:map".`)));
 // Item lists in an older format (Tritanium without its group and mining kind) are rebuilt too.
-readFile(TYPES_FILE, 'utf8').then(t => { const tr = JSON.parse(t)[34]; if (typeof tr?.[3] !== 'number' || tr[4] !== 'mineral') throw new Error('old format'); }).catch(() => buildTypes().catch(e =>
+readFile(TYPES_FILE, 'utf8').then(t => { const tr = JSON.parse(t)[34]; if (typeof tr?.[3] !== 'number' || tr[4] !== 'mineral') throw new Error('old format'); }).catch(() => build('types').catch(e =>
   console.error(`Item list build failed (${e.message}); the market scan will show type IDs. Retry with "npm run build:map".`)));
