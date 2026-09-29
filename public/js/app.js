@@ -979,7 +979,7 @@ function scanRowPath(row) {
   return { path, stops: pts.map((p, i) => ({ ...p, n: i + first })) };
 }
 
-// Pickup → drop-off system path for a Best items row (its route strip), cached per route.
+// Pickup → drop-off system path for a Best items or Single route row (its route strip), cached per route.
 const rowPaths = new Map();
 function rowPath(row) {
   if (row.jumps == null || !trip.graph) return null;
@@ -1149,7 +1149,7 @@ function renderLoads() {
     const jumps = rt.jumps == null ? '<span class="muted">?</span>' : rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps;
     return `<tr data-key="${esc(rt.key)}" class="${i === 0 ? 'top' : ''} ${rt.key === ui.loadPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
-      <td class="l">${loc(rt.from)}</td><td class="l">${loc(rt.to)}</td><td>${jumps}</td>
+      <td class="l">${loc(rt.from)}</td><td class="l">${loc(rt.to)}</td><td class="jumps">${jumps}${routeStrip(rowPath(rt)) || ''}</td>
       <td class="l itm">${rt.items.length} item${rt.items.length === 1 ? '' : 's'}: ${names}${rt.items.length > 3 ? ` +${rt.items.length - 3} more` : ''}${rt.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
       <td>${Math.round(rt.volume).toLocaleString()}</td><td>${n(rt.cost)}</td>
       <td class="${rank === 'margin' ? 'metric' : ''}">${rt.margin.toFixed(1)}%</td>
