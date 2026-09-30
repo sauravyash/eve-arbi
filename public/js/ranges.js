@@ -127,7 +127,8 @@ export function pairsForType(typeId, entry, ctx, { minProfit = MIN_PROFIT, keep 
       if (G.lv[0][0] <= bestAsk) continue;
       if (G.r >= 0) {
         const w = G.r === REGION ? ctx.regionEntry(A.s, G.g) : ctx.towards(A.s, G.s, G.r, G.g);
-        if (w != null) add(w === A.s ? A.l : ctx.stationIn(w), w);
+        // In the order's own system its own station is as close, and listing another would repeat the haul.
+        if (w != null) add(w === A.s ? A.l : w === G.s ? G.l : ctx.stationIn(w), w);
       }
       add(G.l, G.s);
     }

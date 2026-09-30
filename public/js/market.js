@@ -4,7 +4,7 @@ import {
   mergeHistory, historyChange, parseFuzzwork, parseGoonXml, consensus, isNpcStation,
   MAJOR_HUB_SYSTEMS, stationQuotes, parseAdam, parseEvepraisal, parseZkill,
 } from './market-merge.js';
-import { buildGraph, jumpsFrom, jumpsBetween, systemInfo } from './galaxy.js';
+import { buildGraph, jumpsFrom, jumpsBetween, systemInfo, isHighSec } from './galaxy.js';
 import { SHIP_CATEGORY } from './trips.js';
 import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges.js';
 import { createMe } from './me.js';
@@ -41,18 +41,19 @@ const stored = LS.get('market.settings', {});
 // Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
 if (!stored.taxV && !Number(stored.tax)) delete stored.tax;
 if (stored.hub && !stored.refHub) stored.refHub = stored.hub; // settings from the first version
+const TABS = ['uscan', 'orders', 'watch'];
 const US_DEFAULTS = { minProfit: '5m', maxMargin: '100', maxJumps: '', rank: 'perJump', q: '', near: '', nearEnd: 'pickup', nearMax: '', hideShips: false };
 const DEFAULTS = {
   items: [], refHub: JITA.id, home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, taxV: 1, cargo: '', budget: '',
   hideHubs: true, structures: true, showGhosts: false, haulRank: 'perJump',
-  selected: null, histDays: 90, auto: false, sort: { key: null, dir: -1 }, us: US_DEFAULTS,
+  selected: null, histDays: 90, auto: false, sort: { key: null, dir: -1 }, us: US_DEFAULTS, tab: 'uscan',
 };
 const settings = Object.assign(structuredClone(DEFAULTS), stored);
 // Nested so filters added later still get defaults when older settings are loaded.
 settings.us = { ...US_DEFAULTS, ...stored.us };
 // Settings mirrored in the query string (url-state.js); the watchlist, sort and auto-refresh stay local.
 const URL_FIELDS = [
-  ['selected', v => v > 0], ['refHub', HUBS.map(h => h.id)], ['home', v => v > 0], ['flag', ['secure', 'shortest']],
+  ['tab', TABS], ['selected', v => v > 0], ['refHub', HUBS.map(h => h.id)], ['home', v => v > 0], ['flag', ['secure', 'shortest']],
   ['tax', v => v >= 0 && v <= 100], 'cargo', 'budget', 'hideHubs', 'structures', 'showGhosts',
   ['haulRank', ['perJump', 'profit', 'margin']], ['histDays', [30, 90, 365, 0]],
   'us.minProfit', 'us.maxMargin', 'us.maxJumps', ['us.rank', ['perJump', 'near', 'profit', 'iskm3', 'margin']], 'us.q',
@@ -65,6 +66,7 @@ settings.items = watch.initial();
 let urlItem = null;
 if (readUrl(settings, DEFAULTS, URL_FIELDS) && settings.selected && !settings.items.some(i => i.typeId === settings.selected)) {
   urlItem = settings.selected;
+  settings.tab = 'watch';
   settings.items.push({ typeId: settings.selected, name: `Type ${settings.selected}` }); // named once types.json loads
 }
 const save = () => { LS.set('market.settings', { ...settings, items: undefined }); writeUrl(settings, DEFAULTS, URL_FIELDS); };
@@ -361,6 +363,14 @@ function rangeContext() {
 }
 const loadStations = () => (stationNames ? Promise.resolve(stationNames)
   : fetch('data/stations.json').then(r => (r.ok ? r.json() : {})).catch(() => ({})).then(t => { stationNames ||= t; bump(); return stationNames; }));
+// High-sec-only routes leave a low-/null-sec home by the nearest high-sec (galaxy.js), but a home with
+// no gate route into high-sec (Pochven) reaches nothing else, so every station is filtered out; say why.
+function homeBlocked() {
+  if (!graph || settings.flag !== 'secure' || isHighSec(systemInfo(graph, settings.home)?.sec ?? 1)) return null;
+  if (homeDist().some(d => d > 0)) return null;
+  const sys = systemInfo(graph, settings.home);
+  return `${esc(sys.name)} (${secLabel(sys.sec)}) has no gate route into high-sec, so high-sec-only routes reach no station. Set Route to Shortest, or choose another home system.`;
+}
 function homeJumps(systemId) {
   if (!graph) return null;
   const i = graph.indexOf.get(systemId);
@@ -531,7 +541,7 @@ function renderBoard() {
   const rows = sortRows(boardRows());
   $('boardCount').textContent = `· ${settings.items.length} item${settings.items.length === 1 ? '' : 's'}`;
   const home = graph ? systemInfo(graph, settings.home) : null;
-  $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''} · click a row for detail`;
+  $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''}${homeBlocked() ? ' (no route into high-sec: set Route to Shortest)' : ''} · click a row for detail`;
   if (!rows.length) {
     $('boardBody').innerHTML = `<tr class="empty"><td colspan="10">Your watchlist is empty. Add items with the <b>Add item</b> search above${watch.mode === 'account' ? ' — it’s saved to your character' : ''}.</td></tr>`;
     return;
@@ -628,6 +638,7 @@ function renderHauls(c, typeId) {
     <td>${r.jumps}</td><td>${num(r.units)}</td><td>${num(r.volume)}</td><td>${isk(r.cost)}</td>
     <td>${isk(r.buy)} → ${isk(r.sell)}</td><td>${pct(r.margin)}</td>
     <td class="metric">${isk(r.profit)}</td><td>${isk(r.perJump)}</td></tr>`).join('')
+    || (homeBlocked() ? `<tr class="empty"><td colspan="10">${homeBlocked()}</td></tr>` : '')
     || `<tr class="empty"><td colspan="10">No profitable station-to-station hauls with these settings${settings.flag === 'secure' ? ' (try Shortest route to include low-sec)' : ''}.</td></tr>`;
 }
 
@@ -639,9 +650,9 @@ function renderWhere(c) {
     <td>${jumpsCell(q.systemId)}</td></tr>`;
   const vsRef = (p, r) => (r ? (p - r) / r * 100 : null);
   $('buyWhere').innerHTML = c.cheapest.slice(0, 12).map(q => row(q, q.bestAsk, vsRef(q.bestAsk, ref.sell), q.askVolume, -1)).join('')
-    || '<tr class="empty"><td colspan="5">No sell orders outside the filters</td></tr>';
+    || `<tr class="empty"><td colspan="5">${homeBlocked() || 'No sell orders outside the filters'}</td></tr>`;
   $('sellWhere').innerHTML = c.dearest.slice(0, 12).map(q => row(q, q.bestBid, vsRef(q.bestBid, ref.buy), q.bidVolume, 1)).join('')
-    || '<tr class="empty"><td colspan="5">No buy orders outside the filters</td></tr>';
+    || `<tr class="empty"><td colspan="5">${homeBlocked() || 'No buy orders outside the filters'}</td></tr>`;
 }
 
 function renderSourceTable(id, c) {
@@ -862,6 +873,7 @@ async function onSearch() {
 function addItem(typeId, name) {
   if (!settings.items.some(i => i.typeId === typeId)) { settings.items.push({ typeId, name }); saveItems(); }
   settings.selected = typeId;
+  settings.tab = 'watch'; // the item's detail lives on the Watchlist tab
   save();
   $('itemSearch').value = '';
   $('pickerResults').hidden = true;
@@ -1053,8 +1065,8 @@ const ORDERS_SCOPE = 'esi-markets.read_character_orders.v1';
 
 async function loadMyOrders() {
   const st = meCtl?.status;
-  $('ordersPanel').hidden = !st?.loggedIn;
-  if (!st?.loggedIn || my.loading) return;
+  if (!st?.loggedIn) { my.orders = null; my.error = null; renderMyOrders(); return; }
+  if (my.loading) return;
   if (!st.scopes?.includes(ORDERS_SCOPE)) { my.error = 'Sign out and sign in again to allow reading your market orders.'; renderMyOrders(); return; }
   my.loading = true; my.error = null;
   renderMyOrders();
@@ -1101,9 +1113,14 @@ async function loadMyOrders() {
 }
 
 function renderMyOrders() {
-  const panel = $('ordersPanel');
-  if (panel.hidden) return;
   const body = $('ordersBody'), status = $('ordersStatus');
+  const tabN = $('ordersTabN');
+  tabN.classList.remove('warn');
+  if (!meCtl?.status?.loggedIn) {
+    status.textContent = ''; $('ordersCount').textContent = ''; tabN.textContent = '';
+    body.innerHTML = '<tr class="empty"><td colspan="8">Sign in with EVE (top right) to check your market orders against the live market.</td></tr>';
+    return;
+  }
   status.classList.toggle('warn', !!(my.error || my.corpError));
   status.title = [my.error, my.corpError].filter(Boolean).join('\n');
   if (my.loading && !my.orders) { status.textContent = 'Loading your orders…'; body.innerHTML = ''; return; }
@@ -1117,6 +1134,8 @@ function renderMyOrders() {
   const listed = sells.reduce((s, o) => s + o.price * o.volumeRemain, 0), escrow = buys.reduce((s, o) => s + o.escrow, 0);
   const nBad = rows.filter(bad).length;
   $('ordersCount').textContent = `· ${my.orders.length} active`;
+  tabN.textContent = nBad ? `${nBad} to update` : String(my.orders.length);
+  tabN.classList.toggle('warn', nBad > 0);
   status.textContent = `${sells.length} sell (${isk(listed)} listed) · ${buys.length} buy (${isk(escrow)} escrow) · `
     + `${nBad ? `${nBad} need updating` : 'all at the best price'}${my.loading ? ' · checking…' : ` · checked ${ago(my.at)}`}`
     + (my.corpError ? ' · corp orders unavailable' : '') + (my.error ? ' · some markets unchecked' : '');
@@ -1163,7 +1182,25 @@ function useWallet(balance) {
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
+function renderTabs() {
+  for (const b of $('tabs').querySelectorAll('button[data-tab]')) {
+    const on = b.dataset.tab === settings.tab;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  for (const t of TABS) $(`panel-${t}`).hidden = t !== settings.tab;
+  $('watchTabN').textContent = settings.items.length ? String(settings.items.length) : '';
+}
+function setTab(tab) {
+  if (tab === settings.tab) return;
+  settings.tab = tab; save(); renderTabs();
+  // The chart sizes itself from its width, which is 0 while the tab is hidden.
+  const c = tab === 'watch' && settings.selected ? collate(settings.selected) : null;
+  if (c) renderChart(c);
+}
+
 function renderAll() {
+  renderTabs();
   renderStatus(ui.loading ? 'Loading…' : null);
   renderSources();
   renderBoard();
@@ -1230,6 +1267,16 @@ function init() {
     shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][2] === 6 ? types[id][3] ?? null : null } : null),
     onFollow: followLocation, onCargo: useShipCargo, onBudget: useWallet,
     onStatus: () => { loadMyOrders(); watch.load(); },
+  });
+  $('tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-tab]');
+    if (b) setTab(b.dataset.tab);
+  });
+  $('tabs').addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const i = (TABS.indexOf(settings.tab) + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length;
+    setTab(TABS[i]);
+    $(`tab-${TABS[i]}`).focus();
   });
   $('ordersRefresh').addEventListener('click', loadMyOrders);
   $('ordersProblems').addEventListener('change', renderMyOrders);

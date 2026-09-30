@@ -261,8 +261,9 @@ function renderStations(v) {
     return;
   }
   if (!v.rows.length) {
-    const hint = settings.flag === 'secure' && v.homeKnown && !(base.sec[base.indexOf.get(settings.home)] >= 0.45)
-      ? 'High-sec only routes start in high-sec. Set Route to Shortest.' : 'Nothing buys this load within your limits. Try more jumps or a lower minimum.';
+    // High-sec only leaves a low-sec home by the nearest high-sec; from Pochven there's no way in.
+    const hint = settings.flag === 'secure' && v.homeKnown && !v.d.some(j => j > 0)
+      ? 'No gate route from here into high-sec. Set Route to Shortest.' : 'Nothing buys this load within your limits. Try more jumps or a lower minimum.';
     body.innerHTML = `<tr class="empty"><td colspan="7" class="l muted">${hint}</td></tr>`;
     $('moreBtn').hidden = true;
     return;

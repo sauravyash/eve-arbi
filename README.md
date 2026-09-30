@@ -176,6 +176,10 @@ A second page built for finding deals **away from the trade hubs**, where spread
 because fewer traders are watching. For each watched item it looks at every station and
 structure in New Eden, not just Jita/Amarr/Dodixie/Rens/Hek, and ranks station-to-station hauls.
 
+The page has three tabs under the settings: **Universe scan**, **My orders** and **Watchlist** (the
+watched items and the selected item's detail). The open tab is remembered and kept in the link
+(`?tab=`). Clicking an item in the scan or in your orders adds it to the watchlist and opens it there.
+
 - **Best hauls:** buy from sell orders at station A, then sell at station B into every buy order
   that can be filled there.
   - Buy-order ranges count, using the same logic as the universe scan (`public/js/ranges.js`):
@@ -195,12 +199,13 @@ structure in New Eden, not just Jita/Amarr/Dodixie/Rens/Hek, and ranks station-t
   structures* can be toggled off, because many don't grant docking or market access.
 - **Jumps** are computed locally with a BFS over the SDE gate graph (`public/js/galaxy.js`), so any
   pair can be priced without an ESI route call. *High-sec only* also drops stations you can't
-  reach through high-sec.
+  reach through high-sec. From a low- or null-sec home it first leaves by the fewest jumps to the
+  nearest high-sec systems, like the in-game *prefer safer* autopilot, then stays in high-sec.
 - The board still shows the reference hub's price, so every deal reads as "x% below Jita".
 
 ### Universe scan
 
-The *Universe scan* panel (`public/js/scan/universe-scanner.js`, `POST /api/uscan`) finds hauls for **every item**,
+The *Universe scan* tab (`public/js/scan/universe-scanner.js`, `POST /api/uscan`) finds hauls for **every item**,
 not just your watchlist.
 - **Coverage:** it pulls every order in all 67 known-space regions from ESI's bulk
   `/markets/{region}/orders/` endpoint. That's ~1,600 pages; a full scan took 98 s in testing,

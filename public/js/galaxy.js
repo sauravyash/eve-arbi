@@ -27,22 +27,29 @@ export function buildGraph(u) {
 
 /**
  * Jumps from one system to every other, as an Int16Array indexed like `g.id` (-1 = unreachable).
- * @param {'secure'|'shortest'} flag  secure only walks through (and ends in) high-sec systems
+ * @param {'secure'|'shortest'} flag  secure only walks through (and ends in) high-sec systems.
+ *   From outside high-sec it first leaves by the fewest jumps to the nearest high-sec systems, like
+ *   the in-game "prefer safer" autopilot; only the systems on those ways out get a count.
  */
 export function jumpsFrom(g, systemId, flag = 'shortest') {
   const key = `${systemId}:${flag}`;
   if (g.cache.has(key)) return g.cache.get(key);
   const dist = new Int16Array(g.n).fill(-1);
   const from = g.indexOf.get(systemId);
-  if (from != null && (flag !== 'secure' || isHighSec(g.sec[from]))) {
+  if (from != null) {
+    const secure = flag === 'secure';
     const q = new Uint32Array(g.n);
     let head = 0, tail = 0;
-    q[tail++] = from; dist[from] = 0;
+    if (secure && !isHighSec(g.sec[from])) {
+      tail = leaveToHighSec(g, from, dist, q);
+    } else {
+      q[tail++] = from; dist[from] = 0;
+    }
     while (head < tail) {
       const v = q[head++];
       for (let k = g.start[v]; k < g.start[v + 1]; k++) {
         const w = g.adj[k];
-        if (dist[w] !== -1 || (flag === 'secure' && !isHighSec(g.sec[w]))) continue;
+        if (dist[w] !== -1 || (secure && !isHighSec(g.sec[w]))) continue;
         dist[w] = dist[v] + 1;
         q[tail++] = w;
       }
@@ -51,6 +58,39 @@ export function jumpsFrom(g, systemId, flag = 'shortest') {
   if (g.cache.size > 4000) g.cache.delete(g.cache.keys().next().value);
   g.cache.set(key, dist);
   return dist;
+}
+
+// Secure routing from outside high-sec: BFS through non-high-sec systems to the nearest
+// high-sec ones (all at the same, smallest distance). Fills `dist` for the start, those
+// high-sec systems and the non-high-sec systems on a shortest way to them (so pathBetween
+// can walk back), and queues the high-sec ones in `q`. Returns the queue length.
+function leaveToHighSec(g, from, dist, q) {
+  const seen = new Int16Array(g.n).fill(-1);
+  const order = [from];
+  seen[from] = 0;
+  let exit = -1;
+  for (let h = 0; h < order.length; h++) {
+    const v = order[h];
+    if (exit >= 0 && seen[v] >= exit) break; // every way into the ring at `exit` has been seen
+    for (let k = g.start[v]; k < g.start[v + 1]; k++) {
+      const w = g.adj[k];
+      if (seen[w] !== -1) continue;
+      seen[w] = seen[v] + 1;
+      if (isHighSec(g.sec[w])) { if (exit < 0) exit = seen[w]; } else order.push(w);
+    }
+  }
+  dist[from] = 0;
+  if (exit < 0) return 0;
+  let tail = 0;
+  for (let i = 0; i < g.n; i++) if (seen[i] === exit && isHighSec(g.sec[i])) { dist[i] = exit; q[tail++] = i; }
+  // Keep the non-high-sec systems that lead to that ring, farthest first.
+  for (let h = order.length - 1; h > 0; h--) {
+    const v = order[h];
+    for (let k = g.start[v]; k < g.start[v + 1]; k++) {
+      if (dist[g.adj[k]] === seen[v] + 1 && seen[g.adj[k]] === seen[v] + 1) { dist[v] = seen[v]; break; }
+    }
+  }
+  return tail;
 }
 
 // Jumps between two systems, or null when unreachable (or unknown, e.g. wormhole space).
