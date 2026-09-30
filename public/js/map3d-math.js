@@ -109,3 +109,39 @@ export function lerpCamera(a, b, t) {
     pitch: mix(a.pitch, b.pitch),
   };
 }
+
+// System under the cursor: nearest on screen within maxPx; near-ties go to the one nearer the camera.
+export function pickNearest(sx, sy, depth, px, py, maxPx) {
+  const lim = maxPx * maxPx;
+  let best = -1, bd = Infinity;
+  for (let i = 0; i < sx.length; i++) {
+    const d = (sx[i] - px) ** 2 + (sy[i] - py) ** 2;
+    if (!(d <= lim)) continue; // NaN (culled) fails too
+    if (best < 0 || d < bd - 1 || (d <= bd + 1 && depth[i] < depth[best])) { best = i; bd = d; }
+  }
+  return best;
+}
+
+// Greedy label layout: boxes in priority order, each kept unless it overlaps one already kept.
+export function placeLabels(boxes) {
+  const kept = [];
+  for (let k = 0; k < boxes.length; k++) {
+    const b = boxes[k];
+    const clear = kept.every((j) => {
+      const o = boxes[j];
+      return b.x + b.w <= o.x || o.x + o.w <= b.x || b.y + b.h <= o.y || o.y + o.h <= b.y;
+    });
+    if (clear) kept.push(k);
+  }
+  return kept;
+}
+
+// Mean world position of each region's systems (region[i] indexes regions).
+export function regionCentres(pos, region, nRegions) {
+  const acc = Array.from({ length: nRegions }, () => [0, 0, 0, 0]);
+  for (let i = 0; i < region.length; i++) {
+    const a = acc[region[i]];
+    a[0] += pos[i * 3]; a[1] += pos[i * 3 + 1]; a[2] += pos[i * 3 + 2]; a[3]++;
+  }
+  return acc.map(([x, y, z, c]) => (c ? [x / c, y / c, z / c] : null));
+}

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   worldPositions, cameraBasis, focalPx, projectAll, projectPoint,
   orbit, pan, zoomAt, fitSphere, lerpCamera, clampDistance, PITCH_MAX, MIN_DIST, MAX_DIST,
+  pickNearest, placeLabels, regionCentres,
 } from '../public/js/map3d-math.js';
 
 const near = (a, b, eps = 1e-3) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -115,3 +116,34 @@ function pointUnder(cam, px, py) {
   const s = cam.distance / focalPx(H), a = (px - W / 2) * s, b = -(py - H / 2) * s;
   return cam.target.map((t, k) => t + r[k] * a + u[k] * b);
 }
+
+test('pickNearest takes the closest point within range', () => {
+  const sx = Float32Array.of(100, 110, 300), sy = Float32Array.of(100, 100, 300), d = Float32Array.of(5, 9, 1);
+  assert.equal(pickNearest(sx, sy, d, 108, 101, 8), 1);
+  assert.equal(pickNearest(sx, sy, d, 200, 200, 8), -1);
+});
+
+test('pickNearest prefers the point nearer the camera when they overlap', () => {
+  const sx = Float32Array.of(50, 50), sy = Float32Array.of(50, 50), d = Float32Array.of(20, 3);
+  assert.equal(pickNearest(sx, sy, d, 51, 50, 8), 1);
+});
+
+test('pickNearest skips culled (NaN) points', () => {
+  const sx = Float32Array.of(NaN, 60), sy = Float32Array.of(NaN, 60), d = Float32Array.of(-1, 4);
+  assert.equal(pickNearest(sx, sy, d, 60, 61, 8), 1);
+});
+
+test('placeLabels keeps earlier boxes and drops later overlapping ones', () => {
+  const boxes = [
+    { x: 0, y: 0, w: 50, h: 12 },
+    { x: 40, y: 5, w: 50, h: 12 },  // overlaps 0
+    { x: 50, y: 0, w: 30, h: 12 },  // touches 0's edge only
+    { x: 0, y: 20, w: 10, h: 10 },
+  ];
+  assert.deepEqual(placeLabels(boxes), [0, 2, 3]);
+});
+
+test('regionCentres averages each region and leaves empty ones null', () => {
+  const pos = Float32Array.of(0, 0, 0, 2, 4, 6, 10, 10, 10);
+  assert.deepEqual(regionCentres(pos, [0, 0, 2], 3), [[1, 2, 3], null, [10, 10, 10]]);
+});
