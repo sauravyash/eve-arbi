@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGraph, jumpsFrom, jumpsBetween, pathBetween, systemInfo } from '../public/js/galaxy.js';
+import { buildGraph, jumpsFrom, jumpsBetween, pathBetween, systemInfo, inHighSec } from '../public/js/galaxy.js';
 import { stationQuotes, parseAdam, parseEvepraisal, parseZkill } from '../public/js/market-merge.js';
 import { buildRangeContext, bookEntry, pairsForType, rangeCodeOf, sellPoints, REGION } from '../public/js/ranges.js';
 import { summarizeSteps } from '../public/js/arbitrage.js';
@@ -20,6 +20,9 @@ test('BFS jump counts respect the route flag', () => {
   assert.equal(jumpsBetween(g, 10, 999), null);
   assert.equal(jumpsFrom(g, 10, 'secure'), jumpsFrom(g, 10, 'secure')); // cached
   assert.deepEqual(systemInfo(g, 12), { id: 12, name: 'C', sec: 0.7, regionId: 2, region: 'R2' });
+  assert.equal(inHighSec(g, 13), true);
+  assert.equal(inHighSec(g, 14), false); // low-sec
+  assert.equal(inHighSec(g, 999), false); // unknown, e.g. wormhole space
 });
 
 const o = (x) => ({ orderId: Math.random(), volumeRemain: 10, minVolume: 1, ghost: false, regionId: 1, ...x });
