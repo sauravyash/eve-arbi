@@ -46,15 +46,16 @@ test('login: PKCE round trip, state check, token stored server-side, location fe
   assert.equal(q.get('code_challenge_method'), 'S256');
 
   let verifier;
+  const token = jwt(claims());
   mockFetch((u, init) => {
     if (u.includes('/oauth/token')) {
       const form = new URLSearchParams(init.body);
       verifier = form.get('code_verifier');
       assert.equal(form.get('grant_type'), 'authorization_code');
       assert.equal(form.get('client_id'), CLIENT);
-      return { body: { access_token: jwt(claims()), refresh_token: 'r1', expires_in: 1200 } };
+      return { body: { access_token: token, refresh_token: 'r1', expires_in: 1200 } };
     }
-    assert.equal(init.headers.Authorization, `Bearer ${jwt(claims())}`);
+    assert.equal(init.headers.Authorization, `Bearer ${token}`);
     return { body: { solar_system_id: 30002659, station_id: 60011866 } };
   });
 
