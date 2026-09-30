@@ -350,7 +350,8 @@ async function account(request, env, url) {
   }
   if (request.method === 'GET') {
     const op = { '/api/me/location': 'location', '/api/me/online': 'online', '/api/me/ship': 'ship',
-      '/api/me/wallet': 'wallet', '/api/me/orders': 'orders' }[p];
+      '/api/me/wallet': 'wallet', '/api/me/orders': 'orders', '/api/me/assets': 'assets', '/api/me/mining': 'mining',
+      '/api/me/corporation': 'corporation' }[p];
     const st = p.match(/^\/api\/me\/structure\/(\d+)$/);
     if (op || st) {
       if (!sid) return json(401, { error: 'Not signed in' });
@@ -406,7 +407,7 @@ export class Session extends DurableObject {
 
   /** RPC from the Worker: returns {value} or {error, status}, since thrown errors lose their status. */
   async run(callbackUrl, op, args = []) {
-    const allowed = ['status', 'loginUrl', 'finishLogin', 'location', 'online', 'ship', 'wallet', 'orders', 'structureMarket', 'logout'];
+    const allowed = ['status', 'loginUrl', 'finishLogin', 'location', 'online', 'ship', 'wallet', 'orders', 'structureMarket', 'assets', 'mining', 'corporation', 'logout'];
     if (!allowed.includes(op)) return { error: 'Unknown operation', status: 400 };
     const sso = this.#client(callbackUrl);
     try {
