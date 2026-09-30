@@ -35,7 +35,9 @@ export const focalPx = (h) => h / 2 / Math.tan(FOV_Y / 2);
 // Screen position and depth of every point in pos (interleaved xyz); behind the camera → NaN.
 export function projectAll(pos, cam, w, h, out) {
   const n = pos.length / 3;
-  if (!out || out.sx.length !== n) out = { sx: new Float32Array(n), sy: new Float32Array(n), depth: new Float32Array(n) };
+  if (!out || out.sx.length !== n) {
+    out = { sx: new Float32Array(n), sy: new Float32Array(n), depth: new Float32Array(n) };
+  }
   const { eye: [ex, ey, ez], fwd: f, right: r, up: u } = cameraBasis(cam);
   const k = focalPx(h), cx = w / 2, cy = h / 2;
   for (let i = 0; i < n; i++) {
@@ -91,7 +93,8 @@ export function fitSphere(pos, indices, pad, w, h) {
   const target = lo.map((v, k) => (v + hi[k]) / 2);
   let r2 = 1;
   for (const i of indices) {
-    r2 = Math.max(r2, (pos[i * 3] - target[0]) ** 2 + (pos[i * 3 + 1] - target[1]) ** 2 + (pos[i * 3 + 2] - target[2]) ** 2);
+    const dx = pos[i * 3] - target[0], dy = pos[i * 3 + 1] - target[1], dz = pos[i * 3 + 2] - target[2];
+    r2 = Math.max(r2, dx * dx + dy * dy + dz * dz);
   }
   const half = Math.min(FOV_Y / 2, Math.atan(Math.tan(FOV_Y / 2) * w / h));
   return { target, distance: clampDistance(Math.sqrt(r2) * (1 + 2 * pad) / Math.sin(half)) };
@@ -112,12 +115,23 @@ export function lerpCamera(a, b, t) {
 
 // System under the cursor: nearest on screen within maxPx; near-ties go to the one nearer the camera.
 export function pickNearest(sx, sy, depth, px, py, maxPx) {
-  const lim = maxPx * maxPx;
-  let best = -1, bd = Infinity;
+  // Pass 1: find minimum on-screen distance in pixels.
+  let bestDist = Infinity;
   for (let i = 0; i < sx.length; i++) {
-    const d = (sx[i] - px) ** 2 + (sy[i] - py) ** 2;
-    if (!(d <= lim)) continue; // NaN (culled) fails too
-    if (best < 0 || d < bd - 1 || (d <= bd + 1 && depth[i] < depth[best])) { best = i; bd = d; }
+    const dx = sx[i] - px, dy = sy[i] - py;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d <= maxPx) bestDist = Math.min(bestDist, d);
+  }
+  if (bestDist === Infinity) return -1;
+
+  // Pass 2: among points within bestDist + 1.5 px, pick the one with smallest depth.
+  let best = -1, bestDepth = Infinity;
+  const threshold = bestDist + 1.5;
+  for (let i = 0; i < sx.length; i++) {
+    const dx = sx[i] - px, dy = sy[i] - py;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (!(d <= threshold)) continue; // NaN fails the comparison too
+    if (depth[i] < bestDepth) { best = i; bestDepth = depth[i]; }
   }
   return best;
 }

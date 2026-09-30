@@ -100,6 +100,17 @@ test('fitSphere frames every point on screen at any angle', () => {
   }
 });
 
+test('fitSphere frames every point in portrait (375×700) viewport at any angle', () => {
+  const pts = [0, 0, 0, 30, 5, -10, -12, -4, 22, 8, 9, 3];
+  const pos = Float32Array.from(pts);
+  const Wp = 375, Hp = 700;
+  for (const [yaw, pitch] of [[0, 1.2], [2.1, 0.2]]) {
+    const fit = fitSphere(pos, [0, 1, 2, 3], 0.1, Wp, Hp);
+    const { sx, sy } = projectAll(pos, { ...fit, yaw, pitch }, Wp, Hp);
+    for (let i = 0; i < 4; i++) assert.ok(sx[i] >= 0 && sx[i] <= Wp && sy[i] >= 0 && sy[i] <= Hp, `point ${i} on screen`);
+  }
+});
+
 test('lerpCamera eases from a to b with geometric distance', () => {
   const a = { target: [0, 0, 0], distance: 10, yaw: 0, pitch: 0.2 };
   const b = { target: [10, 0, 0], distance: 1000, yaw: 1, pitch: 1 };
@@ -131,6 +142,16 @@ test('pickNearest prefers the point nearer the camera when they overlap', () => 
 test('pickNearest skips culled (NaN) points', () => {
   const sx = Float32Array.of(NaN, 60), sy = Float32Array.of(NaN, 60), d = Float32Array.of(-1, 4);
   assert.equal(pickNearest(sx, sy, d, 60, 61, 8), 1);
+});
+
+test('pickNearest: 1 px apart, nearer-camera wins despite being farther from cursor', () => {
+  const sx = Float32Array.of(100.5, 101.5), sy = Float32Array.of(100, 100), d = Float32Array.of(20, 3);
+  assert.equal(pickNearest(sx, sy, d, 100, 100, 2), 1); // point 1 is 1.5 px away but has depth 3
+});
+
+test('pickNearest: 5 px apart, closer-to-cursor wins even though farther from camera', () => {
+  const sx = Float32Array.of(102, 107), sy = Float32Array.of(100, 100), d = Float32Array.of(3, 1);
+  assert.equal(pickNearest(sx, sy, d, 100, 100, 5), 0); // point 0 is 2 px away and wins
 });
 
 test('placeLabels keeps earlier boxes and drops later overlapping ones', () => {
