@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { parseCsv, OUT_FILE, buildUniverse } from '../scripts/build-universe.js';
-import { secBand, secLabel } from '../public/js/map.js';
+import { secBand, secLabel, routePoints, tooltipHtml } from '../public/js/map.js';
 import { HUBS } from '../public/js/arbitrage.js';
 
 test('parseCsv handles BOM, quotes, embedded commas and CRLF', () => {
@@ -53,4 +53,24 @@ test('buildUniverse writes the vertical position z3 in light years', async () =>
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+const U = {
+  id: [1, 2, 3], name: ['Jita', 'Per<i>meter', 'Urlen'], sec: [0.95, 0.9, 0.85], region: [0, 0, 0],
+  regions: [{ name: 'The Forge' }], indexOf: new Map([[1, 0], [2, 1], [3, 2]]),
+};
+
+test('routePoints follows the route path and skips culled systems', () => {
+  const state = { u: U, model: { pathFor: () => [1, 2, 3] } };
+  const sx = Float32Array.of(0, NaN, 20), sy = Float32Array.of(5, NaN, 25);
+  assert.deepEqual(routePoints(state, {}, sx, sy), [[0, 5], [20, 25]]);
+  assert.equal(routePoints({ u: U, model: { pathFor: () => [1, 2] } }, {}, sx, sy), null);
+});
+
+test('tooltipHtml escapes names and adds the hub hint', () => {
+  const html = tooltipHtml({ u: U, model: null }, 1, false);
+  assert.match(html, /Per&lt;i&gt;meter/);
+  assert.match(html, /The Forge/);
+  assert.doesNotMatch(html, /Click to show/);
+  assert.match(tooltipHtml({ u: U, model: null }, 0, true), /Click to show best outgoing route/);
 });
