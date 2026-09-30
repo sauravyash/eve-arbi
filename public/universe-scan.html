@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Universe scan · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="market.css">
+</head>
+<body data-page="uscan">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Market Watch</h1>
+        <p class="sub">Every station in New Eden, 9 sources merged — find the deals the hubs don't show</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Tools">
+      <a href="index.html">Home</a>
+      <a href="best-items.html">Hub arbitrage</a>
+      <a href="universe-scan.html" aria-current="page">Market watch</a>
+      <a href="item-contracts.html">Contracts</a>
+      <a href="mining.html">Mining</a>
+    </nav>
+    <button id="themeBtn" class="theme-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
+  </header>
+
+  <nav class="subnav" aria-label="Market watch sections">
+    <span class="subnav-tool">Market watch</span>
+    <div class="tabs">
+      <a href="universe-scan.html" aria-current="page" title="Every item, every station: the best hauls in New Eden (key 1)">Universe scan</a>
+      <a href="my-orders.html" title="Your market orders against the live competition (key 2)">My orders<span id="ordersTabN" class="tab-n"></span></a>
+      <a href="watchlist.html" title="Items you follow, cross-checked across 9 sources (key 3)">Watchlist<span id="watchTabN" class="tab-n"></span></a>
+    </div>
+    <span class="hint keys">Keys 1–3 switch pages</span>
+  </nav>
+
+  <section class="controls" aria-label="Settings">
+    <label>Home system
+      <input id="home" type="text" list="systemList" autocomplete="off" spellcheck="false">
+      <datalist id="systemList"></datalist>
+    </label>
+    <label>Route
+      <select id="flag">
+        <option value="secure">High-sec only</option>
+        <option value="shortest">Shortest (any sec)</option>
+      </select>
+    </label>
+    <label title="Base rate 7.5%. Accounting cuts it by 11% per level: 3.375% at level V.">Sales tax % <input id="tax" type="number" min="0" max="100" step="0.01" inputmode="decimal"></label>
+    <label>Cargo m³ <input id="cargo" type="text" inputmode="decimal" placeholder="Unlimited"></label>
+    <label title="Most ISK to spend on one haul; hauls are cut down to fit">Max investment <input id="budget" type="text" placeholder="Unlimited"></label>
+    <div class="checks">
+      <label class="inline check"><input id="hideHubs" type="checkbox"> Skip trade hubs</label>
+      <label class="inline check"><input id="structures" type="checkbox"> Player structures</label>
+      <label class="inline check"><input id="showGhosts" type="checkbox"> Ghost orders</label>
+      <label class="inline check wh-toggle" id="whToggle"></label>
+    </div>
+  </section>
+
+  <main class="mw-layout">
+    <section class="panel uscan-panel" id="panel-uscan">
+      <div class="table-head">
+        <h2>Universe scan <span class="count">· every item, every station</span></h2>
+        <span id="usStatus" class="scan-status" role="status" aria-live="polite"></span>
+        <button id="usBtn" class="btn small" type="button">Scan universe</button>
+      </div>
+      <div id="usProgress" class="progress" hidden><i></i></div>
+      <div class="scan-filters">
+        <label>Min profit <input id="usMinProfit" type="text" placeholder="0"></label>
+        <label title="Most ISK to spend on one haul (e.g. 250m, 1.5b); bigger hauls are cut down to fit. Same setting as Max investment above.">Max investment
+          <input id="usBudget" type="text" placeholder="Unlimited"></label>
+        <label>Hide margin above % <input id="usMaxMargin" type="number" min="0" step="1" placeholder="No limit"></label>
+        <label>Max total jumps <input id="usMaxJumps" type="number" min="0" step="1" placeholder="No limit"></label>
+        <fieldset class="near" aria-label="Near a location">
+          <label title="Any system name. Leave blank to search everywhere.">Near system
+            <input id="usNear" type="text" list="systemList" autocomplete="off" spellcheck="false" placeholder="Anywhere"></label>
+          <label>Measured to
+            <select id="usNearEnd">
+              <option value="pickup">Pickup (buy)</option>
+              <option value="dropoff">Drop-off (sell)</option>
+              <option value="either">Either end</option>
+            </select>
+          </label>
+          <label>Within jumps <input id="usNearMax" type="number" min="0" step="1" placeholder="No limit"></label>
+        </fieldset>
+        <label>Rank by
+          <select id="usRank">
+            <option value="perJump">ISK per jump (incl. from home)</option>
+            <option value="near">Closest to location</option>
+            <option value="profit">Total profit</option>
+            <option value="iskm3">Profit per m³</option>
+            <option value="margin">Margin %</option>
+          </select>
+        </label>
+        <label class="grow">Item <input id="usQuery" type="search" placeholder="Filter by name"></label>
+        <label class="inline check us-check"><input id="usHideShips" type="checkbox"> Hide ships</label>
+      </div>
+      <div class="table-wrap">
+        <table class="routes scan-table us-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Item</th><th class="l">Buy at</th><th class="l">Sell at</th>
+            <th>Jumps</th><th>Units</th><th>m³</th><th>Investment</th><th>Buy → Sell</th>
+            <th>Margin</th><th>Profit</th><th>ISK/jump</th>
+          </tr></thead>
+          <tbody id="usBody"></tbody>
+        </table>
+      </div>
+      <div class="scan-foot">
+        <p class="hint">Every sell order and buy order in all 67 known-space regions (~1,600 ESI pages, a few minutes), matched station to station.
+          Uses the settings above: home, route, tax, cargo, budget, hubs and structures. Jumps = haul (+ trip from home). Click a row to add the item to your
+          watchlist and open its cross-checked detail — re-check in game before you commit ISK.</p>
+        <button id="usMore" class="btn small ghost" type="button" hidden>Show more</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/market.js"></script>
+</body>
+</html>

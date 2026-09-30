@@ -311,11 +311,11 @@ async function ssoApi(req, res, u) {
   const json = (status, obj) => send(res, status, JSON.stringify(obj), { 'Content-Type': 'application/json' });
   const page = (status, title, msg) => send(res, status, `<!doctype html><meta charset="utf-8"><title>${title}</title>
     <body style="font:15px system-ui;background:#0b0f14;color:#dbe4ee;padding:40px"><h1 style="font-size:20px">${title}</h1>
-    <p>${msg}</p><p><a style="color:#2dd4bf" href="/market.html">Back to the dashboard</a></p></body>`, { 'Content-Type': 'text/html; charset=utf-8' });
+    <p>${msg}</p><p><a style="color:#2dd4bf" href="/">Back to the dashboard</a></p></body>`, { 'Content-Type': 'text/html; charset=utf-8' });
   if (!isLocalHost(req.headers.host)) return send(res, 403, 'Forbidden');
   try {
     if (u.pathname === '/sso/login') {
-      res.writeHead(302, { Location: sso.loginUrl(u.searchParams.get('return') || '/market.html'), 'Cache-Control': 'no-store' });
+      res.writeHead(302, { Location: sso.loginUrl(u.searchParams.get('return') || '/'), 'Cache-Control': 'no-store' });
       return res.end();
     }
     if (u.pathname === '/sso/callback') {

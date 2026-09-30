@@ -8,6 +8,23 @@ It is read-only. It uses public market data, never touches the EVE client and pl
 Signing in with EVE is optional; it only lets the dashboards follow your character's location
 (see [Signing in](#signing-in)).
 
+## Pages
+
+The home page (`/`) lists every tool with a card per page and shows how fresh each market scan is.
+Each tool is split into one page per section, linked by a bar under the header (keys 1–4 outside text
+fields switch between them). The pages of a tool share its settings, and links between them keep the
+view's query string.
+
+| Tool | Pages |
+|---|---|
+| Hub arbitrage | `best-items.html`, `single-route.html`, `multi-stop.html`, `watchlist-routes.html` |
+| Market watch | `universe-scan.html`, `my-orders.html`, `watchlist.html` |
+| Contracts | `item-contracts.html`, `courier.html`, `lp-stores.html` |
+| Mining | `mining.html` |
+
+The old single-page URLs (`/market.html?tab=…`, `/contracts.html?tab=…` and `/?tab=…` for Hub arbitrage)
+redirect to the matching page (`public/js/nav.js`).
+
 ## Run
 
 Requires Node 18+ and has no dependencies.
@@ -170,15 +187,15 @@ How it's kept safe (`sso.js`):
     *Profit/jump* is that total divided by jumps. It's more useful when comparing cheap bulk
     items with expensive ones.
 
-## Market watch (`/market.html`)
+## Market watch (`/universe-scan.html`)
 
 A second page built for finding deals **away from the trade hubs**, where spreads are wider
 because fewer traders are watching. For each watched item it looks at every station and
 structure in New Eden, not just Jita/Amarr/Dodixie/Rens/Hek, and ranks station-to-station hauls.
 
-The page has three tabs under the settings: **Universe scan**, **My orders** and **Watchlist** (the
-watched items and the selected item's detail). The open tab is remembered and kept in the link
-(`?tab=`). Clicking an item in the scan or in your orders adds it to the watchlist and opens it there.
+It has three pages: **Universe scan**, **My orders** and **Watchlist** (the watched items and the
+selected item's detail; its data refreshes only there). Clicking an item in the scan or in your orders
+opens the Watchlist page with that item added and selected (`?selected=`).
 
 - **Best hauls:** buy from sell orders at station A, then sell at station B into every buy order
   that can be filled there.
@@ -287,11 +304,11 @@ The watchlist and settings are stored in `localStorage`. *Auto 5 min* re-polls o
 call still goes through the caching proxy, and the slow-moving sources have longer cache floors
 (Adam4EVE 10 min, zKillboard and Mokaam 1 h), so auto-refresh never exceeds their limits.
 
-## Contracts & opportunities (`/contracts.html`)
+## Contracts & opportunities (`/item-contracts.html`)
 
 A third page that prices public contracts and NPC LP stores against the live hub markets. The
 controls at the top (home, route, tax, cargo, max investment, *Sell at* hub, *Value items by*)
-apply to all three tabs, and follow your character like the other pages.
+apply to all three pages (*Item contracts*, *Courier*, *LP stores*), and follow your character like the other tools.
 
 - **Item contracts** (`public/js/scan/contract-scanner.js`, `POST /api/cscan`): public item-exchange contracts (and
   auction buyouts, if ticked) whose contents are worth more than the asking price.
@@ -485,10 +502,10 @@ To check it, open `/api/config` on the site: `"serverScans": true` means the pag
 
 ## Using it
 
-- **Sections:** the tab bar under the map switches between *Best items*, *Single route*, *Multi-stop
-  routes* and *Watchlist routes*, each with its row count. Keys 1–4 (outside text fields) and the
-  arrow keys also switch. The bar stays pinned while you scroll, and the open tab is remembered and kept
-  in the URL. The map and item list stay visible on every tab.
+- **Sections:** *Best items*, *Single route*, *Multi-stop routes* and *Watchlist routes* are separate
+  pages (keys 1–4 switch). The map, item list and top settings are on every one. *Single route* has the
+  same scan filters as *Best items*; *Multi-stop routes* shares their Cargo m³ and Budget, and *Near me*
+  on the first two measures from its Start system (shown as *My system*).
 - **Refresh** is manual. After the first load, repeated clicks within the upstream cache window
   return cached data, so you can't hammer the APIs.
 - **Star map:** drag to pan, scroll or double-click to zoom. Hover a system for its security,

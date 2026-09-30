@@ -15,6 +15,7 @@ import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { copyButton } from './watchlist.js';
 import { mountFitButton } from './fit-dialog.js';
+import { mountSectionNav } from './nav.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -25,9 +26,12 @@ const LS = {
 };
 const JITA = HUBS[0];
 const PAGE = 50;
+// Each section is its own page sharing this script and the settings bar:
+// item-contracts.html (items), courier.html (courier) and lp-stores.html (lp).
+const SECTION = document.body.dataset.page;
 const DEFAULTS = {
   home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, taxV: 1, cargo: '', budget: '', sellHub: 'best', mode: 'instant', structures: true,
-  tab: 'items', scope: 'hubs', minPrice: '20m',
+  scope: 'hubs', minPrice: '20m',
 };
 const X_DEFAULTS = { minProfit: '1m', maxMargin: '', maxJumps: '', rank: 'profit', q: '', priced: true, auctions: false };
 const C_DEFAULTS = { minReward: '', maxCollateral: '', maxJumps: '', backJumps: '5', rank: 'perJump', fits: false };
@@ -42,7 +46,7 @@ settings.lp = { ...LP_DEFAULTS, ...stored.lp };
 // Settings mirrored in the query string (url-state.js).
 const URL_DEFAULTS = { ...DEFAULTS, x: X_DEFAULTS, c: C_DEFAULTS, lp: LP_DEFAULTS };
 const URL_FIELDS = [
-  ['tab', ['items', 'courier', 'lp']], ['home', v => v > 0], ['flag', ['secure', 'shortest']], ['tax', v => v >= 0 && v <= 100],
+  ['home', v => v > 0], ['flag', ['secure', 'shortest']], ['tax', v => v >= 0 && v <= 100],
   'cargo', 'budget', ['sellHub', ['best', ...HUBS.map(h => String(h.id))]], ['mode', ['instant', 'relist']], 'structures',
   ['scope', ['hubs', 'all']], 'minPrice',
   'x.minProfit', 'x.maxMargin', 'x.maxJumps', ['x.rank', ['profit', 'perJump', 'margin']], 'x.q', 'x.priced', 'x.auctions',
@@ -159,6 +163,7 @@ const PHASE = {
 
 function renderStatus() {
   const st = cs.status, el = $('scanStatus'), bar = $('scanProgress');
+  if (!el) return; // LP stores has no contract scan
   const running = st?.state === 'running';
   $('scanBtn').disabled = running;
   showProgress(bar, st, cs.loading);
@@ -536,16 +541,14 @@ function renderLp(fetchVolumes = true) {
 // ---------------------------------------------------------------------------
 function renderAll() {
   renderStatus();
-  const tab = settings.tab;
-  for (const b of $('tabs').querySelectorAll('button[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
-  for (const t of ['items', 'courier', 'lp']) $(`panel-${t}`).hidden = t !== tab;
-  if (tab === 'items') renderItems();
-  if (tab === 'courier') { renderCourier(); if (!us.loading && cs.result) loadUscan(); }
-  if (tab === 'lp') { if (!lp.corps) loadCorps(); else renderLp(); }
+  if (SECTION === 'items') renderItems();
+  if (SECTION === 'courier') { renderCourier(); if (!us.loading && cs.result) loadUscan(); }
+  if (SECTION === 'lp') { if (!lp.corps) loadCorps(); else renderLp(); }
 }
 
 function bind(id, get, set, event = 'change', after = renderAll) {
   const el = $(id);
+  if (!el) return; // a filter of another section's page
   const prop = el.type === 'checkbox' ? 'checked' : 'value';
   el[prop] = get();
   el.addEventListener(event, () => { set(el[prop]); save(); after(); });
@@ -609,22 +612,11 @@ function init() {
   bind('lpRank', () => settings.lp.rank, (v) => { settings.lp.rank = v; }, 'change', renderLp);
   bind('lpHideBp', () => settings.lp.hideBp, (v) => { settings.lp.hideBp = v; }, 'change', renderLp);
 
-  $('tabs').addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-tab]');
-    if (!b) return;
-    settings.tab = b.dataset.tab; save(); renderAll();
-  });
-  $('tabs').addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-    const tabs = ['items', 'courier', 'lp'];
-    const i = (tabs.indexOf(settings.tab) + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
-    settings.tab = tabs[i]; save(); renderAll();
-    $(`tab-${tabs[i]}`).focus();
-  });
-  $('scanBtn').addEventListener('click', startScan);
-  $('xMore').addEventListener('click', () => { cs.xLimit += PAGE; renderItems(); });
-  $('cMore').addEventListener('click', () => { cs.cLimit += PAGE; renderCourier(); });
-  $('xBody').addEventListener('click', (e) => {
+  mountSectionNav();
+  $('scanBtn')?.addEventListener('click', startScan);
+  $('xMore')?.addEventListener('click', () => { cs.xLimit += PAGE; renderItems(); });
+  $('cMore')?.addEventListener('click', () => { cs.cLimit += PAGE; renderCourier(); });
+  $('xBody')?.addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-id]');
     if (!tr) return;
     const id = Number(tr.dataset.id);
@@ -634,7 +626,7 @@ function init() {
 
   drawToggle = mountToggle($('whToggle'), sc);
   createMe({
-    el: $('me'), returnTo: '/contracts.html', systemName: sysName, isk,
+    el: $('me'), returnTo: location.pathname, systemName: sysName, isk,
     shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][2] === 6 ? types[id][3] ?? null : null } : null),
     onFollow: followLocation,
     onCargo: (m3) => fromMe('cargo', 'cargo', m3, 'From your current ship (base hold) — turn off in the character menu to edit'),
@@ -645,9 +637,11 @@ function init() {
     .catch(() => { $('home').placeholder = 'Star map unavailable'; });
   fetch('data/types.json').then(r => r.json()).then(t => { types = t; renderAll(); }).catch(() => {});
   fetch('data/stations.json').then(r => (r.ok ? r.json() : {})).then(s => { stations = s; renderAll(); }).catch(() => {});
-  poll();
-  // Scans started or finished in another tab.
-  conScan.onChange(() => poll());
+  if (SECTION !== 'lp') {
+    poll();
+    // Scans started or finished in another tab.
+    conScan.onChange(() => poll());
+  }
   uniScan.onChange(({ type }) => { if (type === 'done' && us.loading) { us.loading = null; loadUscan(); } });
   renderAll();
 }

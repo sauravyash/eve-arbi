@@ -12,6 +12,7 @@ import { readUrl, writeUrl } from './url-state.js';
 import { shipHolds, capacityFor } from './holds.js';
 import { packRoute, multibuyText } from './manifest.js';
 import { mountFitButton } from './fit-dialog.js';
+import { mountSectionNav } from './nav.js';
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -31,7 +32,7 @@ const JUMP_TTL = 24 * 3600_000;
 
 const DEFAULTS = {
   items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, graphItem: 'all', showAll: false,
-  view: 'map', mapLayout: '3d', secColors: true, tab: 'scan',
+  view: 'map', mapLayout: '3d', secColors: true,
   scan: { scope: 'hubs', cargo: '', ship: '', budget: '', minProfit: '5m', from: '', to: '', near: '0', maxMargin: '100', rank: 'ppj', q: '', hideShips: false, structures: false },
   trips: { start: 30000142, legs: '3', link: '3', minProfit: '1m', rank: 'perJump', hideShips: false, hideHubs: false, structures: false },
 };
@@ -46,7 +47,7 @@ const hubIds = ['', ...HUBS.map(h => String(h.id))];
 const scanEnds = [...hubIds, 'hubs', 'offhub', 'me'];
 const URL_FIELDS = [
   ['flag', ['secure', 'shortest', 'insecure']], ['sellMode', ['instant', 'relist']], ['metric', ['unit', 'depth']],
-  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['tab', ['scan', 'load', 'trips', 'table']], ['mapLayout', ['3d', '2d']], 'secColors',
+  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['3d', '2d']], 'secColors',
   ['scan.scope', ['hubs', 'all']], 'scan.cargo', ['scan.ship', v => v === '' || Number(v) > 0], 'scan.budget', 'scan.minProfit',
   ['scan.from', scanEnds], ['scan.to', scanEnds], ['scan.near', v => v === '' || Number(v) >= 0], 'scan.maxMargin',
   ['scan.rank', ['ppj', 'profit', 'iskm3', 'margin']], 'scan.q', 'scan.hideShips', 'scan.structures',
@@ -669,6 +670,7 @@ const COLUMNS = [
 ];
 
 function renderTable(routes) {
+  if (!$('routeBody')) return;
   const defaultKey = settings.metric === 'depth' && settings.sellMode === 'instant' ? 'depthPerJump' : 'iskPerJump';
   const sortKey = ui.sort.key || defaultKey;
   const metricKey = defaultKey;
@@ -695,7 +697,6 @@ function renderTable(routes) {
   let rows = routes.filter(r => r.status !== 'nomarket');
   if (ui.selectedHub) rows = rows.filter(r => r.from.id === ui.selectedHub);
   if (!settings.showAll) rows = rows.filter(r => r.metric > 0);
-  tabCount('table', settings.items.length ? rows.length : null);
   const col = COLUMNS.find(c => c.key === sortKey);
   rows.sort((a, b) => {
     const va = col.val(a), vb = col.val(b);
@@ -1031,17 +1032,22 @@ function syncScanOptions() {
         ...(all ? [new Option('Trade hubs', 'hubs'), new Option('Away from hubs', 'offhub')] : []),
         ...HUBS.map(h => new Option(all ? `${h.name} (system)` : h.name, String(h.id))),
         new Option(`Near me (${where})`, 'me')];
-      $(id).replaceChildren(...opts);
       if (!opts.some(o => o.value === settings.scan[k])) settings.scan[k] = '';
+      if (!$(id)) continue;
+      $(id).replaceChildren(...opts);
       $(id).value = settings.scan[k];
     }
   }
-  $('scNearWrap').hidden = settings.scan.from !== 'me' && settings.scan.to !== 'me';
+  if (!$('scNearWrap')) return;
+  const nearMe = settings.scan.from === 'me' || settings.scan.to === 'me';
+  $('scNearWrap').hidden = !nearMe;
+  $('scStartWrap').hidden = !nearMe;
   $('scStructuresWrap').hidden = !all;
 }
 
 function renderShipNote() {
   const note = $('scShipNote');
+  if (!note) return;
   note.hidden = !ship.typeId;
   if (!ship.typeId) return;
   const name = `${trip.catalog?.[ship.typeId]?.[0] || `Ship ${ship.typeId}`}${ship.fromMe ? ' (your ship)' : ''}`;
@@ -1052,9 +1058,12 @@ function renderShipNote() {
     : `${name} has no special holds, so only Cargo m³ counts.`;
 }
 
+// Each section is its own page (best-items, single-route, multi-stop, hub-routes.html), sharing this
+// script, the map and the item list; a section renders only on the page that has it.
 function renderScan() {
-  renderScanTable();
-  renderLoads();
+  scan.rows = scanRows(); // the map's "Whole market (scan)" view uses them on every page
+  if ($('scanBtn')) renderScanTable();
+  if ($('loadBody')) renderLoads();
 }
 
 function renderScanTable() {
@@ -1083,9 +1092,8 @@ function renderScanTable() {
       + (warnings.length ? ` · ⚠ ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : '');
   }
 
-  scan.rows = scanRows();
-  tabCount('scan', r ? scan.rows.length : null);
   const body = $('scanBody'), more = $('scanMore');
+  if (!body) return; // Single route shares the filters, not the table
   if (!r || !scan.rows.length) {
     const nearMe = settings.scan.from === 'me' || settings.scan.to === 'me';
     body.innerHTML = `<tr class="empty"><td colspan="13">${
@@ -1155,7 +1163,6 @@ function renderScanTable() {
 function renderLoads() {
   const all = allStations(), r = all ? trip.result : scan.result;
   const routes = routeRows();
-  tabCount('load', r ? routes.length : null);
   const body = $('loadBody'), more = $('loadMore'), label = $('loadStatus');
   label.textContent = r ? `${routes.length.toLocaleString()} route${routes.length === 1 ? '' : 's'}` : '';
   const picked = ui.loadPick && routes.find(x => x.key === ui.loadPick);
@@ -1163,7 +1170,7 @@ function renderLoads() {
   $('loadDetail').hidden = !picked;
   $('loadDetail').parentElement.classList.toggle('has-detail', !!picked);
   if (!routes.length) {
-    body.innerHTML = `<tr class="empty"><td colspan="11">${r ? 'No route with these filters.' : 'Waiting for a scan (Best arbitrage items).'}</td></tr>`;
+    body.innerHTML = `<tr class="empty"><td colspan="11">${r ? 'No route with these filters.' : 'Waiting for a market scan.'}</td></tr>`;
     more.hidden = true;
     return;
   }
@@ -1219,6 +1226,7 @@ function selectLoad(rt) {
 }
 
 function bindLoads() {
+  if (!$('loadBody')) return;
   $('loadBody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-key]');
     if (tr) selectLoad(routeRows().find(x => x.key === tr.dataset.key));
@@ -1281,6 +1289,7 @@ function initShipList(catalog) {
     shipByName.set(info[0].toLowerCase(), Number(id));
     names.push(info[0]);
   }
+  if (!$('scShip')) return;
   $('scShips').innerHTML = names.sort().map(n => `<option value="${esc(n)}">`).join('');
   const id = ship.typeId || Number(settings.scan.ship);
   $('scShip').value = id ? catalog[id]?.[0] || '' : '';
@@ -1288,12 +1297,13 @@ function initShipList(catalog) {
 function useShip(typeId) {
   const input = $('scShip');
   ship.fromMe = !!typeId;
+  const id = typeId || Number(settings.scan.ship) || null;
+  loadShipHolds(id);
+  if (!input) return;
   input.disabled = !!typeId;
   input.classList.toggle('from-me', !!typeId);
   input.title = typeId ? 'Your current ship. Turn off "Use my ship\'s cargo" in the character menu to pick one.' : '';
-  const id = typeId || Number(settings.scan.ship) || null;
   input.value = id ? trip.catalog?.[id]?.[0] || '' : '';
-  loadShipHolds(id);
 }
 
 function bindScanFilters() {
@@ -1301,11 +1311,13 @@ function bindScanFilters() {
   syncScanOptions();
   let timer;
   for (const [id, key] of Object.entries({ scHideShips: 'hideShips', scStructures: 'structures' })) {
+    if (!$(id)) continue;
     $(id).checked = !!settings.scan[key];
     $(id).addEventListener('change', () => { settings.scan[key] = $(id).checked; ui.scanLimit = 50; saveSettings(); render(); });
   }
   for (const [id, key] of Object.entries(fields)) {
     const input = $(id);
+    if (!input) continue; // Multi-stop routes only has Cargo m³ and Budget
     input.value = settings.scan[key];
     const isSelect = input.tagName === 'SELECT';
     input.addEventListener(isSelect ? 'change' : 'input', () => {
@@ -1316,6 +1328,7 @@ function bindScanFilters() {
       timer = setTimeout(() => { saveSettings(); render(); }, isSelect ? 0 : 200);
     });
   }
+  if (!$('scanBtn')) return;
   $('scShip').addEventListener('change', () => {
     const v = $('scShip').value.trim().toLowerCase();
     const id = v ? shipByName.get(v) : null;
@@ -1329,7 +1342,7 @@ function bindScanFilters() {
   });
   mountFitButton($('scCargo'), { types: () => trip.catalog, shipInput: $('scShip') });
   $('scanBtn').addEventListener('click', startScan);
-  $('scanMore').addEventListener('click', () => { ui.scanLimit += 100; renderScan(); });
+  $('scanMore')?.addEventListener('click', () => { ui.scanLimit += 100; renderScan(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -1485,6 +1498,7 @@ function tripText(tr) {
 }
 
 function renderTrips() {
+  if (!$('tripBody')) return;
   const st = trip.status, r = trip.result;
   const busy = !!st && ['running', 'computing'].includes(st.state);
   const label = $('tripStatus'), bar = $('tripProgress');
@@ -1501,7 +1515,6 @@ function renderTrips() {
   else if (!r) label.textContent = 'Needs a universe scan (a few minutes)';
   else {
     trips = tripList();
-    tabCount('trips', trips.length);
     const age = Math.round((Date.now() - r.finishedAt) / 60_000);
     label.textContent = `${trips.length} routes · universe scan from ${age < 1 ? 'just now' : `${age} min ago`}`;
   }
@@ -1526,7 +1539,20 @@ function renderTrips() {
   if (picked) $('tripStops').innerHTML = tripStopsHtml(picked);
 }
 
+function bindStart() {
+  const t = settings.trips;
+  $('tpStart')?.addEventListener('change', async () => {
+    const text = $('tpStart').value.trim();
+    // Known space locally; J-codes and Thera through ESI (they only route once a shortcut reaches them).
+    let id = trip.byName.get(text.toLowerCase());
+    if (!id && text) { try { id = await sc.systemByName(text); } catch { /* keep the old start */ } }
+    if (id) { t.start = id; saveSettings(); trip.memo = null; scan.memo = null; }
+    render(); // Near me (…) in Best arbitrage items follows it too
+  });
+}
+
 function bindTrips() {
+  if (!$('tripBody')) return;
   const t = settings.trips;
   const fields = { tpLegs: 'legs', tpLink: 'link', tpMinProfit: 'minProfit', tpRank: 'rank' };
   for (const [id, key] of Object.entries(fields)) {
@@ -1538,14 +1564,6 @@ function bindTrips() {
     $(id).checked = !!t[key];
     $(id).addEventListener('change', () => { t[key] = $(id).checked; saveSettings(); renderTrips(); });
   }
-  $('tpStart').addEventListener('change', async () => {
-    const text = $('tpStart').value.trim();
-    // Known space locally; J-codes and Thera through ESI (they only route once a shortcut reaches them).
-    let id = trip.byName.get(text.toLowerCase());
-    if (!id && text) { try { id = await sc.systemByName(text); } catch { /* keep the old start */ } }
-    if (id) { t.start = id; saveSettings(); trip.memo = null; scan.memo = null; }
-    render(); // Near me (…) in Best arbitrage items follows it too
-  });
   $('tripScanBtn').addEventListener('click', tripStartScan);
   $('tripBody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-key]');
@@ -1569,22 +1587,27 @@ function followLocation(loc) {
     settings.trips.start = loc.systemId; saveSettings(); trip.memo = null;
     if (ui.tripPick) selectTrip(null);
   }
-  if (trip.graph) input.value = sysName(settings.trips.start);
-  input.disabled = !!loc;
-  input.title = loc ? 'Following your character — untick Follow to choose a system by hand' : '';
+  if (input) {
+    if (trip.graph) input.value = sysName(settings.trips.start);
+    input.disabled = !!loc;
+    input.title = loc ? 'Following your character — untick Follow to choose a system by hand' : '';
+  }
   render();
 }
 // Ship cargo → Cargo m³, wallet → Budget (both feed the market scan and multi-stop routes).
 function useFromMe(id, key, value, what) {
   const input = $(id);
-  if (value != null) { settings.scan[key] = String(Math.floor(value)); input.value = settings.scan[key]; saveSettings(); trip.memo = null; }
-  input.disabled = value != null;
-  input.classList.toggle('from-me', value != null);
-  input.title = value != null ? `${what} — turn off in the character menu to edit` : '';
+  if (value != null) { settings.scan[key] = String(Math.floor(value)); saveSettings(); trip.memo = null; }
+  if (input) {
+    if (value != null) input.value = settings.scan[key];
+    input.disabled = value != null;
+    input.classList.toggle('from-me', value != null);
+    input.title = value != null ? `${what} — turn off in the character menu to edit` : '';
+  }
   render();
 }
 const meCtl = createMe({
-  el: $('me'), returnTo: '/', systemName: (id) => sysName(id), isk: formatIsk,
+  el: $('me'), returnTo: location.pathname, systemName: (id) => sysName(id), isk: formatIsk,
   shipInfo: (id) => (trip.catalog?.[id] ? { name: trip.catalog[id][0], cargo: trip.catalog[id][2] === SHIP_CATEGORY ? trip.catalog[id][3] ?? null : null } : null),
   onFollow: followLocation,
   onCargo: (m3) => useFromMe('scCargo', 'cargo', m3, 'From your current ship (base hold)'),
@@ -1597,54 +1620,12 @@ function initTripData(u) {
   trip.graph = buildGraph(u);
   sc.setBase(trip.graph);
   for (let i = 0; i < trip.graph.n; i++) trip.byName.set(trip.graph.name[i].toLowerCase(), trip.graph.id[i]);
-  $('tpSystems').innerHTML = [...trip.graph.name].sort().map(n => `<option value="${esc(n)}">`).join('');
+  if ($('tpSystems')) $('tpSystems').innerHTML = [...trip.graph.name].sort().map(n => `<option value="${esc(n)}">`).join('');
   if (!trip.graph.indexOf.has(settings.trips.start) && !isJSpace(settings.trips.start)) { settings.trips.start = DEFAULTS.trips.start; saveSettings(); } // unknown ID from a link
   sc.resolveNames([settings.trips.start]);
-  $('tpStart').value = sysName(settings.trips.start);
+  if ($('tpStart')) $('tpStart').value = sysName(settings.trips.start);
   meCtl.reapply(); // system names are available now
   renderTrips();
-}
-
-// ---------------------------------------------------------------------------
-// Section tabs: one lower panel at a time (the map and item list stay put)
-// ---------------------------------------------------------------------------
-const TABS = ['scan', 'load', 'trips', 'table'];
-function tabCount(tab, n) {
-  const el = $(`tabN-${tab}`);
-  if (el) el.textContent = n == null ? '' : n > 999 ? `${Math.floor(n / 1000)}k+` : String(n);
-}
-function setTab(tab, { focus = false, user = true } = {}) {
-  if (!TABS.includes(tab)) tab = 'scan';
-  settings.tab = tab;
-  saveSettings();
-  for (const b of document.querySelectorAll('[data-tab]')) {
-    const on = b.dataset.tab === tab;
-    b.setAttribute('aria-selected', String(on));
-    b.tabIndex = on ? 0 : -1;
-    if (on && focus) b.focus();
-  }
-  for (const s of document.querySelectorAll('[data-section]')) s.hidden = s.dataset.section !== tab;
-  // Switching while scrolled down a long table: start the new section just under the pinned bar.
-  if (!user) return;
-  const bar = document.querySelector('.section-tabs'), sec = document.querySelector(`[data-section="${tab}"]`);
-  const top = sec.getBoundingClientRect().top + scrollY - bar.offsetHeight - 8;
-  if (scrollY > top) scrollTo({ top });
-}
-function bindTabs() {
-  document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
-  // Arrow keys move along the tab bar; 1–4 anywhere outside a text field jump straight to a section.
-  document.querySelector('.section-tabs [role=tablist]').addEventListener('keydown', (e) => {
-    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
-    if (!step) return;
-    e.preventDefault();
-    setTab(TABS[(TABS.indexOf(settings.tab) + step + TABS.length) % TABS.length], { focus: true });
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, select, textarea, [contenteditable]')) return;
-    const i = ['1', '2', '3', '4'].indexOf(e.key);
-    if (i >= 0) setTab(TABS[i]);
-  });
-  setTab(settings.tab, { user: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -1652,6 +1633,7 @@ function bindTabs() {
 // ---------------------------------------------------------------------------
 function bindSetting(id, key, { parse = v => v, after } = {}) {
   const input = $(id);
+  if (!input) return;
   if (input.type === 'checkbox') input.checked = !!settings[key]; else input.value = settings[key];
   input.addEventListener('change', () => {
     settings[key] = parse(input.type === 'checkbox' ? input.checked : input.value);
@@ -1726,8 +1708,9 @@ search.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) pickerShow([]); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.selectedHub && !e.target.closest?.('input, select')) selectHub(null); });
 
-bindTabs();
+mountSectionNav();
 bindScanFilters();
+bindStart();
 bindLoads();
 bindRouteTip();
 bindTrips();

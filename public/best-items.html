@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Best items · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="scan">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Hub Arbitrage</h1>
+        <p class="sub">Jita · Amarr · Dodixie · Rens · Hek — read-only market data</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Tools">
+      <a href="index.html">Home</a>
+      <a href="best-items.html" aria-current="page">Hub arbitrage</a>
+      <a href="universe-scan.html">Market watch</a>
+      <a href="item-contracts.html">Contracts</a>
+      <a href="mining.html">Mining</a>
+    </nav>
+    <button id="themeBtn" class="theme-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
+    <div class="refresh">
+      <span id="status" class="status" role="status" aria-live="polite">Not loaded</span>
+      <button id="refreshBtn" class="btn primary" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <nav class="subnav" aria-label="Hub arbitrage sections">
+    <span class="subnav-tool">Hub arbitrage</span>
+    <div class="tabs">
+      <a href="best-items.html" aria-current="page" title="Rank every item worth hauling between markets (key 1)">Best items</a>
+      <a href="single-route.html" title="Fill one hold with the best mix of items for one trip (key 2)">Single route</a>
+      <a href="multi-stop.html" title="Chain hauls across New Eden (key 3)">Multi-stop routes</a>
+      <a href="watchlist-routes.html" title="Your items between the five hubs (key 4)">Watchlist routes</a>
+    </div>
+    <span class="hint keys">Keys 1–4 switch pages</span>
+  </nav>
+
+  <section class="controls" aria-label="Settings">
+    <label>Route
+      <select id="flag">
+        <option value="secure">Safest (high-sec)</option>
+        <option value="shortest">Shortest</option>
+        <option value="insecure">Prefer low/null</option>
+      </select>
+    </label>
+    <label>Sell at destination
+      <select id="sellMode">
+        <option value="instant">Into buy orders (instant)</option>
+        <option value="relist">Relist vs lowest sell</option>
+      </select>
+    </label>
+    <label>Rank by
+      <select id="metric">
+        <option value="unit">ISK/jump per unit</option>
+        <option value="depth">Depth profit / jump</option>
+      </select>
+    </label>
+    <label title="Base rate 7.5%. Accounting cuts it by 11% per level: 3.375% at level V.">Sales tax %
+      <input id="taxPct" type="number" min="0" max="100" step="0.01" inputmode="decimal">
+    </label>
+    <label>Graph item
+      <select id="graphItem"></select>
+    </label>
+    <label class="inline check wh-toggle" id="whToggle"></label>
+  </section>
+
+  <main class="layout">
+    <section class="panel graph-panel" aria-label="Hub graph">
+      <div class="graph-head">
+        <div class="tabs" role="tablist" aria-label="View">
+          <button type="button" role="tab" data-view="map">Star map</button>
+          <button type="button" role="tab" data-view="schematic">Schematic</button>
+        </div>
+        <div id="mapTools" class="map-tools">
+          <label class="inline">Layout
+            <select id="mapLayout">
+              <option value="3d">True positions</option>
+              <option value="2d">In-game 2D map</option>
+            </select>
+          </label>
+          <label class="inline check"><input id="secColors" type="checkbox"> Security colors</label>
+          <div class="btn-group" role="group" aria-label="Map zoom">
+            <button id="mapZoomOut" class="btn small" type="button" aria-label="Zoom out">−</button>
+            <button id="mapZoomIn" class="btn small" type="button" aria-label="Zoom in">+</button>
+            <button id="mapFitRoute" class="btn small" type="button">Best route</button>
+            <button id="mapFitHubs" class="btn small" type="button">Hubs</button>
+            <button id="mapFitAll" class="btn small" type="button">All</button>
+          </div>
+        </div>
+      </div>
+      <div id="mapView" class="map-view">
+        <canvas id="mapCanvas" aria-label="Star map of New Eden with trade routes. Drag to pan, scroll to zoom, click a hub to select it."></canvas>
+        <div id="mapTip" class="map-tip" hidden></div>
+        <div id="mapMsg" class="map-msg">Loading star map…</div>
+      </div>
+      <svg id="graph" viewBox="0 0 640 560" role="img" aria-label="Arbitrage graph between trade hubs" hidden></svg>
+      <div id="focus" class="focus"></div>
+      <ul class="legend">
+        <li><i class="sw best"></i>Best route</li>
+        <li><i class="sw pos"></i>Profitable (width ∝ value)</li>
+        <li><i class="sw neg"></i>No profit</li>
+        <li><i class="sw stale"></i>Stale / unknown</li>
+        <li id="legendMap" class="sec-legend">Security <i class="secbar"></i><span>1.0</span>→<span>-1.0</span></li>
+      </ul>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>Items <span id="itemCount" class="count"></span></h2>
+        <div class="picker">
+          <input id="itemSearch" type="search" placeholder="Search market groups, or exact item name + Enter" autocomplete="off" aria-label="Find items">
+          <div id="pickerResults" class="picker-results" hidden></div>
+        </div>
+        <ul id="itemList" class="item-list"></ul>
+      </section>
+
+      <details class="panel" id="overridesPanel">
+        <summary><h2>Manual overrides</h2></summary>
+        <p class="hint">Blank = live value (shown as placeholder). Use when a fetch fails or you're offline.</p>
+        <label class="inline">Item <select id="ovItem"></select></label>
+        <table class="ov-table">
+          <thead><tr><th>Hub</th><th>Buy at</th><th id="ovSellHead">Sell at</th></tr></thead>
+          <tbody id="ovPrices"></tbody>
+        </table>
+        <h3>Jumps</h3>
+        <div id="ovJumps" class="ov-jumps"></div>
+        <button id="ovClear" class="btn ghost small" type="button">Clear all overrides</button>
+      </details>
+    </aside>
+
+
+    <section class="panel scan-panel" id="sec-scan" aria-label="Best arbitrage items across the whole market">
+      <div class="table-head">
+        <h2>Best arbitrage items <span class="count">· whole market</span></h2>
+        <span id="scanStatus" class="scan-status" role="status" aria-live="polite"></span>
+        <button id="scanBtn" class="btn small" type="button">Scan market</button>
+      </div>
+      <div id="scanProgress" class="progress" hidden><i></i></div>
+      <div class="scan-filters">
+        <label title="Trade hubs: the five hub stations (hub scan, about a minute). All stations: every NPC station and structure in New Eden (the universe scan, a few minutes, shared with Multi-stop routes).">Markets
+          <select id="scScope">
+            <option value="hubs">Trade hubs</option>
+            <option value="all">All stations</option>
+          </select>
+        </label>
+        <label>Cargo m³ <input id="scCargo" type="text" inputmode="decimal" placeholder="Unlimited"></label>
+        <label title="Items that fit this ship's special holds (ore, mineral, PI, fuel bay, fleet hangar, …) can use them as well as Cargo m³">Ship holds
+          <input id="scShip" type="text" list="scShips" autocomplete="off" spellcheck="false" placeholder="None (cargo only)">
+          <datalist id="scShips"></datalist>
+        </label>
+        <label>Budget ISK <input id="scBudget" type="text" placeholder="Unlimited"></label>
+        <label>Min profit <input id="scMinProfit" type="text" placeholder="0"></label>
+        <label>Buy at <select id="scFrom"></select></label>
+        <label>Sell at <select id="scTo"></select></label>
+        <label id="scStartWrap" title="Where Near me measures from. Follows your character when you're signed in with Follow on.">My system
+          <input id="tpStart" type="text" list="tpSystems" autocomplete="off" spellcheck="false">
+          <datalist id="tpSystems"></datalist>
+        </label>
+        <label id="scNearWrap" title="Your location is the multi-stop Start system, which follows your character when you're signed in with Follow on. 0 = the same system.">Jumps from me
+          <input id="scNear" type="number" min="0" max="40" step="1"></label>
+        <label>Hide margin above % <input id="scMaxMargin" type="number" min="0" step="1" placeholder="No limit"></label>
+        <label>Rank by
+          <select id="scRank">
+            <option value="ppj">Profit per jump</option>
+            <option value="profit">Total profit</option>
+            <option value="iskm3">Profit per m³</option>
+            <option value="margin">Margin %</option>
+          </select>
+        </label>
+        <label class="grow">Item <input id="scQuery" type="search" placeholder="Filter by name"></label>
+        <label class="inline check sc-check"><input id="scHideShips" type="checkbox"> Hide ships</label>
+        <label id="scStructuresWrap" class="inline check sc-check"><input id="scStructures" type="checkbox"> Player structures</label>
+      </div>
+      <p id="scShipNote" class="hint ship-note" hidden></p>
+      <div class="table-wrap">
+        <table class="routes scan-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Item</th><th class="l">Buy at</th><th class="l">Sell at</th>
+            <th>Jumps</th><th>Units</th><th>Cargo m³</th><th>Investment</th><th>Buy → Sell</th>
+            <th>Margin</th><th>Profit</th><th>Profit/jump</th><th>ISK/m³</th>
+          </tr></thead>
+          <tbody id="scanBody"></tbody>
+        </table>
+      </div>
+      <div class="scan-foot">
+        <p class="hint">Buy from sell orders at the pickup station, haul, and sell into buy orders at the drop-off. Profit is
+          after sales tax and within your cargo/budget limits, walking both order books. With <b>Buy at → Near me</b>, profit per jump
+          includes the flight to the pickup. Click a row to show the route on the map; ☆ adds the item to your watchlist.</p>
+        <button id="scanMore" class="btn small ghost" type="button" hidden>Show more</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

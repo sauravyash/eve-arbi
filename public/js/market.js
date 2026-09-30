@@ -15,6 +15,7 @@ import { normalizeMyOrder, orderStanding, expiresAt } from './orders.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { mountFitButton } from './fit-dialog.js';
+import { mountSectionNav, openSection } from './nav.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -41,19 +42,21 @@ const stored = LS.get('market.settings', {});
 // Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
 if (!stored.taxV && !Number(stored.tax)) delete stored.tax;
 if (stored.hub && !stored.refHub) stored.refHub = stored.hub; // settings from the first version
-const TABS = ['uscan', 'orders', 'watch'];
+// Each section is its own page sharing this script and the settings bar:
+// universe-scan.html (uscan), my-orders.html (orders) and watchlist.html (watch).
+const PAGE = document.body.dataset.page;
 const US_DEFAULTS = { minProfit: '5m', maxMargin: '100', maxJumps: '', rank: 'perJump', q: '', near: '', nearEnd: 'pickup', nearMax: '', hideShips: false };
 const DEFAULTS = {
   items: [], refHub: JITA.id, home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, taxV: 1, cargo: '', budget: '',
   hideHubs: true, structures: true, showGhosts: false, haulRank: 'perJump',
-  selected: null, histDays: 90, auto: false, sort: { key: null, dir: -1 }, us: US_DEFAULTS, tab: 'uscan',
+  selected: null, histDays: 90, auto: false, sort: { key: null, dir: -1 }, us: US_DEFAULTS,
 };
 const settings = Object.assign(structuredClone(DEFAULTS), stored);
 // Nested so filters added later still get defaults when older settings are loaded.
 settings.us = { ...US_DEFAULTS, ...stored.us };
 // Settings mirrored in the query string (url-state.js); the watchlist, sort and auto-refresh stay local.
 const URL_FIELDS = [
-  ['tab', TABS], ['selected', v => v > 0], ['refHub', HUBS.map(h => h.id)], ['home', v => v > 0], ['flag', ['secure', 'shortest']],
+  ['selected', v => v > 0], ['refHub', HUBS.map(h => h.id)], ['home', v => v > 0], ['flag', ['secure', 'shortest']],
   ['tax', v => v >= 0 && v <= 100], 'cargo', 'budget', 'hideHubs', 'structures', 'showGhosts',
   ['haulRank', ['perJump', 'profit', 'margin']], ['histDays', [30, 90, 365, 0]],
   'us.minProfit', 'us.maxMargin', 'us.maxJumps', ['us.rank', ['perJump', 'near', 'profit', 'iskm3', 'margin']], 'us.q',
@@ -66,7 +69,6 @@ settings.items = watch.initial();
 let urlItem = null;
 if (readUrl(settings, DEFAULTS, URL_FIELDS) && settings.selected && !settings.items.some(i => i.typeId === settings.selected)) {
   urlItem = settings.selected;
-  settings.tab = 'watch';
   settings.items.push({ typeId: settings.selected, name: `Type ${settings.selected}` }); // named once types.json loads
 }
 const save = () => { LS.set('market.settings', { ...settings, items: undefined }); writeUrl(settings, DEFAULTS, URL_FIELDS); };
@@ -871,9 +873,10 @@ async function onSearch() {
 }
 
 function addItem(typeId, name) {
+  // The item's detail lives on the Watchlist page; a link to an item you don't watch adds it there.
+  if (PAGE !== 'watch') { openSection('watchlist.html', { selected: typeId }); return; }
   if (!settings.items.some(i => i.typeId === typeId)) { settings.items.push({ typeId, name }); saveItems(); }
   settings.selected = typeId;
-  settings.tab = 'watch'; // the item's detail lives on the Watchlist tab
   save();
   $('itemSearch').value = '';
   $('pickerResults').hidden = true;
@@ -910,7 +913,7 @@ function applyWatchlist(items) {
   if (!settings.selected && items.length) settings.selected = items[0].typeId;
   save();
   renderAll();
-  if (items.some(i => !before.has(i.typeId))) refresh();
+  if (PAGE === 'watch' && items.some(i => !before.has(i.typeId))) refresh();
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,6 +1003,7 @@ function usRows() {
 
 function renderUscanStatus() {
   const st = us.status, el = $('usStatus'), bar = $('usProgress');
+  if (!el) return;
   const running = st?.state === 'running' || st?.state === 'computing';
   $('usBtn').disabled = running;
   showProgress(bar, st, us.loading);
@@ -1030,6 +1034,7 @@ function nearNote(d, end) {
 function renderUscan() {
   renderUscanStatus();
   const body = $('usBody');
+  if (!body) return;
   if (!us.result) {
     body.innerHTML = '<tr class="empty"><td colspan="12">Press <b>Scan universe</b> to search every station in New Eden.</td></tr>';
     $('usMore').hidden = true;
@@ -1064,6 +1069,7 @@ const my = { orders: null, corpError: null, market: new Map(), structSys: new Ma
 const ORDERS_SCOPE = 'esi-markets.read_character_orders.v1';
 
 async function loadMyOrders() {
+  if (PAGE !== 'orders') return;
   const st = meCtl?.status;
   if (!st?.loggedIn) { my.orders = null; my.error = null; renderMyOrders(); return; }
   if (my.loading) return;
@@ -1115,6 +1121,7 @@ async function loadMyOrders() {
 function renderMyOrders() {
   const body = $('ordersBody'), status = $('ordersStatus');
   const tabN = $('ordersTabN');
+  if (!body) return;
   tabN.classList.remove('warn');
   if (!meCtl?.status?.loggedIn) {
     status.textContent = ''; $('ordersCount').textContent = ''; tabN.textContent = '';
@@ -1170,6 +1177,7 @@ function useShipCargo(m3) {
 function useWallet(balance) {
   for (const id of ['budget', 'usBudget']) {
     const input = $(id);
+    if (!input) continue;
     if (balance != null) input.value = String(Math.floor(balance));
     input.disabled = balance != null;
     input.classList.toggle('from-me', balance != null);
@@ -1182,31 +1190,16 @@ function useWallet(balance) {
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
-function renderTabs() {
-  for (const b of $('tabs').querySelectorAll('button[data-tab]')) {
-    const on = b.dataset.tab === settings.tab;
-    b.setAttribute('aria-selected', String(on));
-    b.tabIndex = on ? 0 : -1;
-  }
-  for (const t of TABS) $(`panel-${t}`).hidden = t !== settings.tab;
-  $('watchTabN').textContent = settings.items.length ? String(settings.items.length) : '';
-}
-function setTab(tab) {
-  if (tab === settings.tab) return;
-  settings.tab = tab; save(); renderTabs();
-  // The chart sizes itself from its width, which is 0 while the tab is hidden.
-  const c = tab === 'watch' && settings.selected ? collate(settings.selected) : null;
-  if (c) renderChart(c);
-}
-
 function renderAll() {
-  renderTabs();
-  renderStatus(ui.loading ? 'Loading…' : null);
-  renderSources();
-  renderBoard();
-  renderDetail();
-  renderUscan();
-  renderMyOrders();
+  $('watchTabN').textContent = settings.items.length ? String(settings.items.length) : '';
+  if (PAGE === 'watch') {
+    renderStatus(ui.loading ? 'Loading…' : null);
+    renderSources();
+    renderBoard();
+    renderDetail();
+  }
+  if (PAGE === 'uscan') renderUscan();
+  if (PAGE === 'orders') renderMyOrders();
 }
 
 function setAuto(on) {
@@ -1217,6 +1210,7 @@ function setAuto(on) {
 
 function bindSetting(id, key, { prop = 'value', parse = v => v, event = 'change', reload = false } = {}) {
   const el = $(id);
+  if (!el) return;
   el[prop] = settings[key];
   el.addEventListener(event, () => {
     settings[key] = parse(el[prop]); save();
@@ -1263,46 +1257,56 @@ function initHome() {
 
 function init() {
   meCtl = createMe({
-    el: $('me'), returnTo: '/market.html', systemName: sysName, isk,
+    el: $('me'), returnTo: location.pathname, systemName: sysName, isk,
     shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][2] === 6 ? types[id][3] ?? null : null } : null),
     onFollow: followLocation, onCargo: useShipCargo, onBudget: useWallet,
     onStatus: () => { loadMyOrders(); watch.load(); },
   });
-  $('tabs').addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-tab]');
-    if (b) setTab(b.dataset.tab);
-  });
-  $('tabs').addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-    const i = (TABS.indexOf(settings.tab) + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length;
-    setTab(TABS[i]);
-    $(`tab-${TABS[i]}`).focus();
-  });
-  $('ordersRefresh').addEventListener('click', loadMyOrders);
-  $('ordersProblems').addEventListener('change', renderMyOrders);
-  $('ordersBody').addEventListener('click', (e) => {
-    const tr = e.target.closest('tr[data-t]');
-    if (!tr) return;
-    const t = Number(tr.dataset.t);
-    addItem(t, types?.[t]?.[0] || `Type ${t}`);
-    $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  mountSectionNav();
   drawToggle = mountToggle($('whToggle'), sc);
-  $('refHub').innerHTML = HUBS.map(h => `<option value="${h.id}">${h.name} — ${h.region}</option>`).join('');
-  bindSetting('refHub', 'refHub', { parse: Number, reload: true });
   bindSetting('flag', 'flag');
   bindSetting('tax', 'tax', { parse: Number, event: 'input' });
   bindSetting('cargo', 'cargo', { event: 'input' });
   mountFitButton($('cargo'), { types: () => types });
   bindSetting('budget', 'budget', { event: 'input' });
+  bindSetting('hideHubs', 'hideHubs', { prop: 'checked' });
+  bindSetting('structures', 'structures', { prop: 'checked' });
+  bindSetting('showGhosts', 'showGhosts', { prop: 'checked' });
+  if (PAGE === 'uscan') bindUscan();
+  if (PAGE === 'orders') bindOrders();
+  if (PAGE === 'watch') bindWatch();
+
+  if (!settings.selected && settings.items.length) settings.selected = settings.items[0].typeId;
+  writeUrl(settings, DEFAULTS, URL_FIELDS);
+  fetch('data/universe.json').then(r => r.json()).then(u => { graph = buildGraph(u); sc.setBase(graph); initHome(); bump(); renderAll(); })
+    .catch(() => { $('home').placeholder = 'Star map unavailable'; });
+  loadTypes().then(() => { renderAll(); meCtl?.reapply(); }); // ship names and cargo need types.json
+  loadStations().then(() => renderAll());
+  renderAll();
+  if (PAGE === 'uscan') {
+    usPoll();
+    uniScan.onChange(() => usPoll());   // a scan started or finished in another tab
+  }
+  if (PAGE === 'watch') {
+    setAuto(settings.auto);
+    refresh();
+  }
+}
+
+function bindOrders() {
+  $('ordersRefresh').addEventListener('click', loadMyOrders);
+  $('ordersProblems').addEventListener('change', renderMyOrders);
+  $('ordersBody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-t]');
+    if (tr) addItem(Number(tr.dataset.t));
+  });
+}
+
+function bindUscan() {
   // The scan's Max investment field is the same setting as the one in the top controls.
   $('usBudget').value = settings.budget;
   $('usBudget').addEventListener('input', () => { settings.budget = $('usBudget').value; $('budget').value = settings.budget; save(); renderAll(); });
   $('budget').addEventListener('input', () => { $('usBudget').value = settings.budget; });
-  bindSetting('hideHubs', 'hideHubs', { prop: 'checked' });
-  bindSetting('structures', 'structures', { prop: 'checked' });
-  bindSetting('showGhosts', 'showGhosts', { prop: 'checked' });
-  bindSetting('haulRank', 'haulRank');
   for (const [id, k, ev] of [['usMinProfit', 'minProfit', 'input'], ['usMaxMargin', 'maxMargin', 'input'],
     ['usMaxJumps', 'maxJumps', 'input'], ['usRank', 'rank', 'change'], ['usQuery', 'q', 'input'],
     ['usNear', 'near', 'input'], ['usNearEnd', 'nearEnd', 'change'], ['usNearMax', 'nearMax', 'input']]) {
@@ -1316,11 +1320,14 @@ function init() {
   $('usBody').addEventListener('click', (e) => {
     if (e.target.closest('a')) return; // source links open on their own
     const tr = e.target.closest('tr[data-t]');
-    if (!tr) return;
-    const t = Number(tr.dataset.t);
-    addItem(t, us.result.types[t]?.[0] || `Type ${t}`);
-    $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (tr) addItem(Number(tr.dataset.t));
   });
+}
+
+function bindWatch() {
+  $('refHub').innerHTML = HUBS.map(h => `<option value="${h.id}">${h.name} — ${h.region}</option>`).join('');
+  bindSetting('refHub', 'refHub', { parse: Number, reload: true });
+  bindSetting('haulRank', 'haulRank');
   $('autoRefresh').checked = settings.auto;
   $('autoRefresh').addEventListener('change', () => setAuto($('autoRefresh').checked));
   $('refreshBtn').addEventListener('click', refresh);
@@ -1377,18 +1384,6 @@ function init() {
   $('chart').addEventListener('mouseleave', onChartLeave);
   let rz;
   window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { const c = collate(settings.selected); if (c) renderChart(c); }, 150); });
-
-  if (!settings.selected && settings.items.length) settings.selected = settings.items[0].typeId;
-  writeUrl(settings, DEFAULTS, URL_FIELDS);
-  setAuto(settings.auto);
-  fetch('data/universe.json').then(r => r.json()).then(u => { graph = buildGraph(u); sc.setBase(graph); initHome(); bump(); renderAll(); })
-    .catch(() => { $('home').placeholder = 'Star map unavailable'; });
-  loadTypes().then(() => { renderAll(); meCtl?.reapply(); }); // ship names and cargo need types.json
-  loadStations().then(() => renderAll());
-  usPoll();
-  uniScan.onChange(() => usPoll());   // a scan started or finished in another tab
-  renderAll();
-  refresh();
 }
 
 init();
