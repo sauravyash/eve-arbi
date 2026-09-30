@@ -24,6 +24,9 @@ export const SCOPES = [
   'esi-markets.read_character_orders.v1',
   'esi-markets.read_corporation_orders.v1',
   'esi-markets.structure_markets.v1',
+  'esi-assets.read_assets.v1',
+  'esi-industry.read_character_mining.v1',
+  'esi-universe.read_structures.v1',
 ];
 const PENDING_TTL = 10 * 60_000;
 const MIN_TTL = 5_000;      // never ask ESI more often than this for the same thing
@@ -38,7 +41,35 @@ const NEED = {
   orders: ['esi-markets.read_character_orders.v1', 'your market orders'],
   corpOrders: ['esi-markets.read_corporation_orders.v1', 'corporation market orders'],
   structure: ['esi-markets.structure_markets.v1', 'structure markets'],
+  assets: ['esi-assets.read_assets.v1', 'your assets'],
+  mining: ['esi-industry.read_character_mining.v1', 'your mining ledger'],
+  structureInfo: ['esi-universe.read_structures.v1', 'player structure names'],
 };
+
+const isStation = (id) => id >= 60_000_000 && id < 64_000_000;
+const isSystem = (id) => id >= 30_000_000 && id < 33_000_000;
+
+/**
+ * ESI assets → one entry per type and top-level location: items inside ships and containers
+ * count where the ship or container sits. Ships and containers themselves are kept as items too.
+ * @param {{item_id, type_id, quantity, location_id, location_type, location_flag}[]} assets
+ * @returns {{typeId, qty, locationId, locationType: 'station'|'structure'|'system'|'other'}[]}
+ */
+export function rootAssets(assets) {
+  const byItem = new Map((assets || []).map(a => [a.item_id, a]));
+  const sum = new Map();
+  for (const a of assets || []) {
+    let at = a, hops = 0;
+    while (byItem.has(at.location_id) && hops++ < 20) at = byItem.get(at.location_id);
+    const l = at.location_id;
+    const type = isStation(l) ? 'station' : isSystem(l) ? 'system' : at.location_type === 'item' && l > 1e12 ? 'structure' : 'other';
+    const key = `${a.type_id}:${l}`;
+    const cur = sum.get(key);
+    if (cur) cur.qty += a.quantity || 1;
+    else sum.set(key, { typeId: a.type_id, qty: a.quantity || 1, locationId: l, locationType: type });
+  }
+  return [...sum.values()];
+}
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
@@ -252,6 +283,37 @@ export function createSso({ clientId, callbackUrl, tokenFile, store = fileStore(
       const all = await esi('structure', `markets/structures/${structureId}/`, { paged: true, ttl: 300_000 });
       const want = typeIds && new Set(typeIds);
       return want ? all.filter(o => want.has(o.type_id)) : all;
+    },
+
+    // Everything you own, rolled up to the station, structure or system it sits in. Player
+    // structures are named when the structures scope allows it and you have docking access.
+    async assets() {
+      const id = session?.characterId;
+      const items = rootAssets(await esi('assets', `characters/${id}/assets/`, { paged: true }));
+      const structures = [...new Set(items.filter(i => i.locationType === 'structure').map(i => i.locationId))];
+      const locations = {};
+      if (session.scopes.includes(NEED.structureInfo[0])) {
+        await Promise.all(structures.slice(0, 50).map(async (s) => {
+          try {
+            const b = await esi('structureInfo', `universe/structures/${s}/`, { ttl: 3600_000 });
+            locations[s] = { name: b.name, systemId: b.solar_system_id };
+          } catch { /* no docking access: stays unnamed */ }
+        }));
+      }
+      return { items, locations };
+    },
+
+    // Your personal mining ledger (last 30 days): what you mined, where and when.
+    async mining() {
+      const rows = await esi('mining', `characters/${session?.characterId}/mining/`, { paged: true });
+      return rows.map(r => ({ date: r.date, typeId: r.type_id, qty: r.quantity, systemId: r.solar_system_id }));
+    },
+
+    // Your corporation's name and ticker (public data), e.g. to fill in a buyback contract.
+    async corporation() {
+      const { corporation_id: corpId } = await esi(null, `characters/${session?.characterId}/`, { ttl: 3600_000 });
+      const c = await esi(null, `corporations/${corpId}/`, { ttl: 3600_000 });
+      return { corporationId: corpId, name: c.name, ticker: c.ticker };
     },
 
     async logout() {

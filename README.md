@@ -100,7 +100,9 @@ EVE requires every app to be registered, so there's a one-time setup:
    - **Scopes:** `esi-location.read_location.v1`, `esi-location.read_online.v1`,
      `esi-location.read_ship_type.v1`, `esi-wallet.read_character_wallet.v1`,
      `esi-markets.read_character_orders.v1`, `esi-markets.read_corporation_orders.v1`,
-     `esi-markets.structure_markets.v1`. `publicData` doesn't hurt but isn't used.
+     `esi-markets.structure_markets.v1`, `esi-assets.read_assets.v1`,
+     `esi-industry.read_character_mining.v1`, `esi-universe.read_structures.v1` (the last three for
+     the mining page's buyback suggestions and "sell what you own"). `publicData` doesn't hurt but isn't used.
 2. Copy `sso.config.example.json` to `sso.config.json` and put its **Client ID** in it, then restart the server:
    ```json
    { "clientId": "your-client-id" }

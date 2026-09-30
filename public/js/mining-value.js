@@ -122,7 +122,7 @@ export function priceLoad(items, books, g, ctx, { fromSystem = null, taxRate = 0
 }
 
 /**
- * Items as pasted from EVE (inventory "Copy", or a list of "name qty" lines). Quantities may use
+ * Items as pasted from EVE (inventory "Copy", plain or with <t>/<right> markup, or a list of "name qty" lines). Quantities may use
  * thousands separators. Unknown names are returned separately.
  * @param {string} text
  * @param {(name: string) => number|null} typeIdOf   exact name (any case) → type ID
@@ -130,13 +130,14 @@ export function priceLoad(items, books, g, ctx, { fromSystem = null, taxRate = 0
  */
 export function parsePaste(text, typeIdOf) {
   const sum = new Map(), unknown = [];
-  for (const raw of String(text || '').split(/\r?\n/)) {
-    const line = raw.trim();
+  for (const raw of String(text || '').split(/\r?\n|<br\s*\/?>/i)) {
+    // EVE's rich-text copy marks tabs as <t> and alignment as <right>, <left>, <center>…
+    const line = raw.replace(/<t>/gi, '\t').replace(/<\/?[a-z][^<>]*>/gi, '').trim();
     if (!line) continue;
     let name, qty = null, m;
     const cols = line.split('\t').map(c => c.trim());
     if (cols.length > 1) [name, qty] = [cols[0], toQty(cols[1])];
-    else if ((m = line.match(/^(.+?)\s+x?(\d[\d,.\s]*)$/i))) [name, qty] = [m[1], toQty(m[2])];   // Veldspar 12,345
+    else if ((m = line.match(/^(.+?)\s+(?:x\s*)?(\d[\d,.\s]*)$/i))) [name, qty] = [m[1], toQty(m[2])];   // Veldspar 12,345 / Veldspar x 12,345
     else if ((m = line.match(/^(\d[\d,.\s]*?)\s*x?\s+(\D.*)$/i))) [name, qty] = [m[2], toQty(m[1])]; // 12,345 x Veldspar
     else name = line;
     const id = typeIdOf(name.replace(/\*$/, '').trim());
