@@ -1,7 +1,7 @@
 import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
 import { scanClient, tabNote, showProgress } from './scan-client.js';
 import { GalaxyMap, secColor, secLabel } from './map.js';
-import { buildGraph, inHighSec, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
+import { buildGraph, inHighSec, outOfNullSec, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
 import { shortcutsOn, isJSpace } from './wormholes.js';
 import { isNpcStation } from './market-merge.js';
@@ -46,7 +46,7 @@ settings.trips = { ...DEFAULTS.trips, ...settings.trips };
 const hubIds = ['', ...HUBS.map(h => String(h.id))];
 const scanEnds = [...hubIds, 'hubs', 'offhub', 'me'];
 const URL_FIELDS = [
-  ['flag', ['secure', 'shortest', 'insecure']], ['sellMode', ['instant', 'relist']], ['metric', ['unit', 'depth']],
+  ['flag', ['secure', 'nonull', 'shortest', 'insecure']], ['sellMode', ['instant', 'relist']], ['metric', ['unit', 'depth']],
   ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['3d', '2d']], 'secColors',
   ['scan.scope', ['hubs', 'all']], 'scan.cargo', ['scan.ship', v => v === '' || Number(v) > 0], 'scan.budget', 'scan.minProfit',
   ['scan.from', scanEnds], ['scan.to', scanEnds], ['scan.near', v => v === '' || Number(v) >= 0], 'scan.maxMargin',
@@ -127,7 +127,8 @@ async function fetchJumps(flag) {
   const tasks = [];
   for (let i = 0; i < HUBS.length; i++) for (let j = i + 1; j < HUBS.length; j++) {
     const a = HUBS[i], b = HUBS[j];
-    tasks.push(getJson(`/api/esi/route/${a.id}/${b.id}/?flag=${flag}`)
+    // ESI has no "avoid null-sec" flag: hub paths for it come from the local map (hubPath).
+    tasks.push(getJson(`/api/esi/route/${a.id}/${b.id}/?flag=${flag === 'nonull' ? 'secure' : flag}`)
       .then(({ data, headers }) => {
         c.pairs[pairKey(a.id, b.id)] = a.id < b.id ? data : [...data].reverse();
         const exp = Date.parse(headers.get('X-Expires-At'));
@@ -173,7 +174,7 @@ const travel = () => sc.travelGraph() || trip.graph;
 // System path between two hubs (lower hub ID first), or null until ESI answers.
 function hubPath(k) {
   const esi = jumpCache[settings.flag]?.pairs[k] || null;
-  if (!trip.graph || !sc.inUse()) return esi;
+  if (!trip.graph || (!sc.inUse() && settings.flag !== 'nonull')) return esi;
   const [a, b] = k.split('-').map(Number);
   const local = pathBetween(travel(), a, b, tripFlag());
   return local && (!esi || local.length < esi.length) ? local : esi;
@@ -1329,6 +1330,8 @@ function bindScanFilters() {
       timer = setTimeout(() => { saveSettings(); render(); }, isSelect ? 0 : 200);
     });
   }
+  // Multi-stop routes has Cargo m³ too, so it gets the Fit button (just no ship field).
+  if ($('scCargo')) mountFitButton($('scCargo'), { types: () => trip.catalog, shipInput: $('scShip') });
   if (!$('scanBtn')) return;
   $('scShip').addEventListener('change', () => {
     const v = $('scShip').value.trim().toLowerCase();
@@ -1341,7 +1344,6 @@ function bindScanFilters() {
     saveSettings();
     loadShipHolds(id);
   });
-  mountFitButton($('scCargo'), { types: () => trip.catalog, shipInput: $('scShip') });
   $('scanBtn').addEventListener('click', startScan);
   $('scanMore')?.addEventListener('click', () => { ui.scanLimit += 100; renderScan(); });
 }
@@ -1350,7 +1352,7 @@ function bindScanFilters() {
 // Multi-stop routes: chained hauls from the universe scan (see trips.js)
 // ---------------------------------------------------------------------------
 const trip = { result: null, status: null, poll: null, loading: false, graph: null, catalog: null, stations: {}, memo: null, byName: new Map() };
-const tripFlag = () => (settings.flag === 'secure' ? 'secure' : 'shortest');
+const tripFlag = () => (settings.flag === 'secure' || settings.flag === 'nonull' ? settings.flag : 'shortest');
 
 async function tripLoadResult() {
   trip.loading = true;
@@ -1379,10 +1381,14 @@ async function tripStartScan() {
   tripPoll();
 }
 
-// Safest routing keeps every pickup and drop-off in high-sec. Its BFS would otherwise route a
-// haul from a low/null-sec pickup out by the quickest way (galaxy.js jumpsFrom).
+// Safest routing keeps every pickup and drop-off in high-sec, and High + low-sec keeps them out of
+// null-sec. Their BFS would otherwise route a haul from a pickup outside by the quickest way out
+// (galaxy.js jumpsFrom).
 function safeEnds(from, to) {
-  return settings.flag !== 'secure' || !trip.graph || (inHighSec(trip.graph, from) && inHighSec(trip.graph, to));
+  if (!trip.graph) return true;
+  if (settings.flag === 'secure') return inHighSec(trip.graph, from) && inHighSec(trip.graph, to);
+  if (settings.flag === 'nonull') return outOfNullSec(trip.graph, from) && outOfNullSec(trip.graph, to);
+  return true;
 }
 
 function tripDistFrom(sys) {
@@ -1398,13 +1404,13 @@ function tripList() {
   if (trip.memo?.key === key) return trip.memo.trips;
   const cached = tripCacheGet(key);
   if (cached) { trip.memo = { key, trips: cached }; return cached; }
+  const maxVolume = parseAmount(settings.scan.cargo) ?? Infinity, maxCost = parseAmount(settings.scan.budget) ?? Infinity;
   const legs = evaluateLegs(r, {
-    catalog: trip.catalog, taxRate: (Number(settings.taxPct) || 0) / 100,
-    maxVolume: parseAmount(settings.scan.cargo) ?? Infinity, maxCost: parseAmount(settings.scan.budget) ?? Infinity,
+    catalog: trip.catalog, taxRate: (Number(settings.taxPct) || 0) / 100, maxVolume, maxCost,
     minProfit: parseAmount(t.minProfit) ?? 0, hideShips: t.hideShips, hideHubs: t.hideHubs, structures: t.structures, isNpcStation,
   });
   const trips = planTrips(legs.filter(L => safeEnds(L.fs, L.ds)), {
-    start: t.start, distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3,
+    start: t.start, distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3, maxVolume, maxCost,
     maxLink: t.link === '' ? 3 : Math.max(0, Number(t.link) || 0), rank: t.rank,
   }).map(tr => ({ ...tr, key: tr.legs.map(l => `${l.t}:${l.f}:${l.d}`).join('>') }));
   trip.memo = { key, trips };
@@ -1414,7 +1420,7 @@ function tripList() {
 
 // Planned trips for this browser session (sessionStorage), keyed by the scan and every setting
 // that shapes them, so going back to an earlier search or reloading the page doesn't re-plan.
-const TRIP_CACHE = 'arbi.tripSearches', TRIP_CACHE_MAX = 12;
+const TRIP_CACHE = 'arbi.tripSearches.v2', TRIP_CACHE_MAX = 12;
 function tripCacheRead() {
   try { return JSON.parse(sessionStorage.getItem(TRIP_CACHE) || '[]'); } catch { return []; }
 }
@@ -1452,8 +1458,9 @@ function tripGeometry(tr) {
     path.push(...(path.length ? seg.slice(1) : seg));
     at = st.systemId;
   }
-  const label = (st) => (st.action === 'buy' ? `Buy ${st.buy.name}` : st.action === 'sell' ? `Sell ${st.sell.name}`
-    : `Sell ${st.sell.name}, buy ${st.buy.name}`);
+  const names = (list) => list.map(l => l.name).join(', ');
+  const label = (st) => [st.sells.length && `Sell ${names(st.sells)}`, st.buys.length && `${st.sells.length ? 'buy' : 'Buy'} ${names(st.buys)}`]
+    .filter(Boolean).join(', ');
   return {
     path, stops,
     marks: [{ systemId: settings.trips.start, n: 0, label: `Start: ${sysName(settings.trips.start)}` },
@@ -1482,11 +1489,11 @@ function tripStopsHtml(tr) {
     const seg = hop ? pathBetween(travel(), at, st.systemId, tripFlag()) : null;
     const strip = seg && routeStrip(seg, [[0, i ? `Stop ${i}` : 'Start'], [seg.length - 1, `Stop ${i + 1}`]]);
     at = st.systemId;
-    const sell = st.sell ? `Sell <b>${formatIsk(st.sell.units, 1)} ${esc(st.sell.name)}</b>${copyButton(st.sell.name)} → <span class="up">+${formatIsk(st.sell.profit)}</span>` : '';
-    const buy = st.buy ? `Buy <b>${formatIsk(st.buy.units, 1)} ${esc(st.buy.name)}</b>${copyButton(st.buy.name)} for ${formatIsk(st.buy.cost)}${st.buy.x ? ' (sell point uses ranged buy orders)' : ''}` : '';
+    const sell = st.sells.map(l => `Sell <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} → <span class="up">+${formatIsk(l.profit)}</span>`);
+    const buy = st.buys.map(l => `Buy <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} for ${formatIsk(l.cost)}${l.x ? ' (sell point uses ranged buy orders)' : ''}`);
     rows.push(`<li><span class="n">${i + 1}</span>
       <span class="where">${esc(stationName(st.locationId, st.systemId))}<small>${esc(sysName(st.systemId))}</small></span>
-      <span class="act">${[sell, buy].filter(Boolean).join('<br>')}</span>
+      <span class="act">${[...sell, ...buy].join('<br>')}</span>
       <span class="hop">${hop == null ? '' : hop === 0 ? 'same system' : `${strip || ''}${hop} jump${hop === 1 ? '' : 's'} from previous stop`}</span></li>`);
   });
   return rows.join('');
@@ -1496,7 +1503,7 @@ function tripText(tr) {
   const geo = tripGeometry(tr);
   const lines = [`Start: ${sysName(settings.trips.start)}`];
   geo.stops.forEach((st, i) => {
-    const acts = [st.sell && `SELL ${formatIsk(st.sell.units, 1)} ${st.sell.name}`, st.buy && `BUY ${formatIsk(st.buy.units, 1)} ${st.buy.name}`].filter(Boolean);
+    const acts = [...st.sells.map(l => `SELL ${formatIsk(l.units, 1)} ${l.name}`), ...st.buys.map(l => `BUY ${formatIsk(l.units, 1)} ${l.name}`)];
     lines.push(`${i + 1}. ${stationName(st.locationId, st.systemId)} (${sysName(st.systemId)}) — ${acts.join(', then ')}`);
   });
   lines.push(`Total: ${formatIsk(tr.profit)} profit over ${tr.jumps} jumps (${formatIsk(tr.perJump)}/jump)`);

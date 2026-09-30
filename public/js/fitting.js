@@ -75,7 +75,8 @@ export function fittedCargo({ base, hullBonus = 0, skill = 0, modules = [] }) {
  * @param {object} o
  * @param {Record<string, Array>} o.types           types.json ([name, m³, categoryId, …])
  * @param {(path: string) => Promise<object>} o.esi  GET an ESI path (e.g. 'universe/types/657/')
- * @returns {Promise<{shipId, ship, name, base, hullBonus, skill: string|null, modules: {attribute_id, value}[][], unknown: string[]}>}
+ * @returns {Promise<{shipId, ship, name, base, hullBonus, skill: string|null, modules: {attribute_id, value}[][], unknown: string[], failed: string[]}>}
+ *   unknown: names not in types.json; failed: modules ESI couldn't return (left out)
  */
 export async function loadFit(text, { types, esi }) {
   const fit = parseEft(text);
@@ -87,14 +88,16 @@ export async function loadFit(text, { types, esi }) {
 
   const cache = new Map();
   const typeOf = (id) => { if (!cache.has(id)) cache.set(id, esi(`universe/types/${id}/`)); return cache.get(id); };
-  const unknown = fit.modules.filter(n => !idByName.has(n.toLowerCase()));
-  const hull = await typeOf(shipId);
+  const unknown = fit.modules.filter(n => !idByName.has(n.toLowerCase())), failed = [];
+  const hull = await typeOf(shipId).catch(e => { throw new Error(`Couldn't look up the ${types[shipId][0]} (${e.message}); try again in a moment`); });
   const [effects, modules] = await Promise.all([
     Promise.all((hull.dogma_effects || []).map(e => esi(`dogma/effects/${e.effect_id}/`).catch(() => null))),
-    Promise.all(fit.modules.filter(n => idByName.has(n.toLowerCase())).map(n => typeOf(idByName.get(n.toLowerCase())).then(t => t.dogma_attributes || []))),
+    // One module ESI can't answer for shouldn't sink the whole fitting: it's left out and listed.
+    Promise.all(fit.modules.filter(n => idByName.has(n.toLowerCase())).map(n => typeOf(idByName.get(n.toLowerCase()))
+      .then(t => t.dogma_attributes || [], () => { failed.push(n); return []; }))),
   ]);
   const attr = (id) => (hull.dogma_attributes || []).find(a => a.attribute_id === id)?.value;
   const skillId = attr(REQUIRED_SKILL);
   return { shipId, ship: types[shipId][0], name: fit.name, base: attr(CAPACITY) ?? hull.capacity ?? 0,
-    hullBonus: hullCargoBonus(hull.dogma_attributes, effects), skill: skillId ? types[skillId]?.[0] || null : null, modules, unknown };
+    hullBonus: hullCargoBonus(hull.dogma_attributes, effects), skill: skillId ? types[skillId]?.[0] || null : null, modules, unknown, failed };
 }
