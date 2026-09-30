@@ -126,3 +126,12 @@ test('jumpsFrom with nonull flies through high- and low-sec but never null-sec',
   assert.equal(d('nonull', 4, 3), 2);                               // from null-sec: leave by the nearest way out
   assert.deepEqual([1, 2, 4, 6, 999].map(id => outOfNullSec(gn, id)), [true, true, false, false, false]);
 });
+
+test('planTrips reads jumps from rows (jumps option) exactly as from distFrom', () => {
+  const legs = evaluateLegs(result, { catalog, hideShips: true, maxVolume: 15 });
+  const jumps = { indexOf: g.indexOf, from: (sys) => jumpsFrom(g, sys, 'secure') };
+  const opts = { start: 2, maxLegs: 3, maxLink: 1, maxVolume: 15, maxReuse: 10 };
+  assert.deepEqual(planTrips(legs, { ...opts, jumps }), planTrips(legs, { ...opts, distFrom }));
+  // A start the graph doesn't know (wormhole space without a shortcut) reaches nothing.
+  assert.deepEqual(planTrips(legs, { ...opts, start: 31000005, jumps }), []);
+});

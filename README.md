@@ -573,8 +573,11 @@ To check it, open `/api/config` on the site: `"serverScans": true` means the pag
   - A beam search keeps the best partial trips at each stop (with no haul in more than a few of
     them, so one lucrative trade doesn't crowd out the rest). Every purchase is scored as the trip
     it would be if you sold everything aboard by the shortest tour and stopped there, and finished
-    trips are ranked by ISK per jump or total profit. Moves that can't beat what's already kept are
-    skipped before any re-pricing. Planning takes a few hundred milliseconds even with 20,000 hauls.
+    trips are ranked by ISK per jump or total profit. At each pickup station it weighs up to 80
+    hauls: with a shared hold the best add-on is often a small, dense load far down a hub's list.
+    Moves that can't beat what's already kept are skipped before any re-pricing, and jumps come
+    from one cached row per system (typed arrays over the systems a trip can visit). Planning takes
+    a few hundred milliseconds even with 20,000 hauls.
   - An item never appears twice in one trip, since it would compete for the same orders. A
     single haul can headline at most two listed trips.
   - Filters: hauls per trip (2–5), detour jumps per pickup, min profit per haul, hide ships,
