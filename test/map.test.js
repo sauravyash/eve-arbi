@@ -60,11 +60,25 @@ const U = {
   regions: [{ name: 'The Forge' }], indexOf: new Map([[1, 0], [2, 1], [3, 2]]),
 };
 
-test('routePoints follows the route path and skips culled systems', () => {
+test('routePoints follows the route path as one run when nothing is culled', () => {
   const state = { u: U, model: { pathFor: () => [1, 2, 3] } };
-  const sx = Float32Array.of(0, NaN, 20), sy = Float32Array.of(5, NaN, 25);
-  assert.deepEqual(routePoints(state, {}, sx, sy), [[0, 5], [20, 25]]);
-  assert.equal(routePoints({ u: U, model: { pathFor: () => [1, 2] } }, {}, sx, sy), null);
+  const sx = Float32Array.of(0, 10, 20), sy = Float32Array.of(5, 15, 25);
+  assert.deepEqual(routePoints(state, {}, sx, sy), [[[0, 5], [10, 15], [20, 25]]]);
+  assert.equal(routePoints({ u: U, model: { pathFor: () => null } }, {}, sx, sy), null);
+});
+
+test('routePoints splits at culled systems instead of bridging them', () => {
+  const U5 = { indexOf: new Map([[1, 0], [2, 1], [3, 2], [4, 3], [5, 4]]) };
+  const at = (path) => ({ u: U5, model: { pathFor: () => path } });
+  // A - B(culled) - C - D: A is alone and dropped
+  let sx = Float32Array.of(0, NaN, 20, 30), sy = Float32Array.of(0, NaN, 2, 3);
+  assert.deepEqual(routePoints(at([1, 2, 3, 4]), {}, sx, sy), [[[20, 2], [30, 3]]]);
+  // A - B - C(culled) - D - E
+  sx = Float32Array.of(0, 10, NaN, 30, 40); sy = Float32Array.of(0, 1, NaN, 3, 4);
+  assert.deepEqual(routePoints(at([1, 2, 3, 4, 5]), {}, sx, sy), [[[0, 0], [10, 1]], [[30, 3], [40, 4]]]);
+  // nothing drawable
+  sx = Float32Array.of(0, NaN, 20, NaN, 40);
+  assert.equal(routePoints(at([1, 2, 3, 4, 5]), {}, sx, sy), null);
 });
 
 test('tooltipHtml escapes names and adds the hub hint', () => {

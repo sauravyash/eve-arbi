@@ -315,6 +315,9 @@ export class GalaxyMap3D {
     this.renderer.render(this.scene, this.camera);
 
     const proj = this.proj = projectAll(this.pos, this.cam, w, h, this.proj);
+    // Cull points just past the near plane: they project to huge coordinates and draw spikes.
+    const minDepth = 0.05 * this.cam.distance;
+    for (let i = 0; i < this.u.n; i++) if (proj.depth[i] < minDepth) { proj.sx[i] = NaN; proj.sy[i] = NaN; }
     if (!isLightTheme()) vignette(ctx, w, h);
     this.paintLabels(ctx, proj, w, h, P);
     paintRoutes(ctx, this, proj.sx, proj.sy, P);

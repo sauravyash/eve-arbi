@@ -359,15 +359,25 @@ export class GalaxyMap {
   }
 }
 
+// Polyline runs along a path; culled (NaN) systems split it so nothing is drawn across them. Runs of 1 point are dropped.
+function pathRuns(state, path, sx, sy) {
+  const runs = [];
+  let run = [];
+  for (const id of path) {
+    const i = state.u.indexOf.get(id);
+    if (i != null && !Number.isNaN(sx[i])) { run.push([sx[i], sy[i]]); continue; }
+    if (run.length > 1) runs.push(run);
+    run = [];
+  }
+  if (run.length > 1) runs.push(run);
+  return runs;
+}
+
 export function routePoints(state, route, sx, sy) {
   const path = state.model.pathFor(route);
   if (!path) return null;
-  const pts = [];
-  for (const id of path) {
-    const i = state.u.indexOf.get(id);
-    if (i != null && !Number.isNaN(sx[i])) pts.push([sx[i], sy[i]]);
-  }
-  return pts.length > 1 ? pts : null;
+  const runs = pathRuns(state, path, sx, sy);
+  return runs.length ? runs : null;
 }
 
 export function paintRoutes(ctx, state, sx, sy, P) {
@@ -382,23 +392,28 @@ export function paintRoutes(ctx, state, sx, sy, P) {
     .sort((a, b) => (a === m.top) - (b === m.top) || a.route.metric - b.route.metric);
 
   for (const s of order) {
-    const pts = routePoints(state, s.route, sx, sy);
-    if (!pts) continue;
+    const runs = routePoints(state, s.route, sx, sy);
+    if (!runs) continue;
     const isTop = s === m.top;
     const ratio = m.maxV > 0 ? Math.sqrt(s.route.metric / m.maxV) : 0;
     const color = s.route.stale ? P.amber : isTop ? P.teal : P.edge;
     ctx.setLineDash(s.route.stale ? [8, 6] : []);
-    if (isTop) {
-      ctx.save();
-      ctx.shadowColor = P.teal; ctx.shadowBlur = P.glow;
-      stroke(ctx, pts, P.tealGlow, 9, fade);
-      ctx.restore();
+    for (const pts of runs) {
+      if (isTop) {
+        ctx.save();
+        ctx.shadowColor = P.teal; ctx.shadowBlur = P.glow;
+        stroke(ctx, pts, P.tealGlow, 9, fade);
+        ctx.restore();
+      }
+      stroke(ctx, pts, color, isTop ? 3.2 : 1.4 + ratio * 2.6, (isTop ? 1 : 0.35 + 0.5 * ratio) * fade);
+      ctx.setLineDash([]);
+      ctx.globalAlpha = fade;
+      arrows(ctx, pts, color, isTop ? 90 : 140, isTop ? 6 : 4.5);
+      ctx.globalAlpha = 1;
+      ctx.setLineDash(s.route.stale ? [8, 6] : []);
     }
-    stroke(ctx, pts, color, isTop ? 3.2 : 1.4 + ratio * 2.6, (isTop ? 1 : 0.35 + 0.5 * ratio) * fade);
     ctx.setLineDash([]);
-    ctx.globalAlpha = fade;
-    arrows(ctx, pts, color, isTop ? 90 : 140, isTop ? 6 : 4.5);
-    ctx.globalAlpha = 1;
+    const pts = runs.reduce((best, r) => (r.length > best.length ? r : best));
     drawn.push({ s, pts, isTop });
   }
 
@@ -414,13 +429,8 @@ export function paintRoutes(ctx, state, sx, sy, P) {
 export function paintTrip(ctx, state, sx, sy, P) {
   const t = state.trip;
   if (!t) return;
-  const pts = [];
-  for (const id of t.path) {
-    const i = state.u.indexOf.get(id);
-    if (i != null && !Number.isNaN(sx[i])) pts.push([sx[i], sy[i]]);
-  }
-  if (pts.length > 1) {
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const pts of pathRuns(state, t.path, sx, sy)) {
     ctx.save();
     ctx.shadowColor = P.violet; ctx.shadowBlur = P.glow;
     stroke(ctx, pts, P.violetGlow, 9);
