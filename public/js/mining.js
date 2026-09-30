@@ -9,7 +9,7 @@ import { normalizeTycoonOrder, isNpcStation } from './market-merge.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { buildRangeContext } from './ranges.js';
 import { priceLoad, parsePaste } from './mining-value.js';
-import { shortcutsOn, isJSpace } from './wormholes.js';
+import { shortcutsOn, isJSpace, whSummary } from './wormholes.js';
 import { createShortcuts, SOURCE_LABEL } from './shortcuts.js';
 import { createMe } from './me.js';
 import { itemPic, removeButton, copyButton } from './watchlist.js';
@@ -329,10 +329,11 @@ function renderWormholes() {
   const signedIn = meCtl?.status?.loggedIn;
   $('whBody').innerHTML = links.map(l => {
     const expires = l.expiresAt || (l.src === 'trail' ? l.at + w.hours * HOUR : null);
+    const info = sc.whInfo(l.type);
     const what = l.kind === 'jump' ? '<span class="badge stale" title="No stargate joins these systems: a wormhole, a jump bridge or a cyno. Untick it if you can\'t fly it again.">no gate</span>' : '';
     return `<tr class="static${l.use && w.on ? '' : ' off'}">
       <td class="l">${esc(sysName(l.a))} ${secSpan(l.a)} ↔ ${esc(sysName(l.b))} ${secSpan(l.b)}${what}</td>
-      <td class="l">${SOURCE_LABEL[l.src] || l.src}${l.note ? ` <small class="muted">${esc(l.note)}</small>` : ''}</td>
+      <td class="l">${SOURCE_LABEL[l.src] || l.src}${l.note ? ` <small class="muted"${info ? ` title="${esc(whSummary(info))} (ellatha.com wormhole database)"` : ''}>${esc(l.note)}</small>` : ''}</td>
       <td>${ago(l.at)}</td>
       <td>${l.src === 'wanderer' ? '<span class="muted" title="Wanderer drops a connection when it collapses">mapped</span>' : left(expires)}</td>
       <td><input type="checkbox" data-use="${l.key}" data-at="${l.at}"${l.use ? ' checked' : ''} aria-label="Use this connection"></td>
@@ -491,11 +492,13 @@ function init() {
   for (const id of ['whWanderer', 'whWUrl', 'whWMap', 'whWToken']) $(id).addEventListener('change', wanderer);
   $('whAdd').addEventListener('click', async () => {
     const [a, b] = await Promise.all([sc.systemByName($('whFrom').value), sc.systemByName($('whTo').value)].map(p => p.catch(() => null)));
+    const type = $('whType').value.trim(), typeOk = !type || !!sc.whInfo(type);
     $('whFrom').classList.toggle('bad', !a);
     $('whTo').classList.toggle('bad', !b);
-    if (!a || !b || a === b) return;
-    sc.addManual(a, b);
-    $('whFrom').value = ''; $('whTo').value = '';
+    $('whType').classList.toggle('bad', !typeOk);
+    if (!a || !b || a === b || !typeOk) return;
+    sc.addManual(a, b, type);
+    $('whFrom').value = ''; $('whTo').value = ''; $('whType').value = '';
   });
   $('whBody').addEventListener('change', (e) => {
     const key = e.target.dataset.use;

@@ -377,7 +377,14 @@ Sources:
 | **Your characters' jumps** | Wormholes you or your alts took | Recorded from now on while signed in (below) |
 | **EVE Scout** | Thera and Turnur connections | Public API, `api.eve-scout.com`, called from the browser |
 | **Wanderer map** | Every connection on your group's map | Its API with the map's token, through `/api/wanderer/connections` |
-| **By hand** | Any pair of systems (J-codes work) | Resolved through ESI, forgotten after *Forget after* hours |
+| **By hand** | Any pair of systems (J-codes work) | Resolved through ESI, forgotten after *Forget after* hours, or when its *Type*'s lifetime runs out |
+
+Wormhole types (what a Q063 leads to, how long it can live, how much mass it takes) come from
+[DaOpa's wormhole database](https://www.ellatha.com/eve/wormholelist.asp) on ellatha.com, kept as a
+committed snapshot in `public/wormhole-types.json`. Hover a type in the *Found by* column (EVE Scout,
+Wanderer or your own) for its details. Type a hole's code into *Type* when adding one by hand and it
+lasts as long as that type can live. Rebuild the snapshot when CCP adds or changes wormhole types
+(`npm run build:wormholes`: about 100 page loads, roughly 10 minutes).
 
 - **Your jumps.** ESI has no travel history, so there's no way to look back at jumps made before.
   Instead, while you're signed in, the location check every page already makes (every 20 s)

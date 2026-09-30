@@ -5,7 +5,8 @@
 // systems that no stargate joins mean you took a wormhole (or a jump bridge or cyno), so that pair
 // becomes a shortcut (trailLinks). EVE Scout's public Thera and Turnur connections
 // (parseEveScout), a Wanderer mapper's connections (parseWanderer) and links you enter by hand
-// work the same way. withLinks adds them to the gate graph from galaxy.js, so
+// work the same way; links from a feed carry the hole's type code (Q063, …), which whInfo looks
+// up in the wormhole type table (public/wormhole-types.json, from ellatha.com). withLinks adds them to the gate graph from galaxy.js, so
 // jumpsFrom/pathBetween route through them. shortcuts.js gathers them for the pages.
 //
 // Wormholes change travel only. Buy-order ranges are measured on the gate graph, as in game, so
@@ -76,7 +77,7 @@ export function trailLinks(hops, g, { since = 0, maxGap = MAX_GAP } = {}) {
 
 /**
  * EVE Scout's public signatures (https://api.eve-scout.com/v2/public/signatures): wormholes from
- * Thera and Turnur. Returns live links {a, b, at, expiresAt, kind: 'wormhole', src: 'evescout', note}
+ * Thera and Turnur. Returns live links {a, b, at, expiresAt, kind: 'wormhole', src: 'evescout', type, note}
  * and the system names it mentions.
  */
 export function parseEveScout(rows, now = Date.now()) {
@@ -89,11 +90,41 @@ export function parseEveScout(rows, now = Date.now()) {
     if (r.in_system_name) names.set(r.in_system_id, r.in_system_name);
     links.push({
       a: r.out_system_id, b: r.in_system_id, at: Date.parse(r.updated_at || r.created_at) || now,
-      expiresAt: Number.isFinite(expiresAt) ? expiresAt : null, kind: 'wormhole', src: 'evescout',
+      expiresAt: Number.isFinite(expiresAt) ? expiresAt : null, kind: 'wormhole', src: 'evescout', type: whCode(r.wh_type),
       note: [r.wh_type, r.max_ship_size && `${r.max_ship_size} ships`].filter(Boolean).join(' · '),
     });
   }
   return { links, names };
+}
+
+/** A wormhole type code as typed or sent by a feed ("q063", "Wormhole Q063") → "Q063", else null. */
+export function whCode(s) {
+  const m = /^\s*(?:wormhole\s+)?([a-z]\d{3})\s*$/i.exec(String(s ?? ''));
+  return m ? m[1].toUpperCase() : null;
+}
+
+// EVE Scout's ship size names, by the heaviest ship a hole lets through in one jump.
+const SHIP_SIZES = [[5e6, 'small'], [62e6, 'medium'], [375e6, 'large'], [2e9, 'xlarge'], [Infinity, 'capital']];
+
+/**
+ * A wormhole type from the type table (public/wormhole-types.json: code → [leads to, max stable
+ * hours, max stable mass kg, max jump mass kg]). K162 isn't in it: an exit takes after the hole
+ * it's the other side of.
+ * @returns {{code, leads, hours, mass, jump, ships}|null}
+ */
+export function whInfo(types, code) {
+  const c = whCode(code), row = c && types?.[c];
+  if (!Array.isArray(row)) return null;
+  const [leads = null, hours = null, mass = null, jump = null] = row;
+  return { code: c, leads, hours, mass, jump, ships: jump ? SHIP_SIZES.find(([kg]) => jump <= kg)[1] : null };
+}
+
+/** "Q063: to high-sec, lives up to 16 h, 500,000 t in all, 62,000 t per jump (medium ships)" */
+export function whSummary(info) {
+  if (!info) return '';
+  const t = (kg) => `${Math.round(kg / 1000).toLocaleString('en-US')} t`;
+  return `${info.code}: ` + [info.leads && `to ${info.leads}`, info.hours && `lives up to ${info.hours} h`,
+    info.mass && `${t(info.mass)} in all`, info.jump && `${t(info.jump)} per jump (${info.ships} ships)`].filter(Boolean).join(', ');
 }
 
 // Wanderer's time_status and mass_status codes (its map shows the same labels).
@@ -103,7 +134,7 @@ const WANDERER_MASS = { 1: 'reduced', 2: 'critical' };
 /**
  * A Wanderer map's connections (GET {instance}/api/maps/{slug}/connections, {data: [...]}).
  * Wanderer drops a connection when its wormhole collapses, so none of them carries an expiry.
- * @returns {{a, b, at, expiresAt: null, kind: 'wormhole', src: 'wanderer', note}[]}
+ * @returns {{a, b, at, expiresAt: null, kind: 'wormhole', src: 'wanderer', type, note}[]}
  */
 export function parseWanderer(json, now = Date.now()) {
   const rows = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
@@ -112,7 +143,7 @@ export function parseWanderer(json, now = Date.now()) {
     const a = Number(r?.solar_system_source), b = Number(r?.solar_system_target);
     if (!(a > 0) || !(b > 0) || a === b) continue;
     out.push({
-      a, b, at: Date.parse(r.updated_at || r.inserted_at) || now, expiresAt: null, kind: 'wormhole', src: 'wanderer',
+      a, b, at: Date.parse(r.updated_at || r.inserted_at) || now, expiresAt: null, kind: 'wormhole', src: 'wanderer', type: whCode(r.wormhole_type),
       note: [r.wormhole_type, WANDERER_TIME[r.time_status], WANDERER_MASS[r.mass_status] && `mass ${WANDERER_MASS[r.mass_status]}`]
         .filter(Boolean).join(' · '),
     });

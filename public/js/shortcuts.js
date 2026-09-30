@@ -6,13 +6,16 @@
 //   evescout  — EVE Scout's public Thera and Turnur connections (api.eve-scout.com, CORS allowed)
 //   wanderer  — a Wanderer mapper's connections, with its map API token (through /api/wanderer, since
 //               Wanderer sends no CORS headers)
-//   manual    — pairs you add on the Mining page
+//   manual    — pairs you add on the Mining page, optionally with the hole's type
+//
+// Wormhole types (what a Q063 leads to, how long it lives, what fits through) come from
+// public/wormhole-types.json, a snapshot of ellatha.com's wormhole database (scripts/build-wormholes.js).
 //
 // Everything is kept in localStorage (wh.*), so every page and tab shares it; a change in one tab
 // reaches the others through the storage event. Pages build order-range geometry (ranges.js)
 // from the gate graph, and jumps from travelGraph().
 
-import { trailLinks, parseEveScout, parseWanderer, withLinks, isJSpace } from './wormholes.js';
+import { trailLinks, parseEveScout, parseWanderer, withLinks, isJSpace, whInfo, whCode } from './wormholes.js';
 import { readAllTrails, TRAIL_PREFIX } from './me.js';
 
 const HOUR = 3_600_000;
@@ -61,8 +64,9 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     evescout: { links: [], at: 0, error: null, loading: null },
     wanderer: { links: [], at: 0, error: null, loading: null, for: '' },
   };
-  let base = null, memo = null;
+  let base = null, memo = null, whTypes = null;
   const changed = () => { memo = null; onChange(); };
+  fetch('wormhole-types.json').then(r => (r.ok ? r.json() : null)).then(t => { whTypes = t; if (t) changed(); }).catch(() => {});
 
   // --- sources -------------------------------------------------------------
   async function loadFeed(name, force, fetcher, ttl, ident = '') {
@@ -169,6 +173,8 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     feeds,
     names,
     sysName,
+    /** A wormhole type by code (whInfo), once the type table has loaded. */
+    whInfo: (code) => whInfo(whTypes, code),
     resolveNames,
     systemByName,
     links,
@@ -200,10 +206,11 @@ export function createShortcuts({ onChange = () => {} } = {}) {
       LS.set(KEYS.off, off);
       changed();
     },
-    addManual(a, b) {
-      const now = Date.now();
+    /** A pair you found yourself; with its type code, it expires when that type's lifetime runs out. */
+    addManual(a, b, type = null) {
+      const now = Date.now(), code = whCode(type), hours = whInfo(whTypes, code)?.hours || settings.hours;
       manual = manual.filter(l => pairKey(l.a, l.b) !== pairKey(a, b) && !(l.expiresAt <= now));
-      manual.push({ a, b, at: now, expiresAt: now + settings.hours * HOUR, kind: 'wormhole', src: 'manual' });
+      manual.push({ a, b, at: now, expiresAt: now + hours * HOUR, kind: 'wormhole', src: 'manual', type: code, note: code || undefined });
       delete off[pairKey(a, b)];
       LS.set(KEYS.links, manual); LS.set(KEYS.off, off);
       changed();
