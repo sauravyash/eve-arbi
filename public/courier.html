@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Courier contracts · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="market.css">
+  <link rel="stylesheet" href="contracts.css">
+</head>
+<body data-page="courier">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Contracts &amp; Opportunities</h1>
+        <p class="sub">Public contracts and LP stores, priced against the live hub markets</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Tools">
+      <a href="index.html">Home</a>
+      <a href="best-items.html">Hub arbitrage</a>
+      <a href="universe-scan.html">Market watch</a>
+      <a href="item-contracts.html" aria-current="page">Contracts</a>
+      <a href="mining.html">Mining</a>
+    </nav>
+    <button id="themeBtn" class="theme-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
+  </header>
+
+  <nav class="subnav" aria-label="Contracts sections">
+    <span class="subnav-tool">Contracts</span>
+    <div class="tabs">
+      <a href="item-contracts.html" title="Contracts whose items are worth more at a hub (key 1)">Item contracts</a>
+      <a href="courier.html" aria-current="page" title="Courier contracts by ISK per jump, with a backhaul (key 2)">Courier</a>
+      <a href="lp-stores.html" title="Loyalty point offers by ISK per LP (key 3)">LP stores</a>
+    </div>
+    <span class="hint keys">Keys 1–3 switch pages</span>
+  </nav>
+
+  <section class="controls" aria-label="Settings">
+    <label>Home system
+      <input id="home" type="text" list="systemList" autocomplete="off" spellcheck="false">
+      <datalist id="systemList"></datalist>
+    </label>
+    <label>Route
+      <select id="flag">
+        <option value="secure">High-sec only</option>
+        <option value="shortest">Shortest (any sec)</option>
+      </select>
+    </label>
+    <label title="Base rate 7.5%. Accounting cuts it by 11% per level: 3.375% at level V.">Sales tax % <input id="tax" type="number" min="0" max="100" step="0.01" inputmode="decimal"></label>
+    <label>Cargo m³ <input id="cargo" type="text" inputmode="decimal" placeholder="Unlimited"></label>
+    <label title="Most ISK to spend on one contract">Max investment <input id="budget" type="text" placeholder="Unlimited"></label>
+    <label>Sell at
+      <select id="sellHub"></select>
+    </label>
+    <label title="Instant: sell into the buy orders at the hub (the book is walked). Relist: put up sell orders at the hub's lowest price — more ISK, but slower and with broker fees.">Value items by
+      <select id="mode">
+        <option value="instant">Instant sell (buy orders)</option>
+        <option value="relist">Relist (lowest sell order)</option>
+      </select>
+    </label>
+    <div class="checks">
+      <label class="inline check"><input id="structures" type="checkbox"> Player structures</label>
+      <label class="inline check wh-toggle" id="whToggle"></label>
+    </div>
+  </section>
+
+  <div class="ct-tabs-bar">
+    <h2>Contract scan</h2>
+    <span id="scanStatus" class="scan-status" role="status" aria-live="polite"></span>
+    <label class="inline" title="Which regions to open item contracts in. Courier contracts are always listed everywhere.">Item regions
+      <select id="scope">
+        <option value="hubs">Hub regions (5)</option>
+        <option value="all">All known space</option>
+      </select>
+    </label>
+    <label class="inline" title="Only contracts paying or asking at least this much are opened. Lower = more contracts, longer first scan.">Min price
+      <input id="minPrice" type="text" class="small-in" placeholder="20m">
+    </label>
+    <button id="scanBtn" class="btn small primary" type="button">Scan contracts</button>
+  </div>
+  <div id="scanProgress" class="progress ct-progress" hidden><i></i></div>
+
+  <main class="mw-layout">
+    <!-- Courier -->
+    <section class="panel" id="panel-courier">
+      <div class="scan-filters">
+        <label>Min reward <input id="cMinReward" type="text" placeholder="0"></label>
+        <label title="Collateral you'd have to put up">Max collateral <input id="cMaxCollateral" type="text" placeholder="Max investment"></label>
+        <label>Max total jumps <input id="cMaxJumps" type="number" min="0" step="1" placeholder="No limit"></label>
+        <label title="Look for a market haul that starts this close to the drop-off">Backhaul within <input id="cBackJumps" type="number" min="0" step="1"></label>
+        <label>Rank by
+          <select id="cRank">
+            <option value="perJump">ISK per jump (incl. from home)</option>
+            <option value="withBack">ISK per jump incl. backhaul</option>
+            <option value="reward">Reward</option>
+            <option value="perM3">Reward per m³</option>
+          </select>
+        </label>
+        <label class="inline check sc-check"><input id="cFits" type="checkbox"> Fits my cargo</label>
+      </div>
+      <div class="table-wrap">
+        <table class="routes scan-table ct-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Pick up</th><th class="l">Deliver to</th><th>Jumps</th><th>m³</th><th>Reward</th>
+            <th>Collateral</th><th>Days</th><th>ISK/jump</th><th class="l">Best backhaul from drop-off</th>
+          </tr></thead>
+          <tbody id="cBody"></tbody>
+        </table>
+      </div>
+      <div class="scan-foot">
+        <p id="cHint" class="hint">Public courier contracts across New Eden. ISK/jump divides the reward by the trip from home to the pickup
+          plus the delivery. <b>Backhaul</b> links each delivery to the market: the best haul from the Market watch <i>Universe scan</i> that
+          starts near the drop-off, so the flight home earns too (its profit uses your tax, cargo and budget).</p>
+        <button id="cMore" class="btn small ghost" type="button" hidden>Show more</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/contracts.js"></script>
+</body>
+</html>

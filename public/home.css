@@ -1,0 +1,63 @@
+/* Home page — builds on styles.css tokens. Each tool has its own accent. */
+.home { max-width: 1240px; margin: 0 auto; padding: 28px 24px 48px; display: flex; flex-direction: column; gap: 28px; }
+.tool.arbi { --accent: var(--teal); }
+.tool.market { --accent: #60a5fa; }
+.tool.contracts { --accent: var(--amber); }
+.tool.mining { --accent: #f472b6; }
+:root[data-theme=light] .tool.market { --accent: #2563eb; }
+:root[data-theme=light] .tool.mining { --accent: #c0267a; }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "text stats" "scans scans"; gap: 18px 32px; align-items: center;
+  padding: 26px 28px; border: 1px solid var(--line); border-radius: 14px;
+  background: radial-gradient(700px 260px at 0% 0%, var(--teal-wash), transparent 70%), var(--panel); }
+.hero-text { grid-area: text; }
+.hero h2 { font-size: 26px; line-height: 1.2; text-transform: none; letter-spacing: 0; color: var(--text); }
+.hero p { margin: 10px 0 0; max-width: 640px; color: var(--muted); }
+.stats { grid-area: stats; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(96px, auto)); gap: 10px; }
+.stats li { display: flex; flex-direction: column; padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
+.stats b { font: 600 22px var(--mono); color: var(--teal); }
+.stats span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.scans { grid-area: scans; list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.scans li { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 4px 12px 4px 10px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--bg-2); }
+.scans small { color: var(--muted); font-size: 12px; }
+.scans i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.scans [data-state=fresh] i { background: var(--green); }
+.scans [data-state=old] i { background: var(--amber); }
+.scans [data-state=running] i { background: var(--teal); animation: pulse 1.2s ease-in-out infinite; }
+.scans [data-state=error] i { background: var(--red); }
+@keyframes pulse { 50% { opacity: .3; } }
+
+/* tools */
+.tool { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; }
+.tool-head { padding-top: 6px; border-top: 2px solid var(--accent); }
+.tool-head h2 { font-size: 15px; letter-spacing: .02em; text-transform: none; color: var(--text); margin-top: 8px; }
+.tool-head p { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 16px 16px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel); color: var(--text); text-decoration: none; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 10px 24px var(--shadow); }
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card svg { width: 34px; height: 34px; padding: 7px; border-radius: 9px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.card h3 { margin: 6px 0 0; font-size: 15px; font-weight: 600; color: var(--text); }
+.card h3::after { content: " →"; color: var(--accent); opacity: 0; transition: opacity .15s; }
+.card:hover h3::after, .card:focus-visible h3::after { opacity: 1; }
+.card p { margin: 0; font-size: 12.5px; color: var(--muted); }
+.card .live { margin-top: auto; padding-top: 6px; font-size: 11.5px; color: var(--faint); }
+.card .live:empty { display: none; }
+.card .live[data-state=fresh] { color: var(--green); }
+.card .live[data-state=old], .card .live[data-state=none] { color: var(--amber); }
+.card .live[data-state=running] { color: var(--teal); }
+
+@media (max-width: 900px) {
+  .tool { grid-template-columns: 1fr; gap: 12px; }
+  .hero { grid-template-columns: 1fr; grid-template-areas: "text" "stats" "scans"; padding: 20px; }
+  .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .home { padding: 16px 12px 32px; gap: 22px; }
+  .hero h2 { font-size: 21px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) { .card, .card:hover { transition: none; transform: none; } .scans i { animation: none; } }

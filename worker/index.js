@@ -299,7 +299,7 @@ function page(status, title, msg) {
   const esc = (s) => String(s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
   return new Response(`<!doctype html><meta charset="utf-8"><title>${esc(title)}</title>
     <body style="font:15px system-ui;background:#0b0f14;color:#dbe4ee;padding:40px"><h1 style="font-size:20px">${esc(title)}</h1>
-    <p>${esc(msg)}</p><p><a style="color:#2dd4bf" href="/market.html">Back to the dashboard</a></p></body>`,
+    <p>${esc(msg)}</p><p><a style="color:#2dd4bf" href="/">Back to the dashboard</a></p></body>`,
   { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
@@ -316,7 +316,7 @@ async function account(request, env, url) {
     if (!env.EVE_CLIENT_ID) return page(503, 'Sign-in not set up', notConfigured.hint);
     const fresh = !sid;
     sid ||= newSid();
-    const r = await run('loginUrl', url.searchParams.get('return') || '/market.html');
+    const r = await run('loginUrl', url.searchParams.get('return') || '/');
     if (r.error) return page(r.status, 'Sign-in failed', r.error);
     return new Response(null, { status: 302, headers: { Location: r.value, 'Cache-Control': 'no-store', ...(fresh && { 'Set-Cookie': sidCookie(sid, url) }) } });
   }

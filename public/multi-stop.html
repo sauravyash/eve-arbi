@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multi-stop routes · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="trips">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Hub Arbitrage</h1>
+        <p class="sub">Jita · Amarr · Dodixie · Rens · Hek — read-only market data</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Tools">
+      <a href="index.html">Home</a>
+      <a href="best-items.html" aria-current="page">Hub arbitrage</a>
+      <a href="universe-scan.html">Market watch</a>
+      <a href="item-contracts.html">Contracts</a>
+      <a href="mining.html">Mining</a>
+    </nav>
+    <button id="themeBtn" class="theme-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
+    <div class="refresh">
+      <span id="status" class="status" role="status" aria-live="polite">Not loaded</span>
+      <button id="refreshBtn" class="btn primary" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <nav class="subnav" aria-label="Hub arbitrage sections">
+    <span class="subnav-tool">Hub arbitrage</span>
+    <div class="tabs">
+      <a href="best-items.html" title="Rank every item worth hauling between markets (key 1)">Best items</a>
+      <a href="single-route.html" title="Fill one hold with the best mix of items for one trip (key 2)">Single route</a>
+      <a href="multi-stop.html" aria-current="page" title="Chain hauls across New Eden (key 3)">Multi-stop routes</a>
+      <a href="watchlist-routes.html" title="Your items between the five hubs (key 4)">Watchlist routes</a>
+    </div>
+    <span class="hint keys">Keys 1–4 switch pages</span>
+  </nav>
+
+  <section class="controls" aria-label="Settings">
+    <label>Route
+      <select id="flag">
+        <option value="secure">Safest (high-sec)</option>
+        <option value="shortest">Shortest</option>
+        <option value="insecure">Prefer low/null</option>
+      </select>
+    </label>
+    <label>Sell at destination
+      <select id="sellMode">
+        <option value="instant">Into buy orders (instant)</option>
+        <option value="relist">Relist vs lowest sell</option>
+      </select>
+    </label>
+    <label>Rank by
+      <select id="metric">
+        <option value="unit">ISK/jump per unit</option>
+        <option value="depth">Depth profit / jump</option>
+      </select>
+    </label>
+    <label title="Base rate 7.5%. Accounting cuts it by 11% per level: 3.375% at level V.">Sales tax %
+      <input id="taxPct" type="number" min="0" max="100" step="0.01" inputmode="decimal">
+    </label>
+    <label>Graph item
+      <select id="graphItem"></select>
+    </label>
+    <label class="inline check wh-toggle" id="whToggle"></label>
+  </section>
+
+  <main class="layout">
+    <section class="panel graph-panel" aria-label="Hub graph">
+      <div class="graph-head">
+        <div class="tabs" role="tablist" aria-label="View">
+          <button type="button" role="tab" data-view="map">Star map</button>
+          <button type="button" role="tab" data-view="schematic">Schematic</button>
+        </div>
+        <div id="mapTools" class="map-tools">
+          <label class="inline">Layout
+            <select id="mapLayout">
+              <option value="3d">True positions</option>
+              <option value="2d">In-game 2D map</option>
+            </select>
+          </label>
+          <label class="inline check"><input id="secColors" type="checkbox"> Security colors</label>
+          <div class="btn-group" role="group" aria-label="Map zoom">
+            <button id="mapZoomOut" class="btn small" type="button" aria-label="Zoom out">−</button>
+            <button id="mapZoomIn" class="btn small" type="button" aria-label="Zoom in">+</button>
+            <button id="mapFitRoute" class="btn small" type="button">Best route</button>
+            <button id="mapFitHubs" class="btn small" type="button">Hubs</button>
+            <button id="mapFitAll" class="btn small" type="button">All</button>
+          </div>
+        </div>
+      </div>
+      <div id="mapView" class="map-view">
+        <canvas id="mapCanvas" aria-label="Star map of New Eden with trade routes. Drag to pan, scroll to zoom, click a hub to select it."></canvas>
+        <div id="mapTip" class="map-tip" hidden></div>
+        <div id="mapMsg" class="map-msg">Loading star map…</div>
+      </div>
+      <svg id="graph" viewBox="0 0 640 560" role="img" aria-label="Arbitrage graph between trade hubs" hidden></svg>
+      <div id="focus" class="focus"></div>
+      <ul class="legend">
+        <li><i class="sw best"></i>Best route</li>
+        <li><i class="sw pos"></i>Profitable (width ∝ value)</li>
+        <li><i class="sw neg"></i>No profit</li>
+        <li><i class="sw stale"></i>Stale / unknown</li>
+        <li id="legendMap" class="sec-legend">Security <i class="secbar"></i><span>1.0</span>→<span>-1.0</span></li>
+      </ul>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>Items <span id="itemCount" class="count"></span></h2>
+        <div class="picker">
+          <input id="itemSearch" type="search" placeholder="Search market groups, or exact item name + Enter" autocomplete="off" aria-label="Find items">
+          <div id="pickerResults" class="picker-results" hidden></div>
+        </div>
+        <ul id="itemList" class="item-list"></ul>
+      </section>
+
+      <details class="panel" id="overridesPanel">
+        <summary><h2>Manual overrides</h2></summary>
+        <p class="hint">Blank = live value (shown as placeholder). Use when a fetch fails or you're offline.</p>
+        <label class="inline">Item <select id="ovItem"></select></label>
+        <table class="ov-table">
+          <thead><tr><th>Hub</th><th>Buy at</th><th id="ovSellHead">Sell at</th></tr></thead>
+          <tbody id="ovPrices"></tbody>
+        </table>
+        <h3>Jumps</h3>
+        <div id="ovJumps" class="ov-jumps"></div>
+        <button id="ovClear" class="btn ghost small" type="button">Clear all overrides</button>
+      </details>
+    </aside>
+
+
+    <section class="panel trips-panel" id="sec-trips" aria-label="Multi-stop trade routes">
+      <div class="table-head">
+        <h2>Multi-stop routes <span class="count">· chained hauls across New Eden</span></h2>
+        <span id="tripStatus" class="scan-status" role="status" aria-live="polite"></span>
+        <button id="tripScanBtn" class="btn small" type="button">Scan universe</button>
+      </div>
+      <div id="tripProgress" class="progress" hidden><i></i></div>
+      <div class="scan-filters">
+        <label>Start system
+          <input id="tpStart" type="text" list="tpSystems" autocomplete="off" spellcheck="false">
+          <datalist id="tpSystems"></datalist>
+        </label>
+        <label>Hauls per trip
+          <select id="tpLegs">
+            <option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+          </select>
+        </label>
+        <label title="Jumps flown with an empty hold between selling one cargo and buying the next">Empty jumps between hauls
+          <input id="tpLink" type="number" min="0" max="10" step="1"></label>
+        <label title="Per haul: each haul sells its whole cargo before the next purchase. Shared with Best items.">Cargo m³ <input id="scCargo" type="text" inputmode="decimal" placeholder="Unlimited"></label>
+        <label title="Per haul. Shared with Best items.">Budget ISK <input id="scBudget" type="text" placeholder="Unlimited"></label>
+        <label>Min profit per haul <input id="tpMinProfit" type="text" placeholder="0"></label>
+        <label>Rank by
+          <select id="tpRank">
+            <option value="perJump">ISK per jump</option>
+            <option value="profit">Total profit</option>
+          </select>
+        </label>
+        <div class="checks">
+          <label class="inline check"><input id="tpHideShips" type="checkbox"> Hide ships</label>
+          <label class="inline check"><input id="tpHideHubs" type="checkbox"> Skip trade hubs</label>
+          <label class="inline check"><input id="tpStructures" type="checkbox"> Player structures</label>
+        </div>
+      </div>
+      <div class="trips-body">
+        <div class="table-wrap">
+          <table class="routes trips-table">
+            <thead><tr>
+              <th class="l">#</th><th class="l">Route</th><th>Hauls</th><th>Jumps</th><th>Peak investment</th><th>Profit</th><th>ISK/jump</th>
+            </tr></thead>
+            <tbody id="tripBody"></tbody>
+          </table>
+        </div>
+        <aside id="tripDetail" class="trip-detail" hidden aria-label="Waypoints">
+          <div class="table-head">
+            <h3>Waypoints</h3>
+            <button id="tripCopy" class="btn small" type="button">Copy waypoints</button>
+            <button id="tripClear" class="x" type="button" aria-label="Clear route from map">×</button>
+          </div>
+          <ol id="tripStops" class="trip-stops"></ol>
+        </aside>
+      </div>
+      <p class="hint">Each haul sells its whole cargo before the next purchase, so <b>Cargo m³</b> and <b>Budget</b> (shared with Best items)
+        apply per haul. Uses the Route and Sales tax settings above. Jumps include the flight from your start system. Data comes from the universe
+        scan (shared with <a href="universe-scan.html">Market watch</a>). Click a route to draw it on the star map as numbered waypoints.</p>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
