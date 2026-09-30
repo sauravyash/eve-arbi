@@ -10,6 +10,7 @@ import {
 } from './map3d-math.js';
 
 const FLY_MS = 400;
+const CLICK_DELAY_MS = 250;
 const START_PITCH = 55 * Math.PI / 180;
 
 // Stars: soft glow sprites (dark theme, additive) or hard dots (light theme), sized by distance within pixel limits.
@@ -61,9 +62,22 @@ export class GalaxyMap3D {
     this.anim = null;
     this._raf = 0;
 
-    new ResizeObserver(() => this.resize()).observe(overlay);
-    addEventListener('themechange', () => this.applyTheme());
+    this._ro = new ResizeObserver(() => this.resize());
+    this._ro.observe(overlay);
+    this._onTheme = () => this.applyTheme();
+    addEventListener('themechange', this._onTheme);
     this.bindInput();
+  }
+
+  // Releases the WebGL context and listeners (a map that failed to start, see map-switch.js).
+  dispose() {
+    this._ro.disconnect();
+    removeEventListener('themechange', this._onTheme);
+    clearTimeout(this._click);
+    if (this._raf) cancelAnimationFrame(this._raf);
+    this._raf = 0;
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 
   // --- data ------------------------------------------------------------------
@@ -222,7 +236,7 @@ export class GalaxyMap3D {
         const d = Math.hypot(a[0] - b[0], a[1] - b[1]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
         const r = c.getBoundingClientRect();
         this.cam = pan(this.cam, mx - pinch.mx, my - pinch.my, h);
-        this.cam = zoomAt(this.cam, d / pinch.d, mx - r.left, my - r.top, w, h);
+        if (pinch.d > 0 && d > 0) this.cam = zoomAt(this.cam, d / pinch.d, mx - r.left, my - r.top, w, h); // 0/0 would NaN the camera
         pinch = { d, mx, my };
         this.draw();
         return;
@@ -245,7 +259,12 @@ export class GalaxyMap3D {
     const end = (e) => {
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
-      if (drag && !drag.moved && e.type === 'pointerup' && e.button === 0) this.onClick(...local(e));
+      if (drag && !drag.moved && e.type === 'pointerup' && e.button === 0) {
+        // Delayed so the second click of a double-click can cancel it (else it would clear the hub selection).
+        const [px, py] = local(e);
+        clearTimeout(this._click);
+        this._click = setTimeout(() => this.onClick(px, py), CLICK_DELAY_MS);
+      }
       drag = null;
       c.style.cursor = '';
     };
@@ -253,6 +272,7 @@ export class GalaxyMap3D {
     c.addEventListener('pointercancel', end);
     c.addEventListener('pointerleave', () => { if (!drag) { this.hover = -1; this.hideTooltip(); this.draw(); } });
     c.addEventListener('dblclick', (e) => {
+      clearTimeout(this._click);
       const [px, py] = local(e);
       const p = this.proj, i = p ? pickNearest(p.sx, p.sy, p.depth, px, py, 8) : -1;
       if (i >= 0) this.flyTo({ ...this.cam, target: [this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]] });

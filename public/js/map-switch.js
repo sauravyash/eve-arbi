@@ -11,7 +11,7 @@ export function migrateMapLayout(stored) {
   return mapLayout && mapLayout !== '3d' ? { ...rest, mapLayout, mapV: 1 } : { ...rest, mapV: 1 };
 }
 
-export function createMapSwitch({ flat, create3d, flatEl, spaceEls, onUnavailable }) {
+export function createMapSwitch({ flat, create3d, flatEl, spaceEls, onUnavailable, timeoutMs = 15000 }) {
   const state = { universe: null, model: null, trip: null, secColors: true };
   let space = null, loading = null, layout = null;
 
@@ -20,11 +20,19 @@ export function createMapSwitch({ flat, create3d, flatEl, spaceEls, onUnavailabl
     flatEl.hidden = isSpace;
     for (const el of spaceEls) el.hidden = !isSpace;
   };
-  const start3d = () => (loading ??= create3d().then((m) => {
-    m.setSecurityColors(state.secColors);
-    if (state.universe) m.setUniverse(state.universe);
-    if (state.model) m.update(state.model);
-    if (state.trip) m.setTrip(state.trip);
+  // A CDN that hangs counts as unavailable too.
+  const withTimeout = (p) => {
+    let timer;
+    const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timed out loading the 3D map')), timeoutMs); });
+    return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+  };
+  const start3d = () => (loading ??= withTimeout(create3d()).then((m) => {
+    try {
+      m.setSecurityColors(state.secColors);
+      if (state.universe) m.setUniverse(state.universe);
+      if (state.model) m.update(state.model);
+      if (state.trip) m.setTrip(state.trip);
+    } catch (err) { m.dispose?.(); throw err; } // don't leave a half-built map holding a WebGL context
     space = m;
     return m;
   }).catch((err) => { onUnavailable?.(err); return null; }));

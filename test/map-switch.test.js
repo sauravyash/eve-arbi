@@ -157,3 +157,28 @@ test('view commands go to flat after failed 3D start', async () => {
   map.fitHubs();
   assert.deepEqual(flat.calls.filter(([n]) => n === 'fitHubs'), [['fitHubs']]);
 });
+
+test('3D that never finishes loading is treated as unavailable after the timeout', async () => {
+  const flat = stubMap(), e = els();
+  let reported = null;
+  const map = createMapSwitch({
+    flat, create3d: () => new Promise(() => {}), ...e, timeoutMs: 20, onUnavailable: (err) => { reported = err.message; },
+  });
+  assert.equal(await map.setLayout('space'), '3d');
+  assert.equal(reported, 'timed out loading the 3D map');
+  assert.equal(e.flatEl.hidden, false);
+  assert.deepEqual(flat.calls.at(-1), ['setLayout', '3d']);
+});
+
+test('a half-built 3D map is disposed when the replay throws', async () => {
+  const flat = stubMap();
+  let disposed = 0;
+  const half = {
+    setSecurityColors: () => {}, setUniverse: () => { throw new Error('replay failed'); },
+    dispose: () => { disposed++; },
+  };
+  const map = createMapSwitch({ flat, create3d: async () => half, ...els(), onUnavailable: () => {} });
+  map.setUniverse('U');
+  assert.equal(await map.setLayout('space'), '3d');
+  assert.equal(disposed, 1);
+});
