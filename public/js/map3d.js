@@ -83,7 +83,10 @@ export class GalaxyMap3D {
     starGeo.setAttribute('position', position);
     starGeo.setAttribute('color', new T.BufferAttribute(new Float32Array(n * 3), 3));
     this.stars = new T.Points(starGeo, new T.ShaderMaterial({
-      uniforms: { uAlpha: { value: 1 }, uSoft: { value: 1 }, uScale: { value: 1 }, uPixelRatio: { value: 1 } },
+      uniforms: {
+        uAlpha: { value: 1 }, uSoft: { value: 1 }, uScale: { value: 1 },
+        uPixelRatio: { value: this.renderer.getPixelRatio() },
+      },
       vertexShader: STAR_VS, fragmentShader: STAR_FS, transparent: true, depthWrite: false,
     }));
     const gateGeo = new T.BufferGeometry();
