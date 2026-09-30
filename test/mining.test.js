@@ -73,7 +73,7 @@ test('parseEveScout keeps live wormholes with their system names', () => {
   ], now);
   assert.equal(links.length, 1);
   assert.deepEqual(links[0], { a: 31000005, b: 30002086, at: Date.parse('2026-09-28T07:00:00Z'), expiresAt: Date.parse('2026-09-28T12:00:00Z'),
-    kind: 'wormhole', src: 'evescout', note: 'Q063 · medium ships' });
+    kind: 'wormhole', src: 'evescout', type: 'Q063', note: 'Q063 · medium ships' });
   assert.equal(names.get(31000005), 'Thera');
   assert.deepEqual(parseEveScout(null), { links: [], names: new Map() });
 });

@@ -235,6 +235,8 @@
         <fieldset class="near" aria-label="Add a wormhole by hand">
           <label>From <input id="whFrom" type="text" list="systemList" autocomplete="off" spellcheck="false" placeholder="System or J-code"></label>
           <label>To <input id="whTo" type="text" list="systemList" autocomplete="off" spellcheck="false" placeholder="System or J-code"></label>
+          <label title="Optional: the hole's type from its info window (not K162, the exit side). The shortcut then lasts as long as that type can live, instead of the Forget after hours.">Type
+            <input id="whType" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. Q063" size="6" maxlength="12"></label>
           <button id="whAdd" class="btn small" type="button">Add</button>
         </fieldset>
       </div>
