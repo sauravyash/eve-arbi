@@ -54,7 +54,8 @@ must equal today's top-down
 - **Loading:** three.js, pinned version, is loaded with a dynamic `import()` of its ES-module build from cdnjs (or
   jsdelivr if cdnjs lacks the module build). It's imported only when the 3D layout is first activated. The site has no
   bundler or import map, so it uses a full URL.
-  As built: it comes from jsdelivr (`three@0.170.0`), because cdnjs has no ES-module build of r170. The load is raced
+  As built: `three@0.170.0`'s `build/three.module.min.js` is vendored at `public/vendor/three/` (with its MIT
+  licence) and served from the site's own origin, so no third-party script runs there and self-hosting works offline. The load is raced
   against a 15 s timeout; a hang counts as unavailable (fallback below).
 - **Stars:** one `THREE.Points` with a small `ShaderMaterial`: a soft radial sprite per system, colour per system from
   `SEC_COLORS` (or the flat `plain` colour when security colours are off). Sprite size is attenuated by distance and

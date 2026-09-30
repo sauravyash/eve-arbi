@@ -1,7 +1,9 @@
 // Chooses between the flat star map (map.js) and the in-game style 3D one (map3d.js), which needs WebGL and three.js
-// from a CDN. Both get every data update, so switching layouts is instant; if 3D can't start, the flat map stays.
+// (vendored, public/vendor/three). Both get every data update, so switching layouts is instant; if 3D can't start, the
+// flat map stays.
 
-export const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js';
+// three.js r170 (MIT), served from this origin rather than a CDN; relative to this module.
+export const THREE_URL = new URL('../vendor/three/three.module.min.js', import.meta.url).href;
 export const loadThree = () => import(THREE_URL);
 
 // Settings saved before the 3D map: '3d' (the old default, now "Top-down") becomes the new default, once (mapV).

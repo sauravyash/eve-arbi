@@ -176,7 +176,8 @@ How it's kept safe (`sso.js`):
   system and stargate from the SDE (5,255 systems, 6,973 gates). Wormhole, abyssal and Jove regions
   are left out. Three layouts are available:
   - *In-game 3D* (the default): the real 3D positions, rotatable like the in-game map. It uses
-    three.js from a CDN and falls back to Top-down when WebGL isn't available.
+    three.js (r170, vendored in `public/vendor/three/`) and falls back to Top-down when WebGL isn't
+    available.
   - *Top-down*: a flat view of the real coordinates.
   - *In-game 2D map*: CCP's flattened layout.
 
