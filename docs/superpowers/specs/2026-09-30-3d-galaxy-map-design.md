@@ -37,6 +37,7 @@ must equal today's top-down
 - A perspective camera with our own state `{ target: [x,y,z], distance, yaw, pitch }`, not `OrbitControls`.
 - Pitch is clamped to about ±89° so the view never flips.
 - Distance is clamped from about one region's width to the whole cluster.
+  As built: `MIN_DIST = 2` ly and `MAX_DIST = 800` ly (`map3d-math.js`).
 - **Drag:** orbit. **Right-drag or shift-drag:** pan the target in the screen plane. **Wheel:** zoom towards the cursor.
 - **Touch:** one-finger drag orbits, two-finger drag pans, pinch zooms.
 - **Double-click on a system:** animate the target to it (about 400 ms, ease-out). Double-click on empty space zooms in
@@ -53,6 +54,8 @@ must equal today's top-down
 - **Loading:** three.js, pinned version, is loaded with a dynamic `import()` of its ES-module build from cdnjs (or
   jsdelivr if cdnjs lacks the module build). It's imported only when the 3D layout is first activated. The site has no
   bundler or import map, so it uses a full URL.
+  As built: it comes from jsdelivr (`three@0.170.0`), because cdnjs has no ES-module build of r170. The load is raced
+  against a 15 s timeout; a hang counts as unavailable (fallback below).
 - **Stars:** one `THREE.Points` with a small `ShaderMaterial`: a soft radial sprite per system, colour per system from
   `SEC_COLORS` (or the flat `plain` colour when security colours are off). Sprite size is attenuated by distance and
   clamped in pixels (never vanish, never balloon).
