@@ -19,3 +19,8 @@ test('meLine: escapes names and leaves out missing parts', () => {
   assert.equal(meLine({ wallet: 0, isk }), '<span class="me-isk">0.00M ISK</span>');
   assert.equal(meLine({ isk }), '');
 });
+
+test('meLine: while the location loads, no trailing separator', () => {
+  assert.equal(meLine({ where: '…', docked: '', isk }), '…');
+  assert.equal(meLine({ where: '…', docked: '', wallet: 1e6, isk }), '… · <span class="me-isk">1.00M ISK</span>');
+});
