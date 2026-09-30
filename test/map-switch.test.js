@@ -65,6 +65,7 @@ test('a layout change while 3D loads wins', async () => {
   resolve(space);
   assert.equal(await pending, '2d');
   assert.equal(e.flatEl.hidden, false);
+  assert.ok(e.spaceEls.every((el) => el.hidden));
 });
 
 test('migrateMapLayout moves the old default to the new one, once', () => {
@@ -72,4 +73,87 @@ test('migrateMapLayout moves the old default to the new one, once', () => {
   assert.deepEqual(migrateMapLayout({ mapLayout: '2d' }), { mapLayout: '2d', mapV: 1 });
   assert.deepEqual(migrateMapLayout({ mapLayout: '3d', mapV: 1 }), { mapLayout: '3d', mapV: 1 });
   assert.deepEqual(migrateMapLayout({}), { mapV: 1 });
+});
+
+test('if 3D replay throws, fallback runs and error is reported', async () => {
+  const flat = stubMap(), e = els();
+  let reported = null;
+  const throwingSpace = {
+    setSecurityColors: () => {},
+    setUniverse: () => { throw new Error('replay failed'); },
+    update: () => {},
+    setTrip: () => {},
+  };
+  const map = createMapSwitch({
+    flat,
+    create3d: async () => throwingSpace,
+    ...e,
+    onUnavailable: (err) => { reported = err.message; },
+  });
+  map.setUniverse('U');
+  assert.equal(await map.setLayout('space'), '3d');
+  assert.equal(reported, 'replay failed');
+  assert.equal(e.flatEl.hidden, false);
+  assert.ok(e.spaceEls.every((el) => el.hidden));
+  assert.deepEqual(flat.calls.at(-1), ['setLayout', '3d']);
+});
+
+test('setUniverse, setTrip and setSecurityColors reach both maps when 3D is live', async () => {
+  const flat = stubMap(), space = stubMap();
+  const map = createMapSwitch({ flat, create3d: async () => space, ...els() });
+  await map.setLayout('space');
+  space.calls.length = 0; flat.calls.length = 0;
+  map.setUniverse('U2');
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'setUniverse'), [['setUniverse', 'U2']]);
+  assert.deepEqual(space.calls.filter(([n]) => n === 'setUniverse'), [['setUniverse', 'U2']]);
+  space.calls.length = 0; flat.calls.length = 0;
+  map.setTrip('T2');
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'setTrip'), [['setTrip', 'T2']]);
+  assert.deepEqual(space.calls.filter(([n]) => n === 'setTrip'), [['setTrip', 'T2']]);
+  space.calls.length = 0; flat.calls.length = 0;
+  map.setTrip(null);
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'setTrip'), [['setTrip', null]]);
+  assert.deepEqual(space.calls.filter(([n]) => n === 'setTrip'), [['setTrip', null]]);
+  space.calls.length = 0; flat.calls.length = 0;
+  map.setSecurityColors(true);
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'setSecurityColors'),
+    [['setSecurityColors', true]]);
+  assert.deepEqual(space.calls.filter(([n]) => n === 'setSecurityColors'),
+    [['setSecurityColors', true]]);
+});
+
+test('fitHubs, fitAll, fitPath go to flat in 2d mode', async () => {
+  const flat = stubMap(), space = stubMap();
+  const map = createMapSwitch({ flat, create3d: async () => space, ...els() });
+  await map.setLayout('space');
+  await map.setLayout('2d');
+  flat.calls.length = 0; space.calls.length = 0;
+  map.fitHubs();
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'fitHubs'), [['fitHubs']]);
+  assert.ok(!space.calls.some(([n]) => n === 'fitHubs'));
+  flat.calls.length = 0; space.calls.length = 0;
+  map.fitAll();
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'fitAll'), [['fitAll']]);
+  assert.ok(!space.calls.some(([n]) => n === 'fitAll'));
+  flat.calls.length = 0; space.calls.length = 0;
+  map.fitPath([1, 2]);
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'fitPath'), [['fitPath', [1, 2]]]);
+  assert.ok(!space.calls.some(([n]) => n === 'fitPath'));
+});
+
+test('view commands go to flat after failed 3D start', async () => {
+  const flat = stubMap(), e = els();
+  const map = createMapSwitch({
+    flat,
+    create3d: async () => { throw new Error('no WebGL'); },
+    ...e,
+    onUnavailable: () => {},
+  });
+  await map.setLayout('space');
+  flat.calls.length = 0;
+  map.zoomBy(2);
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'zoomBy'), [['zoomBy', 2]]);
+  flat.calls.length = 0;
+  map.fitHubs();
+  assert.deepEqual(flat.calls.filter(([n]) => n === 'fitHubs'), [['fitHubs']]);
 });

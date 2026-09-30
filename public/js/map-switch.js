@@ -25,8 +25,9 @@ export function createMapSwitch({ flat, create3d, flatEl, spaceEls, onUnavailabl
     if (state.universe) m.setUniverse(state.universe);
     if (state.model) m.update(state.model);
     if (state.trip) m.setTrip(state.trip);
-    return (space = m);
-  }, (err) => { onUnavailable?.(err); return null; }));
+    space = m;
+    return m;
+  }).catch((err) => { onUnavailable?.(err); return null; }));
 
   return {
     async setLayout(next) {
