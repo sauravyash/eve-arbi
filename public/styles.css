@@ -21,7 +21,7 @@
   --amber: #e0a74a;
   --red: #f0716b;
   --green: #4ade80;
-  --violet: var(--violet);
+  --violet: #a78bfa;
   --on-violet: #140d2b;
   --hover: #17212b;
   --node: #16202b;
@@ -114,7 +114,8 @@ h3 { font-size: 12px; color: var(--muted); margin: 14px 0 6px; font-weight: 500;
 .me-warn { color: var(--amber); font-size: 11.5px; }
 .me-pop .btn { align-self: flex-start; }
 input:disabled { opacity: .7; cursor: not-allowed; }
-input.from-me { border-color: var(--violet); }
+/* The second selector outranks the header-bar field rules (.controls input[type=text] in market.css). */
+input.from-me, .controls input.from-me[type] { border-color: var(--violet); }
 
 /* page nav */
 .pages { display: inline-flex; gap: 2px; max-width: 100%; overflow-x: auto; background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 2px; }
