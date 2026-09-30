@@ -10,12 +10,24 @@ const m3 = (v) => `${Math.round(v).toLocaleString()} m³`;
 const get = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const put = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage disabled */ } };
 
+// ESI answers the odd lookup with a 5xx (or the connection drops): try twice more before giving up.
+const RETRIES = [500, 1500];
+async function esiGet(path) {
+  for (let k = 0; ; k++) {
+    let err;
+    try {
+      const r = await fetch(`/api/esi/${path}`);
+      if (r.ok) return await r.json();
+      err = new Error(`ESI ${path}: HTTP ${r.status}`);
+      if (r.status < 500) throw err;
+    } catch (e) { err = e; if (/HTTP 4\d\d$/.test(e.message)) throw e; }
+    if (k >= RETRIES.length) throw err;
+    await new Promise(res => setTimeout(res, RETRIES[k]));
+  }
+}
 const esiCache = new Map();
 function esi(path) {
-  if (!esiCache.has(path)) {
-    esiCache.set(path, fetch(`/api/esi/${path}`).then(r => (r.ok ? r.json() : Promise.reject(new Error(`ESI ${path}: HTTP ${r.status}`))))
-      .catch(e => { esiCache.delete(path); throw e; }));
-  }
+  if (!esiCache.has(path)) esiCache.set(path, esiGet(path).catch(e => { esiCache.delete(path); throw e; }));
   return esiCache.get(path);
 }
 
@@ -68,7 +80,8 @@ export function mountFitButton(input, { types, shipInput }) {
       result.rigs ? `${result.rigs} rig${result.rigs > 1 ? 's' : ''}` : null].filter(Boolean);
     out.className = 'fit-out';
     out.innerHTML = `<b>${esc(fit.ship)}</b>: ${esc(parts.join(' · '))} → <b class="up">${m3(result.m3)}</b>`
-      + (fit.unknown.length ? `<small>Not found (ignored): ${esc([...new Set(fit.unknown)].join(', '))}</small>` : '');
+      + (fit.unknown.length ? `<small>Not found (ignored): ${esc([...new Set(fit.unknown)].join(', '))}</small>` : '')
+      + (fit.failed?.length ? `<small>Couldn't look up, so not counted (try again in a moment): ${esc([...new Set(fit.failed)].join(', '))}</small>` : '');
   }
   async function update() {
     const n = ++seq, text = area.value;

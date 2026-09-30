@@ -36,7 +36,7 @@ const { wh: _oldWh, ...stored } = LS.get('mining.settings', {});   // wh moved t
 if (!stored.taxV && !Number(stored.tax)) delete stored.tax;
 const settings = { ...DEFAULTS, ...stored };
 const URL_FIELDS = [
-  ['home', v => v > 0], ['flag', ['secure', 'shortest']], ['tax', v => v >= 0 && v <= 100], 'maxJumps', 'minShare', 'structures',
+  ['home', v => v > 0], ['flag', ['secure', 'nonull', 'shortest']], ['tax', v => v >= 0 && v <= 100], 'maxJumps', 'minShare', 'structures',
   ['rank', ['isk', 'perJump', 'near']],
 ];
 readUrl(settings, DEFAULTS, URL_FIELDS);
@@ -262,9 +262,9 @@ function renderStations(v) {
     return;
   }
   if (!v.rows.length) {
-    // High-sec only leaves a low-sec home by the nearest high-sec; from Pochven there's no way in.
-    const hint = settings.flag === 'secure' && v.homeKnown && !v.d.some(j => j > 0)
-      ? 'No gate route from here into high-sec. Set Route to Shortest.' : 'Nothing buys this load within your limits. Try more jumps or a lower minimum.';
+    // Restricted routes leave a home outside them by the nearest allowed system; from Pochven there's no way in.
+    const hint = settings.flag !== 'shortest' && v.homeKnown && !v.d.some(j => j > 0)
+      ? `No gate route from here into ${settings.flag === 'secure' ? 'high-sec' : 'high- or low-sec'}. Set Route to Shortest.` : 'Nothing buys this load within your limits. Try more jumps or a lower minimum.';
     body.innerHTML = `<tr class="empty"><td colspan="7" class="l muted">${hint}</td></tr>`;
     $('moreBtn').hidden = true;
     return;

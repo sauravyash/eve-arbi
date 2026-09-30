@@ -69,4 +69,14 @@ test('loadFit resolves names and pulls dogma from ESI', async () => {
   assert.deepEqual(fit.unknown, ['10MN Afterburner I', 'Enduring Multispectrum Shield Hardener', 'Medium Shield Extender I', 'Medium Shield Extender I']);
   assert.equal(Math.round(fittedCargo({ ...fit, skill: 5 }).m3), 15554);
   await assert.rejects(loadFit('[Nope, x]', { types: TYPES, esi }), /Unknown ship/);
+  assert.deepEqual(fit.failed, []);
+
+  // A module ESI can't answer for (HTTP 500) is left out and listed; the rest still counts.
+  const flaky = (path) => (path === 'universe/types/31119/' ? Promise.reject(new Error('HTTP 500')) : esi(path));
+  const partial = await loadFit(FRIGGA, { types: TYPES, esi: flaky });
+  assert.ok(partial.failed.length > 0 && partial.failed.every(n => /Cargohold Optimization/.test(n)));
+  assert.ok(fittedCargo({ ...partial, skill: 5 }).m3 < fittedCargo({ ...fit, skill: 5 }).m3);
+  // Without the hull there's nothing to work from.
+  const noHull = (path) => (path === 'universe/types/657/' ? Promise.reject(new Error('HTTP 500')) : esi(path));
+  await assert.rejects(loadFit(FRIGGA, { types: TYPES, esi: noHull }), /Couldn't look up the Iteron Mark V/);
 });
