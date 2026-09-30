@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:oklch(0.15 0.012 240);color:oklch(0.94 0.006 230);font-family:'Manrope',sans-serif;-webkit-font-smoothing:antialiased}
+a{color:oklch(0.82 0.1 195);text-decoration:none}a:hover{color:oklch(0.9 0.09 195)}
+*{box-sizing:border-box}
+</style>
+</helmet>
+<div style="min-height:100vh;position:relative;background:radial-gradient(1000px 520px at 75% -10%, oklch(0.28 0.05 210 / 0.5), transparent 68%), oklch(0.15 0.012 240)">
+<sc-if value="{{ scanlines }}" hint-placeholder-val="{{ false }}"><div style="position:fixed;inset:0;pointer-events:none;z-index:50;background:repeating-linear-gradient(0deg, oklch(1 0 0 / 0.016) 0 1px, transparent 1px 3px)"></div></sc-if>
+
+<header style="position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:0 32px;background:oklch(0.15 0.012 240 / 0.78);backdrop-filter:blur(14px);border-bottom:1px solid oklch(1 0 0 / 0.07)">
+  <div style="display:flex;align-items:center;gap:12px;flex:1 1 auto;min-width:220px;padding:12px 0">
+    <div style="width:28px;height:28px;border-radius:7px;border:1.5px solid oklch(0.82 0.1 195);display:grid;place-items:center"><div style="width:9px;height:9px;border-radius:2px;background:oklch(0.82 0.1 195);transform:rotate(45deg)"></div></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:15px;font-weight:700;letter-spacing:0.02em">Hub Arbitrage</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:oklch(0.66 0.012 230)">Trade tools · read-only</div>
+    </div>
+  </div>
+  <nav style="display:flex;gap:4px;flex-wrap:wrap;align-self:stretch">
+    <a href="#" style="display:flex;align-items:center;padding:0 14px;font-size:13.5px;font-weight:600;color:oklch(0.96 0.006 230);box-shadow:inset 0 -2px 0 oklch(0.82 0.1 195)">Home</a>
+    <a href="#" style="display:flex;align-items:center;padding:0 14px;font-size:13.5px;font-weight:500;color:oklch(0.74 0.01 230)" style-hover="color:oklch(0.96 0.006 230);box-shadow:inset 0 -2px 0 oklch(1 0 0 / 0.18)">Hub arbitrage</a>
+    <a href="#" style="display:flex;align-items:center;padding:0 14px;font-size:13.5px;font-weight:500;color:oklch(0.74 0.01 230)" style-hover="color:oklch(0.96 0.006 230);box-shadow:inset 0 -2px 0 oklch(1 0 0 / 0.18)">Market watch</a>
+    <a href="#" style="display:flex;align-items:center;padding:0 14px;font-size:13.5px;font-weight:500;color:oklch(0.74 0.01 230)" style-hover="color:oklch(0.96 0.006 230);box-shadow:inset 0 -2px 0 oklch(1 0 0 / 0.18)">Contracts</a>
+    <a href="#" style="display:flex;align-items:center;padding:0 14px;font-size:13.5px;font-weight:500;color:oklch(0.74 0.01 230)" style-hover="color:oklch(0.96 0.006 230);box-shadow:inset 0 -2px 0 oklch(1 0 0 / 0.18)">Mining</a>
+  </nav>
+  <div style="display:flex;align-items:center;gap:14px;padding:10px 0">
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-family:'JetBrains Mono',monospace"><span style="font-size:10px;letter-spacing:0.1em;color:oklch(0.62 0.012 230)">EVE TIME</span><span style="font-size:13px;color:oklch(0.92 0.006 230)">{{ evetime }}</span></div>
+    <div style="display:flex;align-items:center;gap:10px;padding:4px 12px 4px 4px;border-radius:8px;background:oklch(1 0 0 / 0.04);border:1px solid oklch(1 0 0 / 0.08)">
+      <div style="position:relative;width:32px;height:32px;border-radius:6px;background:repeating-linear-gradient(135deg, oklch(0.3 0.02 230) 0 4px, oklch(0.25 0.016 230) 4px 8px)"><div style="position:absolute;right:-3px;bottom:-3px;width:9px;height:9px;border-radius:50%;background:oklch(0.8 0.14 150);border:2px solid oklch(0.17 0.012 240)"></div></div>
+      <div style="display:flex;flex-direction:column;gap:1px">
+        <div style="font-size:13.5px;font-weight:600">GoofyGoober007</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:oklch(0.7 0.012 230)">Hulmate · docked · <span style="color:oklch(0.85 0.1 80)">168.17M ISK</span></div>
+      </div>
+    </div>
+    <button style="width:34px;height:34px;border-radius:8px;border:1px solid oklch(1 0 0 / 0.08);background:oklch(1 0 0 / 0.03);color:oklch(0.8 0.01 230);cursor:pointer;display:grid;place-items:center" style-hover="border-color:oklch(0.82 0.1 195)"><div style="width:12px;height:12px;border-radius:50%;background:linear-gradient(90deg, currentColor 50%, transparent 50%);border:1.5px solid currentColor"></div></button>
+  </div>
+</header>
+
+<main style="max-width:1280px;margin:0 auto;padding:48px 32px 88px;display:flex;flex-direction:column;gap:56px">
+
+  <section style="position:relative;border-radius:16px;border:1px solid oklch(1 0 0 / 0.08);background:linear-gradient(125deg, oklch(0.21 0.03 205 / 0.9), oklch(0.17 0.014 238 / 0.9) 60%);display:flex;flex-wrap:wrap;gap:36px;padding:44px 48px">
+    <div style="position:absolute;top:12px;left:12px;width:14px;height:14px;border-top:1.5px solid oklch(0.82 0.1 195);border-left:1.5px solid oklch(0.82 0.1 195);border-top-left-radius:4px"></div>
+    <div style="position:absolute;bottom:12px;right:12px;width:14px;height:14px;border-bottom:1.5px solid oklch(0.82 0.1 195);border-right:1.5px solid oklch(0.82 0.1 195);border-bottom-right-radius:4px"></div>
+    <div style="flex:1 1 460px;display:flex;flex-direction:column;gap:18px;min-width:0">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:0.14em;text-transform:uppercase;color:oklch(0.82 0.1 195);display:flex;align-items:center;gap:8px"><span style="width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 10px currentColor"></span>Market intelligence</div>
+      <h1 style="margin:0;font-size:clamp(36px,4.6vw,58px);line-height:1.04;font-weight:600;letter-spacing:-0.03em;text-wrap:balance">Find the ISK the hubs don't show</h1>
+      <p style="margin:0;max-width:600px;font-size:17px;line-height:1.55;color:oklch(0.75 0.012 230);text-wrap:pretty">Hauling arbitrage, universe-wide market scans, contracts, LP stores and ore prices — all from public market data. Nothing here touches the client or places an order. Signing in is optional and only reads your location, ship, wallet and orders.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 11px;border-radius:6px;background:oklch(0.15 0.012 240 / 0.6);border:1px solid oklch(1 0 0 / 0.08);font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="width:6px;height:6px;border-radius:50%;background:oklch(0.85 0.1 80)"></span>HUB SCAN<span style="color:oklch(0.66 0.012 230)">2h ago</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 11px;border-radius:6px;background:oklch(0.15 0.012 240 / 0.6);border:1px solid oklch(1 0 0 / 0.08);font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="width:6px;height:6px;border-radius:50%;background:oklch(0.85 0.1 80)"></span>UNIVERSE SCAN<span style="color:oklch(0.66 0.012 230)">2h ago</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 11px;border-radius:6px;border:1px dashed oklch(1 0 0 / 0.14);font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="width:6px;height:6px;border-radius:50%;border:1px solid oklch(0.6 0.01 230)"></span>CONTRACT SCAN<span style="color:oklch(0.66 0.012 230)">not yet</span></div>
+      </div>
+    </div>
+    <div style="flex:0 1 320px;display:grid;grid-template-columns:1fr 1fr;gap:24px 28px;align-content:center;padding-left:36px;border-left:1px solid oklch(1 0 0 / 0.08)">
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;line-height:1;color:oklch(0.86 0.09 195)">5</div><div style="font-size:12.5px;letter-spacing:0.06em;text-transform:uppercase;color:oklch(0.68 0.012 230)">Trade hubs</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;line-height:1;color:oklch(0.86 0.09 195)">67</div><div style="font-size:12.5px;letter-spacing:0.06em;text-transform:uppercase;color:oklch(0.68 0.012 230)">Regions</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;line-height:1;color:oklch(0.86 0.09 195)">9</div><div style="font-size:12.5px;letter-spacing:0.06em;text-transform:uppercase;color:oklch(0.68 0.012 230)">Price sources</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;line-height:1;color:oklch(0.86 0.09 195)">11</div><div style="font-size:12.5px;letter-spacing:0.06em;text-transform:uppercase;color:oklch(0.68 0.012 230)">Tools</div></div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;gap:32px">
+    <div style="flex:1 1 220px;max-width:270px;display:flex;flex-direction:column;gap:10px;padding-top:16px;border-top:1px solid oklch(0.82 0.1 195 / 0.6)">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;color:oklch(0.82 0.1 195)">01 — 4 TOOLS</div>
+      <h2 style="margin:0;font-size:22px;font-weight:600;letter-spacing:-0.015em">Hub arbitrage</h2>
+      <p style="margin:0;font-size:15px;line-height:1.55;color:oklch(0.7 0.012 230);text-wrap:pretty">Buy low at one market, haul, sell high at another. Every route is drawn on a live star map of New Eden.</p>
+    </div>
+    <div style="flex:999 1 540px;display:flex;flex-direction:column;border-top:1px solid oklch(1 0 0 / 0.08)">
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.82 0.1 195 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.82 0.1 195);background:oklch(0.82 0.1 195 / 0.12)">BI</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Best items</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Rank every item worth hauling between the five hubs, or between any two stations, by profit per jump.</div></div>
+        <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;white-space:nowrap;color:oklch(0.85 0.1 80)">SCANNED · 2H AGO</span></sc-if>
+        <span style="color:oklch(0.82 0.1 195)">→</span>
+      </a>
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.82 0.1 195 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.82 0.1 195);background:oklch(0.82 0.1 195 / 0.12)">SR</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Single route</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">One pickup, one drop-off: the most profitable mix of items for one hold and one budget, with a multibuy list.</div></div>
+        <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;white-space:nowrap;color:oklch(0.85 0.1 80)">SCANNED · 2H AGO</span></sc-if>
+        <span style="color:oklch(0.82 0.1 195)">→</span>
+      </a>
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.82 0.1 195 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.82 0.1 195);background:oklch(0.82 0.1 195 / 0.12)">MR</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Multi-stop routes</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Chain hauls into one trip: sell a cargo, buy the next one nearby, and copy the waypoints into the game.</div></div>
+        <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;white-space:nowrap;color:oklch(0.85 0.1 80)">SCANNED · 2H AGO</span></sc-if>
+        <span style="color:oklch(0.82 0.1 195)">→</span>
+      </a>
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.82 0.1 195 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.82 0.1 195);background:oklch(0.82 0.1 195 / 0.12)">WR</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Watchlist routes</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Your own items between Jita, Amarr, Dodixie, Rens and Hek — sortable, with manual price and jump overrides.</div></div>
+        <span></span>
+        <span style="color:oklch(0.82 0.1 195)">→</span>
+      </a>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;gap:32px">
+    <div style="flex:1 1 220px;max-width:270px;display:flex;flex-direction:column;gap:10px;padding-top:16px;border-top:1px solid oklch(0.78 0.11 255 / 0.6)">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;color:oklch(0.78 0.11 255)">02 — 3 TOOLS</div>
+      <h2 style="margin:0;font-size:22px;font-weight:600;letter-spacing:-0.015em">Market watch</h2>
+      <p style="margin:0;font-size:15px;line-height:1.55;color:oklch(0.7 0.012 230);text-wrap:pretty">Every station in New Eden, not just the hubs, with prices cross-checked between sources.</p>
+    </div>
+    <div style="flex:999 1 540px;display:flex;flex-direction:column;border-top:1px solid oklch(1 0 0 / 0.08)">
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.78 0.11 255 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.78 0.11 255);background:oklch(0.78 0.11 255 / 0.12)">US</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Universe scan</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Every buy and sell order in all 67 known-space regions, matched station to station into the best hauls.</div></div>
+        <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;white-space:nowrap;color:oklch(0.85 0.1 80)">SCANNED · 2H AGO</span></sc-if>
+        <span style="color:oklch(0.78 0.11 255)">→</span>
+      </a>
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.78 0.11 255 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.78 0.11 255);background:oklch(0.78 0.11 255 / 0.12)">MO</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">My orders</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Sign in to see which of your orders are undercut or outbid, and the price to set to lead again.</div></div>
+        <span></span>
+        <span style="color:oklch(0.78 0.11 255)">→</span>
+      </a>
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.78 0.11 255 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.78 0.11 255);background:oklch(0.78 0.11 255 / 0.12)">WL</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Watchlist</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Items you follow: price history, merged order books, where to buy and sell, and the best hauls for each.</div></div>
+        <span></span>
+        <span style="color:oklch(0.78 0.11 255)">→</span>
+      </a>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;gap:32px">
+    <div style="flex:1 1 220px;max-width:270px;display:flex;flex-direction:column;gap:10px;padding-top:16px;border-top:1px solid oklch(0.85 0.1 80 / 0.6)">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;color:oklch(0.85 0.1 80)">03 — 3 TOOLS</div>
+      <h2 style="margin:0;font-size:22px;font-weight:600;letter-spacing:-0.015em">Contracts</h2>
+      <p style="margin:0;font-size:15px;line-height:1.55;color:oklch(0.7 0.012 230);text-wrap:pretty">Public contracts and loyalty point stores, priced against the live hub markets.</p>
+    </div>
+    <div style="flex:999 1 540px;display:flex;flex-direction:column;border-top:1px solid oklch(1 0 0 / 0.08)">
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.85 0.1 80 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.85 0.1 80);background:oklch(0.85 0.1 80 / 0.12)">IC</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Item contracts</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Item exchanges and auction buyouts whose contents are worth more at a hub than the asking price.</div></div>
+        <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;white-space:nowrap;color:oklch(0.7 0.01 230)">NEEDS A SCAN</span></sc-if>
+        <span style="color:oklch(0.85 0.1 80)">→</span>
+      </a>
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.85 0.1 80 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.85 0.1 80);background:oklch(0.85 0.1 80 / 0.12)">CR</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Courier</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Courier contracts by ISK per jump, each paired with a market haul back from the drop-off.</div></div>
+        <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;white-space:nowrap;color:oklch(0.7 0.01 230)">NEEDS A SCAN</span></sc-if>
+        <span style="color:oklch(0.85 0.1 80)">→</span>
+      </a>
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.85 0.1 80 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.85 0.1 80);background:oklch(0.85 0.1 80 / 0.12)">LP</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">LP stores</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Every NPC corporation's loyalty point store, ranked by ISK per LP with the hub's daily volume.</div></div>
+        <span></span>
+        <span style="color:oklch(0.85 0.1 80)">→</span>
+      </a>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;gap:32px">
+    <div style="flex:1 1 220px;max-width:270px;display:flex;flex-direction:column;gap:10px;padding-top:16px;border-top:1px solid oklch(0.78 0.12 350 / 0.6)">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;color:oklch(0.78 0.12 350)">04 — 1 TOOL</div>
+      <h2 style="margin:0;font-size:22px;font-weight:600;letter-spacing:-0.015em">Mining</h2>
+      <p style="margin:0;font-size:15px;line-height:1.55;color:oklch(0.7 0.012 230);text-wrap:pretty">What your ore, gas and ice are worth, and where.</p>
+    </div>
+    <div style="flex:999 1 540px;display:flex;flex-direction:column;border-top:1px solid oklch(1 0 0 / 0.08)">
+      <a href="#" style="display:grid;grid-template-columns:40px minmax(0,1fr) auto 20px;align-items:center;gap:18px;padding:18px 4px;border-bottom:1px solid oklch(1 0 0 / 0.06);color:inherit;transition:background .15s" style-hover="background:linear-gradient(90deg, oklch(0.78 0.12 350 / 0.07), transparent 80%);color:inherit">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 0;text-align:center;border-radius:5px;color:oklch(0.78 0.12 350);background:oklch(0.78 0.12 350 / 0.12)">WS</span>
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><div style="font-size:16.5px;font-weight:600">Where to sell</div><div style="font-size:14.5px;line-height:1.5;color:oklch(0.7 0.012 230);text-wrap:pretty">Paste what you mined and see every station's price, counting each buy order whose range reaches it.</div></div>
+        <span></span>
+        <span style="color:oklch(0.78 0.12 350)">→</span>
+      </a>
+    </div>
+  </section>
+
+</main>
+<footer style="border-top:1px solid oklch(1 0 0 / 0.06);padding:20px 32px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.06em;color:oklch(0.6 0.01 230)"><span>PUBLIC MARKET DATA · READ-ONLY</span><span>NOT AFFILIATED WITH THE GAME'S PUBLISHER</span></footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showStatus&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;scanlines&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { now: new Date() };
+  componentDidMount() { this.t = setInterval(() => this.setState({ now: new Date() }), 1000); }
+  componentWillUnmount() { clearInterval(this.t); }
+  renderVals() {
+    const d = this.state.now, p = n => String(n).padStart(2, '0');
+    return {
+      evetime: `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`,
+      showStatus: this.props.showStatus ?? true,
+      scanlines: this.props.scanlines ?? false,
+    };
+  }
+}
+</script>
+</body>
+</html>
