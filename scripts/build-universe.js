@@ -1,5 +1,5 @@
 // Builds static data from CCP's Static Data Export (CSV mirror by Fuzzwork):
-//  - public/data/universe.json: every known-space system (3D top-down position + CCP's 2D map
+//  - public/data/universe.json: every known-space system (3D position as top-down x/y plus height z3, CCP's 2D map
 //    layout, security, region) and every stargate link, for the star map.
 //  - public/data/types.json: every published market item → [name, packaged volume m³, category ID,
 //    group ID, MINING_KIND?] for the market scans and the mining page; ships (category 6) have
@@ -71,13 +71,15 @@ export async function buildUniverse({ fromDir, outFile = OUT_FILE, log = console
   const regionIdx = new Map(regionIds.map((id, i) => [id, i]));
   const regionName = new Map(regionsCsv.map(r => [Number(r.regionID), r.regionName]));
 
-  const sys = { id: [], name: [], x: [], y: [], x2: [], y2: [], sec: [], region: [] };
+  const sys = { id: [], name: [], x: [], y: [], z3: [], x2: [], y2: [], sec: [], region: [] };
   for (const s of keep) {
     sys.id.push(Number(s.solarSystemID));
     sys.name.push(s.solarSystemName);
     // Top-down view of the 3D galaxy: screen x = x, screen y = -z (north up).
     sys.x.push(r2(Number(s.x) / LY));
     sys.y.push(r2(-Number(s.z) / LY));
+    // Height above the galactic plane, for the 3D map (map3d-math.js): world = (x, z3, y).
+    sys.z3.push(r2(Number(s.y) / LY));
     // CCP's flattened 2D map layout (same orientation convention).
     sys.x2.push(r2(Number(s.position2Dx) / LY));
     sys.y2.push(r2(-Number(s.position2Dy) / LY));

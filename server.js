@@ -383,8 +383,8 @@ http.createServer(async (req, res) => {
   }
 }).listen(PORT, HOST, () => console.log(`EVE hub arbitrage → http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`));
 
-// Static data (changes only with new EVE content): build once if missing.
-access(UNIVERSE_FILE).catch(() => build('universe').catch(e =>
+// Static data (changes only with new EVE content): build once if missing. Old-format star maps (no heights) are rebuilt too.
+readFile(UNIVERSE_FILE, 'utf8').then(t => { if (!JSON.parse(t).systems?.z3) throw new Error('old format'); }).catch(() => build('universe').catch(e =>
   console.error(`Star map build failed (${e.message}). The schematic view still works; retry with "npm run build:map".`)));
 access(STATIONS_FILE).catch(() => build('stations').catch(e =>
   console.error(`Station list build failed (${e.message}); the universe scan will show station IDs. Retry with "npm run build:map".`)));
