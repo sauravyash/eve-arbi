@@ -149,9 +149,9 @@ test('pickNearest: 1 px apart, nearer-camera wins despite being farther from cur
   assert.equal(pickNearest(sx, sy, d, 100, 100, 2), 1); // point 1 is 1.5 px away but has depth 3
 });
 
-test('pickNearest: 5 px apart, closer-to-cursor wins even though farther from camera', () => {
-  const sx = Float32Array.of(102, 107), sy = Float32Array.of(100, 100), d = Float32Array.of(3, 1);
-  assert.equal(pickNearest(sx, sy, d, 100, 100, 5), 0); // point 0 is 2 px away and wins
+test('pickNearest: closer-to-cursor wins within tie band even though farther from camera', () => {
+  const sx = Float32Array.of(102, 105), sy = Float32Array.of(100, 100), d = Float32Array.of(9, 1);
+  assert.equal(pickNearest(sx, sy, d, 100, 100, 8), 0); // point 0 is 2 px away (best), point 1 is 5 px (outside 3.5 px tie band)
 });
 
 test('placeLabels keeps earlier boxes and drops later overlapping ones', () => {
