@@ -118,6 +118,12 @@ export function pathBetween(g, a, b, flag = 'shortest') {
   return path.reverse().map(i => g.id[i]);
 }
 
+// Whether a system is known to the graph and high-sec (wormhole systems added by withLinks are -1).
+export function inHighSec(g, systemId) {
+  const i = g.indexOf.get(systemId);
+  return i != null && isHighSec(g.sec[i]);
+}
+
 export function systemInfo(g, systemId) {
   const i = g.indexOf.get(systemId);
   if (i == null) return null;
