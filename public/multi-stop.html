@@ -53,6 +53,7 @@
     <label>Route
       <select id="flag">
         <option value="secure">Safest (high-sec)</option>
+        <option value="nonull">High + low-sec (no null)</option>
         <option value="shortest">Shortest</option>
         <option value="insecure">Prefer low/null</option>
       </select>
@@ -163,10 +164,10 @@
             <option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
           </select>
         </label>
-        <label title="Jumps flown with an empty hold between selling one cargo and buying the next">Empty jumps between hauls
+        <label title="Extra jumps you'll fly to pick up a haul: out of your way with cargo aboard, or with an empty hold between selling and the next purchase">Detour jumps per pickup
           <input id="tpLink" type="number" min="0" max="10" step="1"></label>
-        <label title="Per haul: each haul sells its whole cargo before the next purchase. Shared with Best items.">Cargo m³ <input id="scCargo" type="text" inputmode="decimal" placeholder="Unlimited"></label>
-        <label title="Per haul. Shared with Best items.">Budget ISK <input id="scBudget" type="text" placeholder="Unlimited"></label>
+        <label title="Hold size: everything aboard at once has to fit. Shared with Best items.">Cargo m³ <input id="scCargo" type="text" inputmode="decimal" placeholder="Unlimited"></label>
+        <label title="ISK tied up in cargo at once; each sale frees it for the next purchase. Shared with Best items.">Budget ISK <input id="scBudget" type="text" placeholder="Unlimited"></label>
         <label>Min profit per haul <input id="tpMinProfit" type="text" placeholder="0"></label>
         <label>Rank by
           <select id="tpRank">
@@ -198,8 +199,9 @@
           <ol id="tripStops" class="trip-stops"></ol>
         </aside>
       </div>
-      <p class="hint">Each haul sells its whole cargo before the next purchase, so <b>Cargo m³</b> and <b>Budget</b> (shared with Best items)
-        apply per haul. Uses the Route and Sales tax settings above. Jumps include the flight from your start system. Data comes from the universe
+      <p class="hint">Hauls share the hold: you can buy the next item on the way while earlier cargo is still aboard, and sell each where it's
+        worth most. <b>Cargo m³</b> and <b>Budget</b> (shared with Best items) cap what's aboard at any moment; a haul that no longer fits whole
+        is bought in part. Uses the Route and Sales tax settings above. Jumps include the flight from your start system. Data comes from the universe
         scan (shared with <a href="universe-scan.html">Market watch</a>). Click a route to draw it on the star map as numbered waypoints.</p>
     </section>
   </main>

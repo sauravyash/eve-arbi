@@ -4,7 +4,7 @@ import {
   mergeHistory, historyChange, parseFuzzwork, parseGoonXml, consensus, isNpcStation,
   MAJOR_HUB_SYSTEMS, stationQuotes, parseAdam, parseEvepraisal, parseZkill,
 } from './market-merge.js';
-import { buildGraph, jumpsFrom, jumpsBetween, systemInfo, isHighSec } from './galaxy.js';
+import { buildGraph, jumpsFrom, jumpsBetween, systemInfo, isHighSec, isNullSec } from './galaxy.js';
 import { SHIP_CATEGORY } from './trips.js';
 import { buildRangeContext, bookEntry, pairsForType, sellPoints } from './ranges.js';
 import { createMe } from './me.js';
@@ -56,7 +56,7 @@ const settings = Object.assign(structuredClone(DEFAULTS), stored);
 settings.us = { ...US_DEFAULTS, ...stored.us };
 // Settings mirrored in the query string (url-state.js); the watchlist, sort and auto-refresh stay local.
 const URL_FIELDS = [
-  ['selected', v => v > 0], ['refHub', HUBS.map(h => h.id)], ['home', v => v > 0], ['flag', ['secure', 'shortest']],
+  ['selected', v => v > 0], ['refHub', HUBS.map(h => h.id)], ['home', v => v > 0], ['flag', ['secure', 'nonull', 'shortest']],
   ['tax', v => v >= 0 && v <= 100], 'cargo', 'budget', 'hideHubs', 'structures', 'showGhosts',
   ['haulRank', ['perJump', 'profit', 'margin']], ['histDays', [30, 90, 365, 0]],
   'us.minProfit', 'us.maxMargin', 'us.maxJumps', ['us.rank', ['perJump', 'near', 'profit', 'iskm3', 'margin']], 'us.q',
@@ -311,7 +311,7 @@ function computeCollation(typeId) {
   const quotes = stationQuotes(merged.orders, { includeGhosts: settings.showGhosts });
   const allow = (q) => (settings.structures || isNpcStation(q.locationId)) && !(settings.hideHubs && MAJOR_HUB_SYSTEMS.has(q.systemId));
   // With high-sec routing, a station you can't reach safely isn't a deal.
-  const reachable = (q) => !graph || settings.flag !== 'secure' || homeJumps(q.systemId) != null;
+  const reachable = (q) => !graph || settings.flag === 'shortest' || homeJumps(q.systemId) != null;
   const allowed = [...quotes.values()].filter(q => allow(q) && reachable(q));
   const cheapest = allowed.filter(q => q.bestAsk != null).sort((a, b) => a.bestAsk - b.bestAsk);
   // Where to sell: until the star map and station list load, each buy order at its own station;
@@ -368,10 +368,12 @@ const loadStations = () => (stationNames ? Promise.resolve(stationNames)
 // High-sec-only routes leave a low-/null-sec home by the nearest high-sec (galaxy.js), but a home with
 // no gate route into high-sec (Pochven) reaches nothing else, so every station is filtered out; say why.
 function homeBlocked() {
-  if (!graph || settings.flag !== 'secure' || isHighSec(systemInfo(graph, settings.home)?.sec ?? 1)) return null;
+  if (!graph || settings.flag === 'shortest') return null;
+  const secure = settings.flag === 'secure', sec = systemInfo(graph, settings.home)?.sec ?? 1;
+  if (secure ? isHighSec(sec) : !isNullSec(sec)) return null;
   if (homeDist().some(d => d > 0)) return null;
-  const sys = systemInfo(graph, settings.home);
-  return `${esc(sys.name)} (${secLabel(sys.sec)}) has no gate route into high-sec, so high-sec-only routes reach no station. Set Route to Shortest, or choose another home system.`;
+  const sys = systemInfo(graph, settings.home), space = secure ? 'high-sec' : 'high- or low-sec';
+  return `${esc(sys.name)} (${secLabel(sys.sec)}) has no gate route into ${space}, so ${space} routes reach no station. Set Route to Shortest, or choose another home system.`;
 }
 function homeJumps(systemId) {
   if (!graph) return null;
@@ -543,7 +545,7 @@ function renderBoard() {
   const rows = sortRows(boardRows());
   $('boardCount').textContent = `· ${settings.items.length} item${settings.items.length === 1 ? '' : 's'}`;
   const home = graph ? systemInfo(graph, settings.home) : null;
-  $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''}${homeBlocked() ? ' (no route into high-sec: set Route to Shortest)' : ''} · click a row for detail`;
+  $('boardHint').textContent = `${settings.hideHubs ? 'Trade hubs skipped' : 'Hubs included'} · ${settings.flag === 'secure' ? 'high-sec routes' : settings.flag === 'nonull' ? 'high- and low-sec routes' : 'any-sec routes'}${home ? ` · jumps from ${home.name}` : ''}${homeBlocked() ? ' (no route into high-sec: set Route to Shortest)' : ''} · click a row for detail`;
   if (!rows.length) {
     $('boardBody').innerHTML = `<tr class="empty"><td colspan="10">Your watchlist is empty. Add items with the <b>Add item</b> search above${watch.mode === 'account' ? ' — it’s saved to your character' : ''}.</td></tr>`;
     return;
@@ -641,7 +643,7 @@ function renderHauls(c, typeId) {
     <td>${isk(r.buy)} → ${isk(r.sell)}</td><td>${pct(r.margin)}</td>
     <td class="metric">${isk(r.profit)}</td><td>${isk(r.perJump)}</td></tr>`).join('')
     || (homeBlocked() ? `<tr class="empty"><td colspan="10">${homeBlocked()}</td></tr>` : '')
-    || `<tr class="empty"><td colspan="10">No profitable station-to-station hauls with these settings${settings.flag === 'secure' ? ' (try Shortest route to include low-sec)' : ''}.</td></tr>`;
+    || `<tr class="empty"><td colspan="10">No profitable station-to-station hauls with these settings${settings.flag === 'secure' ? ' (try High + low-sec or Shortest route)' : settings.flag === 'nonull' ? ' (try Shortest route to include null-sec)' : ''}.</td></tr>`;
 }
 
 function renderWhere(c) {
@@ -975,7 +977,7 @@ function usRows() {
     if (q && !name.toLowerCase().includes(q)) continue;
     if (f.hideShips && types?.[c.t]?.[2] === SHIP_CATEGORY) continue;
     const home = homeJumps(c.fs);
-    if (home == null && settings.flag === 'secure') continue;
+    if (home == null && settings.flag !== 'shortest') continue;
     const j = c.fs === c.ds ? 0 : jumpsBetween(travel(), c.fs, c.ds, settings.flag);
     if (j == null || j + (home ?? 0) > maxJumps) continue;
     const s = summarizeSteps(c.s, { taxRate, unitVolume, maxVolume, maxCost });

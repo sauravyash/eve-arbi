@@ -226,6 +226,8 @@ opens the Watchlist page with that item added and selected (`?selected=`).
   pair can be priced without an ESI route call. *High-sec only* also drops stations you can't
   reach through high-sec. From a low- or null-sec home it first leaves by the fewest jumps to the
   nearest high-sec systems, like the in-game *prefer safer* autopilot, then stays in high-sec.
+  *High + low-sec (no null)* works the same way but allows low-sec, so it only ever avoids null-sec
+  (security 0.0 or below). It's on every page with a *Route* setting.
 - The board still shows the reference hub's price, so every deal reads as "x% below Jita".
 
 ### Universe scan
@@ -420,7 +422,9 @@ you're sitting in a wormhole. Jump counts whose route uses one show ⤳ (Mining,
 table and summary). On Hub arbitrage, each hub pair uses ESI's gate route or the path through shortcuts,
 whichever is shorter; route strips draw systems reached through a wormhole as round dots, and a
 multi-stop route can start in a wormhole system (type its J-code, or follow your character there).
-Wormhole space is used by *Shortest* and *Prefer low/null* routes only; *Safest (high-sec)* avoids it. The star map
+Wormhole space is used by *Shortest* and *Prefer low/null* routes only; *Safest (high-sec)* and
+*High + low-sec (no null)* avoid it. On Hub arbitrage, ESI has no "avoid null-sec" route, so hub pairs
+use the local gate graph (or ESI's high-sec route when the map isn't loaded yet). The star map
 skips wormhole systems when drawing a route. Wormhole space never counts as high-sec. Buy-order
 ranges still follow stargates only, as they do in game.
 
@@ -564,17 +568,22 @@ To check it, open `/api/config` on the site: `"serverScans": true` means the pag
     per item, the format EVE's Multibuy window takes. The route is drawn on the map.
   - With *All stations* most routes carry one or two items, because the universe scan keeps only a
     handful of hauls per item.
-- **Multi-stop routes** (`public/js/trips.js`) chain hauls from the universe scan into one trip:
-  buy item 1, sell it, buy item 2 where you sold (or after a few empty jumps), and so on.
-  - Each haul sells its whole cargo before the next purchase, so *Cargo m³* and *Budget* apply
-    per haul.
+- **Multi-stop routes** (`public/js/trips.js`) chain hauls from the universe scan into one trip,
+  sharing one hold: buy item 1, pick up item 2 on the way while item 1 is still aboard, sell each
+  at its own station, buy the next where you sold, and so on.
+  - *Cargo m³* and *Budget* cap what's aboard at any moment. A sale frees room and ISK for the next
+    purchase, and a haul that no longer fits whole is bought in part (its cheapest units).
+  - *Detour jumps per pickup* is how far out of your way a pickup may be: extra jumps over flying
+    straight on to your next sale, or, with an empty hold, the jumps to the next pickup.
   - Jumps include the flight from your start system and use the page's *Route* setting.
-  - A beam search keeps the best partial trips at each stop and ranks finished ones by ISK per
-    jump or total profit.
+  - A beam search keeps the best partial trips at each stop (with no haul in more than a few of
+    them, so one lucrative trade doesn't crowd out the rest). Every purchase is scored as the trip
+    it would be if you sold everything aboard by the shortest tour and stopped there, and finished
+    trips are ranked by ISK per jump or total profit. Moves that can't beat what's already kept are
+    skipped before any re-pricing. Planning takes a few hundred milliseconds even with 20,000 hauls.
   - An item never appears twice in one trip, since it would compete for the same orders. A
-    single haul can headline at most two listed trips, so one lucrative trade doesn't crowd out
-    everything else.
-  - Filters: hauls per trip (2–5), empty jumps between hauls, min profit per haul, hide ships,
+    single haul can headline at most two listed trips.
+  - Filters: hauls per trip (2–5), detour jumps per pickup, min profit per haul, hide ships,
     skip trade hubs and player structures.
   - Searches are kept for the browser session (`sessionStorage`, last 12), so going back to earlier
     settings or reloading the page doesn't plan them again. A new universe scan starts fresh.

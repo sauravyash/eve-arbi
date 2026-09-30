@@ -46,7 +46,7 @@ settings.lp = { ...LP_DEFAULTS, ...stored.lp };
 // Settings mirrored in the query string (url-state.js).
 const URL_DEFAULTS = { ...DEFAULTS, x: X_DEFAULTS, c: C_DEFAULTS, lp: LP_DEFAULTS };
 const URL_FIELDS = [
-  ['home', v => v > 0], ['flag', ['secure', 'shortest']], ['tax', v => v >= 0 && v <= 100],
+  ['home', v => v > 0], ['flag', ['secure', 'nonull', 'shortest']], ['tax', v => v >= 0 && v <= 100],
   'cargo', 'budget', ['sellHub', ['best', ...HUBS.map(h => String(h.id))]], ['mode', ['instant', 'relist']], 'structures',
   ['scope', ['hubs', 'all']], 'minPrice',
   'x.minProfit', 'x.maxMargin', 'x.maxJumps', ['x.rank', ['profit', 'perJump', 'margin']], 'x.q', 'x.priced', 'x.auctions',
@@ -207,7 +207,7 @@ function itemRows() {
     if (c.v > maxVolume) continue;
     if (q && !(c.ti || '').toLowerCase().includes(q) && !c.it.some(([t]) => typeName(t).toLowerCase().includes(q))) continue;
     const jHome = homeJumps(c.s);
-    if (c.s != null && jHome == null && settings.flag === 'secure') continue;
+    if (c.s != null && jHome == null && settings.flag !== 'shortest') continue;
     let best = null;
     for (const hub of hubs) {
       const h = c.h[hub.id];
@@ -368,7 +368,7 @@ function courierRows() {
     if (f.fits && c.v > cargo) continue;
     const jHome = homeJumps(c.s), jRoute = jumps(c.s, c.ds);
     const known = jHome != null && jRoute != null;
-    if (!known && settings.flag === 'secure' && c.s != null && c.ds != null) continue; // leaves high-sec
+    if (!known && settings.flag !== 'shortest' && c.s != null && c.ds != null) continue; // leaves the allowed space
     const total = known ? jHome + jRoute : null;
     if (total != null && total > maxJumps) continue;
     const back = us.result ? bestBackhaul(c.ds, backJ) : null;
