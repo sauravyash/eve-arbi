@@ -53,3 +53,59 @@ export function projectPoint(p, cam, w, h) {
   const { sx, sy, depth } = projectAll(Float32Array.from(p), cam, w, h);
   return [sx[0], sy[0], depth[0]];
 }
+
+export const clampPitch = (p) => Math.max(-PITCH_MAX, Math.min(PITCH_MAX, p));
+export const clampDistance = (d) => Math.max(MIN_DIST, Math.min(MAX_DIST, d));
+
+// Drag to orbit around the target, like the in-game map.
+export const orbit = (cam, dx, dy, speed = 0.005) =>
+  ({ ...cam, yaw: cam.yaw - dx * speed, pitch: clampPitch(cam.pitch + dy * speed) });
+
+// Target moved by (a, b) light years along the screen's right and up axes.
+function shiftTarget(cam, a, b) {
+  const { right: r, up: u } = cameraBasis(cam);
+  return cam.target.map((t, k) => t + r[k] * a + u[k] * b);
+}
+
+// Drag the scene by (dx, dy) px in the plane through the target.
+export function pan(cam, dx, dy, h) {
+  const s = cam.distance / focalPx(h);
+  return { ...cam, target: shiftTarget(cam, -dx * s, dy * s) };
+}
+
+// Zoom by factor toward screen point (px, py), keeping what's under it (at the target's depth) in place.
+export function zoomAt(cam, factor, px, py, w, h) {
+  const distance = clampDistance(cam.distance / factor);
+  const s = cam.distance / focalPx(h);
+  const q = shiftTarget(cam, (px - w / 2) * s, -(py - h / 2) * s);
+  const keep = distance / cam.distance;
+  return { ...cam, distance, target: q.map((v, k) => v + (cam.target[k] - v) * keep) };
+}
+
+// Target and distance that show every indexed point, with pad as a fraction of the span on each side.
+export function fitSphere(pos, indices, pad, w, h) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const i of indices) for (let k = 0; k < 3; k++) {
+    lo[k] = Math.min(lo[k], pos[i * 3 + k]); hi[k] = Math.max(hi[k], pos[i * 3 + k]);
+  }
+  const target = lo.map((v, k) => (v + hi[k]) / 2);
+  let r2 = 1;
+  for (const i of indices) {
+    r2 = Math.max(r2, (pos[i * 3] - target[0]) ** 2 + (pos[i * 3 + 1] - target[1]) ** 2 + (pos[i * 3 + 2] - target[2]) ** 2);
+  }
+  const half = Math.min(FOV_Y / 2, Math.atan(Math.tan(FOV_Y / 2) * w / h));
+  return { target, distance: clampDistance(Math.sqrt(r2) * (1 + 2 * pad) / Math.sin(half)) };
+}
+
+// Fly-to animation step: ease-out cubic, distance interpolated in log space so zooms feel even.
+export function lerpCamera(a, b, t) {
+  if (t <= 0) return a;
+  if (t >= 1) return b;
+  const e = 1 - (1 - t) ** 3, mix = (x, y) => x + (y - x) * e;
+  return {
+    target: a.target.map((v, k) => mix(v, b.target[k])),
+    distance: Math.exp(mix(Math.log(a.distance), Math.log(b.distance))),
+    yaw: mix(a.yaw, b.yaw),
+    pitch: mix(a.pitch, b.pitch),
+  };
+}
