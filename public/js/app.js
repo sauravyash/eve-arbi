@@ -1669,7 +1669,6 @@ const galaxy = createMapSwitch({
   },
 });
 galaxy.setSecurityColors(settings.secColors);
-galaxy.setLayout(settings.mapLayout);
 fetch('data/universe.json')
   .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
   .then(u => { galaxy.setUniverse(u); initTripData(u); scan.memo = null; $('mapMsg').hidden = true; render(); })
@@ -1681,6 +1680,7 @@ function setView(view) {
   document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === view)));
   $('mapTools').hidden = view !== 'map';
   $('legendMap').hidden = view !== 'map';
+  if (view === 'map') galaxy.setLayout(settings.mapLayout); // three.js loads only once the map is shown (the switch caches it)
   render();
 }
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
