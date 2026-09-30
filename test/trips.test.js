@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGraph, jumpsFrom, pathBetween } from '../public/js/galaxy.js';
+import { buildGraph, jumpsFrom, pathBetween, outOfNullSec } from '../public/js/galaxy.js';
 import { evaluateLegs, planTrips, tripStops } from '../public/js/trips.js';
 
 // Chain 1 – 2 – 3 – 4 – 5 (all high-sec), with low-sec 6 hanging off 5.
@@ -124,4 +124,5 @@ test('jumpsFrom with nonull flies through high- and low-sec but never null-sec',
   assert.equal(d('nonull', 1, 6), -1);                              // 0.0 is null-sec
   assert.deepEqual(pathBetween(gn, 1, 3, 'nonull'), [1, 2, 3]);
   assert.equal(d('nonull', 4, 3), 2);                               // from null-sec: leave by the nearest way out
+  assert.deepEqual([1, 2, 4, 6, 999].map(id => outOfNullSec(gn, id)), [true, true, false, false, false]);
 });

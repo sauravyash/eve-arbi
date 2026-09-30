@@ -125,6 +125,18 @@ export function pathBetween(g, a, b, flag = 'shortest') {
   return path.reverse().map(i => g.id[i]);
 }
 
+// Whether a system is known to the graph and high-sec (wormhole systems added by withLinks are -1).
+export function inHighSec(g, systemId) {
+  const i = g.indexOf.get(systemId);
+  return i != null && isHighSec(g.sec[i]);
+}
+
+// Whether a system is known to the graph and high- or low-sec (not null-sec or wormhole space).
+export function outOfNullSec(g, systemId) {
+  const i = g.indexOf.get(systemId);
+  return i != null && !isNullSec(g.sec[i]);
+}
+
 export function systemInfo(g, systemId) {
   const i = g.indexOf.get(systemId);
   if (i == null) return null;

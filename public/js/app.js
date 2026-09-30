@@ -1,7 +1,7 @@
 import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
 import { scanClient, tabNote, showProgress } from './scan-client.js';
 import { GalaxyMap, secColor, secLabel } from './map.js';
-import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
+import { buildGraph, inHighSec, outOfNullSec, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
 import { shortcutsOn, isJSpace } from './wormholes.js';
 import { isNpcStation } from './market-merge.js';
@@ -883,6 +883,7 @@ function scanRows() {
     const fl = all ? c.f : hubById[c.f].stationId, dl = all ? c.d : hubById[c.d].stationId;
     if (!fromOk(fs, fl) || !toOk(ds, dl)) continue;
     if (all && !f.structures && (!isNpcStation(fl) || !isNpcStation(dl))) continue;
+    if (all && !safeEnds(fs, ds)) continue;
     const info = trip.catalog?.[c.t] || r.types?.[c.t] || [`Type ${c.t}`, 0];
     const [name, vol] = info;
     if (q && !name.toLowerCase().includes(q)) continue;
@@ -1380,6 +1381,16 @@ async function tripStartScan() {
   tripPoll();
 }
 
+// Safest routing keeps every pickup and drop-off in high-sec, and High + low-sec keeps them out of
+// null-sec. Their BFS would otherwise route a haul from a pickup outside by the quickest way out
+// (galaxy.js jumpsFrom).
+function safeEnds(from, to) {
+  if (!trip.graph) return true;
+  if (settings.flag === 'secure') return inHighSec(trip.graph, from) && inHighSec(trip.graph, to);
+  if (settings.flag === 'nonull') return outOfNullSec(trip.graph, from) && outOfNullSec(trip.graph, to);
+  return true;
+}
+
 function tripDistFrom(sys) {
   const g = travel();
   const d = jumpsFrom(g, sys, tripFlag());
@@ -1398,7 +1409,7 @@ function tripList() {
     catalog: trip.catalog, taxRate: (Number(settings.taxPct) || 0) / 100, maxVolume, maxCost,
     minProfit: parseAmount(t.minProfit) ?? 0, hideShips: t.hideShips, hideHubs: t.hideHubs, structures: t.structures, isNpcStation,
   });
-  const trips = planTrips(legs, {
+  const trips = planTrips(legs.filter(L => safeEnds(L.fs, L.ds)), {
     start: t.start, distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3, maxVolume, maxCost,
     maxLink: t.link === '' ? 3 : Math.max(0, Number(t.link) || 0), rank: t.rank,
   }).map(tr => ({ ...tr, key: tr.legs.map(l => `${l.t}:${l.f}:${l.d}`).join('>') }));
