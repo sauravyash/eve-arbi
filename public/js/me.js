@@ -23,6 +23,15 @@ const SCOPE = {
 function pref(key, fallback) { try { const v = localStorage.getItem(KEYS[key]); return v == null ? fallback : v === '1'; } catch { return fallback; } }
 function setPref(key, on) { try { localStorage.setItem(KEYS[key], on ? '1' : '0'); } catch { /* storage disabled */ } }
 
+/** The chip's second line: "Rens · docked · 1.2b ISK", or with line 'ship', "Hulmate · docked · …". */
+export function meLine({ line = 'system', where, docked, shipName, wallet, isk }) {
+  const place = line === 'ship' && shipName ? shipName : where;
+  return [
+    place && `${esc(place)}${docked ? ` · ${docked}` : ''}`,
+    wallet != null && `<span class="me-isk">${esc(isk(wallet))} ISK</span>`,
+  ].filter(Boolean).join(' · ');
+}
+
 // Each character's recent system changes (wormholes.js recordLocation), shared by every tab.
 export const TRAIL_PREFIX = 'me.trail.';
 const trailKey = (characterId) => `${TRAIL_PREFIX}${characterId}`;
@@ -66,8 +75,9 @@ async function getJson(url) {
  * @param {(typeId: number|null) => void} [o.onShip]  your ship's type while "use ship" is on, null when off
  * @param {(isk: number|null) => void} [o.onBudget] your wallet while "use wallet" is on, null when off
  * @param {(status) => void} [o.onStatus]          sign-in state changes (for pages that show more)
+ * @param {'system'|'ship'} [o.line]               what leads the chip's second line (default: your system)
  */
-export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk = String, onFollow, onCargo = () => {}, onShip = () => {}, onBudget = () => {}, onStatus = () => {} }) {
+export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk = String, onFollow, onCargo = () => {}, onShip = () => {}, onBudget = () => {}, onStatus = () => {}, line = 'system' }) {
   const me = {
     status: null, loc: null, online: null, ship: null, wallet: null, errors: {}, timer: null, walletAt: 0,
     follow: pref('follow', true), useShip: pref('useShip', false), useWallet: pref('useWallet', false), track: pref('track', true),
@@ -151,7 +161,7 @@ export function createMe({ el, returnTo, systemName, shipInfo = () => null, isk 
     el.innerHTML = `<details class="me-menu">
       <summary>
         <span class="me-face"><img src="https://images.evetech.net/characters/${s.characterId}/portrait?size=64" alt="" width="30" height="30">${dot}</span>
-        <span class="me-who"><b>${esc(s.name)}</b><small>${[where && `${esc(where)} · ${docked}`, me.wallet != null && `${isk(me.wallet)} ISK`].filter(Boolean).join(' · ')}</small></span>
+        <span class="me-who"><b>${esc(s.name)}</b><small>${meLine({ line, where, docked, shipName: me.ship?.name, wallet: me.wallet, isk })}</small></span>
         ${errs.length ? '<span class="me-err">!</span>' : ''}
       </summary>
       <div class="me-pop">
