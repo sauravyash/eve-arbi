@@ -347,7 +347,9 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .btn-group { display: inline-flex; gap: 4px; }
 .btn-group .btn.small { min-width: 30px; justify-content: center; }
 .map-view { position: relative; height: min(68vh, 640px); min-height: 360px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
-.map-view canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.map-view canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.map-view canvas[hidden] { display: none; }
+#mapGl { pointer-events: none; }
 .map-tip {
   position: absolute; pointer-events: none; z-index: 2; max-width: 280px;
   background: var(--tip-bg); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px;

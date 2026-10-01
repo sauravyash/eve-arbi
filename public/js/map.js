@@ -4,7 +4,7 @@
 import { formatIsk } from './arbitrage.js';
 
 // Security colours indexed by band + 10: null-sec -1.0 → -0.1 (crimson fading to purple), then in-game 0.0 → 1.0.
-const SEC_COLORS = [
+export const SEC_COLORS = [
   '#6e1f9e', '#7a1d95', '#861b8b', '#921981', '#9e1777', '#aa146b', '#b6115f', '#c20e52', '#ce0a44', '#da0636',
   '#f00000', '#d73000', '#f04800', '#f06000', '#d77700', '#efef00', '#8fef2f', '#00f000', '#00ef47', '#48f0c0', '#2fefef',
 ];
@@ -14,7 +14,7 @@ export const secLabel = (s) => (secBand(s) / 10).toFixed(1);
 export const secColor = (s) => SEC_COLORS[secBand(s) + 10];
 
 // Security colours for the light map: the same hues pulled 40% toward black so yellows read on a pale background.
-const SEC_COLORS_LIGHT = SEC_COLORS.map((hex) => '#' + [1, 3, 5].map((k) =>
+export const SEC_COLORS_LIGHT = SEC_COLORS.map((hex) => '#' + [1, 3, 5].map((k) =>
   Math.round(parseInt(hex.slice(k, k + 2), 16) * 0.6).toString(16).padStart(2, '0')).join(''));
 
 // Canvas palettes; the light one follows <html data-theme="light"> (js/theme.js).
@@ -36,7 +36,8 @@ const PALETTES = {
     pill: 'rgba(255,255,255,0.95)', pillStrong: 'rgba(226,244,240,0.97)', glow: 8,
   },
 };
-const palette = () => PALETTES[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+export const isLightTheme = () => document.documentElement.dataset.theme === 'light';
+export const palette = () => PALETTES[isLightTheme() ? 'light' : 'dark'];
 const MIN_SCALE = 0.5, MAX_SCALE = 400; // px per light year
 
 export class GalaxyMap {
@@ -269,24 +270,7 @@ export class GalaxyMap {
     this.canvas.style.cursor = hub ? 'pointer' : '';
     if (i !== this.hover) { this.hover = i; this.draw(); }
     if (i < 0) return this.hideTooltip();
-    const { name, sec, region, regions } = this.u;
-    const onRoutes = this.routesThrough(this.u.id[i]);
-    const t = this.tooltip;
-    t.innerHTML = `<b>${esc(name[i])}</b> <span class="sec" style="--sec:${secColor(sec[i])}">${secLabel(sec[i])}</span>
-      <div class="reg">${esc(regions[region[i]].name)}</div>
-      ${hub ? '<div class="hint">Click to show best outgoing route</div>' : ''}
-      ${onRoutes.length ? `<div class="on">${onRoutes.map(esc).join('<br>')}</div>` : ''}`;
-    t.hidden = false;
-    const w = this.canvas.clientWidth;
-    t.style.left = `${Math.min(px + 14, w - t.offsetWidth - 4)}px`;
-    t.style.top = `${py + 14}px`;
-  }
-
-  routesThrough(systemId) {
-    if (!this.model) return [];
-    return this.model.shown
-      .filter(s => !s.faded && s.route?.metric > 0 && this.model.pathFor(s.route)?.includes(systemId))
-      .map(s => `${s === this.model.top ? '★ ' : ''}${s.route.from.name} → ${s.route.to.name}: ${formatIsk(s.route.metric)}/j`);
+    placeTooltip(this.tooltip, tooltipHtml(this, i, !!hub), px, py, this.canvas.clientWidth);
   }
 
   hideTooltip() { this.tooltip.hidden = true; }
@@ -363,9 +347,9 @@ export class GalaxyMap {
       for (let i = 0; i < n; i++) if (onScreen(i, 0)) ctx.fillText(this.u.name[i], sx[i], sy[i] + r + 7);
     }
 
-    this.paintRoutes(ctx, sx, sy, P);
-    this.paintHubs(ctx, sx, sy, P);
-    this.paintTrip(ctx, sx, sy, P);
+    paintRoutes(ctx, this, sx, sy, P);
+    paintHubs(ctx, this, sx, sy, P);
+    paintTrip(ctx, this, sx, sy, P);
 
     if (this.hover >= 0) {
       ctx.strokeStyle = P.hover;
@@ -373,36 +357,48 @@ export class GalaxyMap {
       ctx.beginPath(); ctx.arc(sx[this.hover], sy[this.hover], r + 4, 0, Math.PI * 2); ctx.stroke();
     }
   }
+}
 
-  routePoints(route, sx, sy) {
-    const path = this.model.pathFor(route);
-    if (!path) return null;
-    const pts = [];
-    for (const id of path) {
-      const i = this.u.indexOf.get(id);
-      if (i != null) pts.push([sx[i], sy[i]]);
-    }
-    return pts.length > 1 ? pts : null;
+// Polyline runs along a path; culled (NaN) systems split it so nothing is drawn across them. Runs of 1 point are dropped.
+function pathRuns(state, path, sx, sy) {
+  const runs = [];
+  let run = [];
+  for (const id of path) {
+    const i = state.u.indexOf.get(id);
+    if (i != null && !Number.isNaN(sx[i])) { run.push([sx[i], sy[i]]); continue; }
+    if (run.length > 1) runs.push(run);
+    run = [];
   }
+  if (run.length > 1) runs.push(run);
+  return runs;
+}
 
-  paintRoutes(ctx, sx, sy, P) {
-    const m = this.model;
-    if (!m) return;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    const drawn = [];
-    const fade = this.trip ? 0.15 : 1; // with a trip on screen, the per-hub routes step back
-    // Non-best first, best last so it sits on top.
-    const order = [...m.shown].filter(s => !s.faded && s.route && (s.route.metric > 0))
-      .sort((a, b) => (a === m.top) - (b === m.top) || a.route.metric - b.route.metric);
+export function routePoints(state, route, sx, sy) {
+  const path = state.model.pathFor(route);
+  if (!path) return null;
+  const runs = pathRuns(state, path, sx, sy);
+  return runs.length ? runs : null;
+}
 
-    for (const s of order) {
-      const pts = this.routePoints(s.route, sx, sy);
-      if (!pts) continue;
-      const isTop = s === m.top;
-      const ratio = m.maxV > 0 ? Math.sqrt(s.route.metric / m.maxV) : 0;
-      const color = s.route.stale ? P.amber : isTop ? P.teal : P.edge;
-      ctx.setLineDash(s.route.stale ? [8, 6] : []);
+export function paintRoutes(ctx, state, sx, sy, P) {
+  const m = state.model;
+  if (!m) return;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  const drawn = [];
+  const fade = state.trip ? 0.15 : 1; // with a trip on screen, the per-hub routes step back
+  // Non-best first, best last so it sits on top.
+  const order = [...m.shown].filter(s => !s.faded && s.route && (s.route.metric > 0))
+    .sort((a, b) => (a === m.top) - (b === m.top) || a.route.metric - b.route.metric);
+
+  for (const s of order) {
+    const runs = routePoints(state, s.route, sx, sy);
+    if (!runs) continue;
+    const isTop = s === m.top;
+    const ratio = m.maxV > 0 ? Math.sqrt(s.route.metric / m.maxV) : 0;
+    const color = s.route.stale ? P.amber : isTop ? P.teal : P.edge;
+    ctx.setLineDash(s.route.stale ? [8, 6] : []);
+    for (const pts of runs) {
       if (isTop) {
         ctx.save();
         ctx.shadowColor = P.teal; ctx.shadowBlur = P.glow;
@@ -414,91 +410,113 @@ export class GalaxyMap {
       ctx.globalAlpha = fade;
       arrows(ctx, pts, color, isTop ? 90 : 140, isTop ? 6 : 4.5);
       ctx.globalAlpha = 1;
-      drawn.push({ s, pts, isTop });
+      ctx.setLineDash(s.route.stale ? [8, 6] : []);
     }
-
-    // Labels: best route always; every shown route when a hub is selected.
-    for (const { s, pts, isTop } of drawn) {
-      if (this.trip || (!isTop && !m.sel)) continue;
-      const [lx, ly] = pts[Math.floor(pts.length / 2)];
-      const text = `${formatIsk(s.route.metric, s.route.metric >= 1e6 ? 2 : 1)}/j · ${s.route.jumps}j`;
-      pill(ctx, text, lx, ly - 16, isTop ? P.teal : P.edge, isTop ? P.pillStrong : P.pill);
-    }
+    ctx.setLineDash([]);
+    const pts = runs.reduce((best, r) => (r.length > best.length ? r : best));
+    drawn.push({ s, pts, isTop });
   }
 
-  paintTrip(ctx, sx, sy, P) {
-    const t = this.trip;
-    if (!t) return;
-    const pts = [];
-    for (const id of t.path) {
-      const i = this.u.indexOf.get(id);
-      if (i != null) pts.push([sx[i], sy[i]]);
-    }
-    if (pts.length > 1) {
-      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      ctx.save();
-      ctx.shadowColor = P.violet; ctx.shadowBlur = P.glow;
-      stroke(ctx, pts, P.violetGlow, 9);
-      ctx.restore();
-      stroke(ctx, pts, P.violet, 3);
-      arrows(ctx, pts, P.violet, 80, 5.5);
-    }
-    // Numbered waypoints; several stops in one system share a marker.
-    const bySystem = new Map();
-    for (const st of t.stops) {
-      const list = bySystem.get(st.systemId) || [];
-      list.push(st);
-      bySystem.set(st.systemId, list);
-    }
+  // Labels: best route always; every shown route when a hub is selected.
+  for (const { s, pts, isTop } of drawn) {
+    if (state.trip || (!isTop && !m.sel)) continue;
+    const [lx, ly] = pts[Math.floor(pts.length / 2)];
+    const text = `${formatIsk(s.route.metric, s.route.metric >= 1e6 ? 2 : 1)}/j · ${s.route.jumps}j`;
+    pill(ctx, text, lx, ly - 16, isTop ? P.teal : P.edge, isTop ? P.pillStrong : P.pill);
+  }
+}
+
+export function paintTrip(ctx, state, sx, sy, P) {
+  const t = state.trip;
+  if (!t) return;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const pts of pathRuns(state, t.path, sx, sy)) {
+    ctx.save();
+    ctx.shadowColor = P.violet; ctx.shadowBlur = P.glow;
+    stroke(ctx, pts, P.violetGlow, 9);
+    ctx.restore();
+    stroke(ctx, pts, P.violet, 3);
+    arrows(ctx, pts, P.violet, 80, 5.5);
+  }
+  // Numbered waypoints; several stops in one system share a marker.
+  const bySystem = new Map();
+  for (const st of t.stops) {
+    const list = bySystem.get(st.systemId) || [];
+    list.push(st);
+    bySystem.set(st.systemId, list);
+  }
+  ctx.textBaseline = 'middle';
+  for (const [id, list] of bySystem) {
+    const i = state.u.indexOf.get(id);
+    if (i == null || Number.isNaN(sx[i])) continue;
+    const x = sx[i], y = sy[i];
+    const label = list.map(st => st.n).join(',');
+    ctx.font = '700 11px "Segoe UI", system-ui, sans-serif';
+    const r = Math.max(10, ctx.measureText(label).width / 2 + 6);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = P.violet; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = P.bg; ctx.stroke();
+    ctx.fillStyle = P.onViolet; ctx.textAlign = 'center';
+    ctx.fillText(label, x, y + 0.5);
+    const text = list.map(st => st.label).join(' · ');
+    ctx.font = '600 11.5px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.lineWidth = 4; ctx.strokeStyle = P.halo;
+    ctx.strokeText(text, x + r + 5, y);
+    ctx.fillStyle = P.tripText;
+    ctx.fillText(text, x + r + 5, y);
+  }
+}
+
+export function paintHubs(ctx, state, sx, sy, P) {
+  const m = state.model;
+  if (!m) return;
+  const topR = m.top?.route;
+  for (const h of m.hubs) {
+    const i = state.u.indexOf.get(h.id);
+    if (i == null || Number.isNaN(sx[i])) continue;
+    const x = sx[i], y = sy[i];
+    const isSrc = m.sel ? h.id === m.sel : topR?.from.id === h.id;
+    const isDst = topR && (!m.sel || topR.from.id === m.sel) && topR.to.id === h.id;
+    ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = isSrc ? P.teal : P.hubFill;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = isSrc || isDst ? P.teal : P.hubRing;
+    ctx.stroke();
+    ctx.font = '600 13px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    for (const [id, list] of bySystem) {
-      const i = this.u.indexOf.get(id);
-      if (i == null) continue;
-      const x = sx[i], y = sy[i];
-      const label = list.map(st => st.n).join(',');
-      ctx.font = '700 11px "Segoe UI", system-ui, sans-serif';
-      const r = Math.max(10, ctx.measureText(label).width / 2 + 6);
-      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = P.violet; ctx.fill();
-      ctx.lineWidth = 2; ctx.strokeStyle = P.bg; ctx.stroke();
-      ctx.fillStyle = P.onViolet; ctx.textAlign = 'center';
-      ctx.fillText(label, x, y + 0.5);
-      const text = list.map(st => st.label).join(' · ');
-      ctx.font = '600 11.5px "Segoe UI", system-ui, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.lineWidth = 4; ctx.strokeStyle = P.halo;
-      ctx.strokeText(text, x + r + 5, y);
-      ctx.fillStyle = P.tripText;
-      ctx.fillText(text, x + r + 5, y);
-    }
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = P.halo;
+    ctx.strokeText(h.name, x + 12, y);
+    ctx.fillStyle = isSrc || isDst ? P.teal : P.hubText;
+    ctx.fillText(h.name, x + 12, y);
   }
+}
 
-  paintHubs(ctx, sx, sy, P) {
-    const m = this.model;
-    if (!m) return;
-    const topR = m.top?.route;
-    for (const h of m.hubs) {
-      const i = this.u.indexOf.get(h.id);
-      if (i == null) continue;
-      const x = sx[i], y = sy[i];
-      const isSrc = m.sel ? h.id === m.sel : topR?.from.id === h.id;
-      const isDst = topR && (!m.sel || topR.from.id === m.sel) && topR.to.id === h.id;
-      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2);
-      ctx.fillStyle = isSrc ? P.teal : P.hubFill;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = isSrc || isDst ? P.teal : P.hubRing;
-      ctx.stroke();
-      ctx.font = '600 13px "Segoe UI", system-ui, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = P.halo;
-      ctx.strokeText(h.name, x + 12, y);
-      ctx.fillStyle = isSrc || isDst ? P.teal : P.hubText;
-      ctx.fillText(h.name, x + 12, y);
-    }
-  }
+function routesThrough(state, systemId) {
+  const m = state.model;
+  if (!m) return [];
+  return m.shown
+    .filter(s => !s.faded && s.route?.metric > 0 && m.pathFor(s.route)?.includes(systemId))
+    .map(s => `${s === m.top ? '★ ' : ''}${s.route.from.name} → ${s.route.to.name}: ${formatIsk(s.route.metric)}/j`);
+}
+
+export function tooltipHtml(state, i, isHub) {
+  const { id, name, sec, region, regions } = state.u;
+  const onRoutes = routesThrough(state, id[i]);
+  return `<b>${esc(name[i])}</b> <span class="sec" style="--sec:${secColor(sec[i])}">${secLabel(sec[i])}</span>
+      <div class="reg">${esc(regions[region[i]].name)}</div>
+      ${isHub ? '<div class="hint">Click to show best outgoing route</div>' : ''}
+      ${onRoutes.length ? `<div class="on">${onRoutes.map(esc).join('<br>')}</div>` : ''}`;
+}
+
+export function placeTooltip(tip, html, px, py, w) {
+  tip.innerHTML = html;
+  tip.hidden = false;
+  tip.style.left = `${Math.min(px + 14, w - tip.offsetWidth - 4)}px`;
+  tip.style.top = `${py + 14}px`;
 }
 
 function stroke(ctx, pts, color, width, alpha = 1) {
@@ -552,10 +570,10 @@ function pill(ctx, text, x, y, color, fill) {
   ctx.fillText(text, x, y + 0.5);
 }
 
-function drawSpaced(ctx, text, x, y) {
+export function drawSpaced(ctx, text, x, y) {
   if ('letterSpacing' in ctx) { ctx.letterSpacing = '1.5px'; ctx.fillText(text, x, y); ctx.letterSpacing = '0px'; }
   else ctx.fillText(text, x, y);
 }
 
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

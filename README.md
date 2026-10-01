@@ -180,11 +180,17 @@ How it's kept safe (`sso.js`):
   to 25 are kept in `localStorage`. Checks run while any Hub arbitrage page is open, and open tabs
   share them, so each haul is checked only once per slot. Checks missed while no page was open
   don't pile up: one check runs when you're back, if the hour isn't over.
-- **Star map** (`scripts/build-universe.js`, `public/js/map.js`): every known-space system and
-  stargate from the SDE (5,255 systems, 6,973 gates). Wormhole, abyssal and Jove regions are
-  left out. Two layouts are available:
-  - *True positions*: a top-down view of the real 3D coordinates.
+- **Star map** (`scripts/build-universe.js`, `public/js/map.js`, `public/js/map3d.js`): every known-space
+  system and stargate from the SDE (5,255 systems, 6,973 gates). Wormhole, abyssal and Jove regions
+  are left out. Three layouts are available:
+  - *In-game 3D* (the default): the real 3D positions, rotatable like the in-game map. It uses
+    three.js (r170, vendored in `public/vendor/three/`) and falls back to Top-down when WebGL isn't
+    available.
+  - *Top-down*: a flat view of the real coordinates.
   - *In-game 2D map*: CCP's flattened layout.
+
+  In 3D, drag to rotate, right-drag or shift-drag to pan, scroll to zoom, and double-click a system
+  to centre it.
 
   Routes are drawn system by system along the actual paths ESI returns.
 - **Jumps** come from ESI `GET /route/{a}/{b}/?flag=secure|shortest|insecure`. The full system path is cached in
@@ -581,8 +587,11 @@ To check it, open `/api/config` on the site: `"serverScans": true` means the pag
   - A beam search keeps the best partial trips at each stop (with no haul in more than a few of
     them, so one lucrative trade doesn't crowd out the rest). Every purchase is scored as the trip
     it would be if you sold everything aboard by the shortest tour and stopped there, and finished
-    trips are ranked by ISK per jump or total profit. Moves that can't beat what's already kept are
-    skipped before any re-pricing. Planning takes a few hundred milliseconds even with 20,000 hauls.
+    trips are ranked by ISK per jump or total profit. At each pickup station it weighs up to 80
+    hauls: with a shared hold the best add-on is often a small, dense load far down a hub's list.
+    Moves that can't beat what's already kept are skipped before any re-pricing, and jumps come
+    from one cached row per system (typed arrays over the systems a trip can visit). Planning takes
+    a few hundred milliseconds even with 20,000 hauls.
   - An item never appears twice in one trip, since it would compete for the same orders. A
     single haul can headline at most two listed trips.
   - Filters: hauls per trip (2–5), detour jumps per pickup, min profit per haul, hide ships,

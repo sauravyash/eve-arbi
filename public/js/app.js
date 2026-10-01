@@ -1,6 +1,7 @@
 import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
 import { scanClient, tabNote, showProgress } from './scan-client.js';
 import { GalaxyMap, secColor, secLabel } from './map.js';
+import { createMapSwitch, loadThree, migrateMapLayout } from './map-switch.js';
 import { buildGraph, inHighSec, outOfNullSec, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
 import { shortcutsOn, isJSpace } from './wormholes.js';
@@ -35,11 +36,11 @@ const JUMP_TTL = 24 * 3600_000;
 
 const DEFAULTS = {
   items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, graphItem: 'all', showAll: false,
-  view: 'map', mapLayout: '3d', secColors: true,
+  view: 'map', mapLayout: 'space', mapV: 1, secColors: true,
   scan: { scope: 'hubs', cargo: '', ship: '', budget: '', minProfit: '5m', from: '', to: '', near: '0', maxMargin: '100', rank: 'ppj', q: '', hideShips: false, structures: false },
   trips: { start: 30000142, legs: '3', link: '3', minProfit: '1m', rank: 'perJump', hideShips: false, hideHubs: false, structures: false },
 };
-const storedSettings = LS.get('arbi.settings', {});
+const storedSettings = migrateMapLayout(LS.get('arbi.settings', {}));
 // Sales tax used to default to 0%; a saved 0 from then becomes the in-game base rate, once (taxV).
 if (!storedSettings.taxV && !Number(storedSettings.taxPct)) delete storedSettings.taxPct;
 const settings = Object.assign(structuredClone(DEFAULTS), storedSettings);
@@ -50,7 +51,7 @@ const hubIds = ['', ...HUBS.map(h => String(h.id))];
 const scanEnds = [...hubIds, 'hubs', 'offhub', 'me'];
 const URL_FIELDS = [
   ['flag', ['secure', 'nonull', 'shortest', 'insecure']], ['sellMode', ['instant', 'relist']], ['metric', ['unit', 'depth']],
-  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['3d', '2d']], 'secColors',
+  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['space', '3d', '2d']], 'secColors',
   ['scan.scope', ['hubs', 'all']], 'scan.cargo', ['scan.ship', v => v === '' || Number(v) > 0], 'scan.budget', 'scan.minProfit',
   ['scan.from', scanEnds], ['scan.to', scanEnds], ['scan.near', v => v === '' || Number(v) >= 0], 'scan.maxMargin',
   ['scan.rank', ['ppj', 'profit', 'iskm3', 'margin']], 'scan.q', 'scan.hideShips', 'scan.structures',
@@ -1575,6 +1576,7 @@ function tripList() {
   });
   const trips = planTrips(legs.filter(L => safeEnds(L.fs, L.ds)), {
     start: t.start, distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3, maxVolume, maxCost,
+    jumps: { indexOf: travel().indexOf, from: (sys) => jumpsFrom(travel(), sys, tripFlag()) },
     maxLink: t.link === '' ? 3 : Math.max(0, Number(t.link) || 0), rank: t.rank,
   }).map(tr => ({ ...tr, key: tr.legs.map(l => `${l.t}:${l.f}:${l.d}`).join('>') }));
   trip.memo = { key, trips };
@@ -1828,9 +1830,24 @@ function syncMetricAvailability() {
   depthOpt.textContent = settings.sellMode === 'instant' ? 'Depth profit / jump' : 'Depth profit / jump (instant mode only)';
 }
 
-const galaxy = new GalaxyMap($('mapCanvas'), { tooltip: $('mapTip'), onSelectHub: (id) => selectHub(id) });
-galaxy.layout = settings.mapLayout;
-galaxy.secColors = settings.secColors;
+const galaxy = createMapSwitch({
+  flat: new GalaxyMap($('mapCanvas'), { tooltip: $('mapTip'), onSelectHub: (id) => selectHub(id) }),
+  create3d: async () => {
+    const [THREE, { GalaxyMap3D }] = await Promise.all([loadThree(), import('./map3d.js')]);
+    return new GalaxyMap3D($('mapGl'), $('mapOverlay'), { THREE, tooltip: $('mapTip'), onSelectHub: (id) => selectHub(id) });
+  },
+  flatEl: $('mapCanvas'),
+  spaceEls: [$('mapGl'), $('mapOverlay')],
+  // No WebGL or the CDN is unreachable: show Top-down without overwriting the saved choice.
+  onUnavailable: (e) => {
+    const opt = $('mapLayout').querySelector('option[value=space]');
+    opt.disabled = true;
+    opt.textContent = 'In-game 3D (unavailable)';
+    opt.title = `The 3D map couldn't start: ${e.message}`;
+    $('mapLayout').value = '3d';
+  },
+});
+galaxy.setSecurityColors(settings.secColors);
 fetch('data/universe.json')
   .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
   .then(u => { galaxy.setUniverse(u); initTripData(u); scan.memo = null; $('mapMsg').hidden = true; render(); })
@@ -1842,6 +1859,7 @@ function setView(view) {
   document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === view)));
   $('mapTools').hidden = view !== 'map';
   $('legendMap').hidden = view !== 'map';
+  if (view === 'map') galaxy.setLayout(settings.mapLayout); // three.js loads only once the map is shown (the switch caches it)
   render();
 }
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
