@@ -1210,7 +1210,8 @@ function renderLoadDetail(rt) {
   const n = (v) => formatIsk(v);
   $('loadItems').innerHTML = rt.items.map(e => {
     const holds = Object.keys(e.used).filter(p => p !== 'cargo').map(p => holdName[p]).filter(Boolean);
-    const px = e.worstBuy !== e.buy || e.worstSell !== e.sell ? `${n(e.buy)}–${n(e.worstBuy)} → ${n(e.sell)}–${n(e.worstSell)}` : `${n(e.buy)} → ${n(e.sell)}`;
+    const range = (a, b) => (a === b ? n(a) : `${n(a)}–${n(b)}`);
+    const px = `<span class="nw">${range(e.buy, e.worstBuy)}</span> <span class="nw">→ ${range(e.sell, e.worstSell)}</span>`;
     return `<tr><td class="l">${esc(e.name)}${copyButton(e.name)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
       <td>${e.units.toLocaleString()}</td><td>${Math.round(e.volume).toLocaleString()}</td><td>${px}</td><td>${n(e.profit)}</td></tr>`;
   }).join('') + `<tr class="total"><td class="l"><b>Total</b></td><td></td><td><b>${Math.round(rt.volume).toLocaleString()}</b></td>

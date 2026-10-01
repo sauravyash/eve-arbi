@@ -371,7 +371,9 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .load-table td.itm b { color: var(--text); font-weight: 600; }
 .load-table tr.picked { background: rgba(167,139,250,.12); box-shadow: inset 3px 0 0 var(--violet); }
 .load-items { width: 100%; font-size: 12px; }
-.load-items td.l { white-space: normal; }
+.load-items td { padding: 6px 5px; white-space: normal; }
+.load-items td:first-child { padding-left: 0; }
+.load-items td:last-child { padding-right: 0; }
 .load-items small.hold { display: block; color: var(--violet); font-size: 10.5px; }
 .load-items tfoot td { font-weight: 700; border-top: 1px solid var(--line-2); }
 .scan-status { color: var(--muted); font-size: 12px; margin-left: auto; text-align: right; }
