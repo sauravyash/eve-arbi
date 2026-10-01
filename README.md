@@ -18,7 +18,7 @@ view's query string.
 | Tool | Pages |
 |---|---|
 | Hub arbitrage | `best-items.html`, `single-route.html`, `multi-stop.html`, `watchlist-routes.html` |
-| Market watch | `universe-scan.html`, `my-orders.html`, `watchlist.html` |
+| Market watch | `universe-scan.html`, `my-orders.html`, `watchlist.html`, `regional-demand.html` |
 | Contracts | `item-contracts.html`, `courier.html`, `lp-stores.html` |
 | Mining | `mining.html` |
 
@@ -264,6 +264,27 @@ not just your watchlist.
 Click a row to add that item to the watchlist and open its detail, which re-checks the deal
 against all nine sources.
 
+### Regional demand
+
+The *Regional demand* page (`regional-demand.html`, `public/js/demand.js`) takes one item and finds the regions that
+buy it steadily but have little of it listed: places worth importing it to and listing sell orders.
+- **Demand:** ESI's daily market history in every known-space region, last 30 days (missing days count as no
+  trades): median daily volume, share of days with a trade, and *swing* (how much daily volume varies).
+- **Supply:** units in sell orders listed in the region now, from EVE Tycoon (player structures optional).
+  *Days of stock* = stock ÷ daily volume. A region that trades most days with nothing visible is marked
+  *hidden market?*: its market is probably in structures that don't publish orders (common in null-sec).
+- **Earnings:** price (last 7 days' volume-weighted average) after sales tax and broker fee, minus the *Buy at*
+  hub's lowest sell order, times daily volume. That's *ISK/day*: an upper bound, if you supplied all of it.
+- **Rank by** ISK/day, shortage (fewest days of stock) or score (ISK/day × active days ÷ (1 + swing) ÷
+  (1 + days of stock ÷ 7)). *Skip hub regions* is on by default. Click a region for its 90-day chart and the
+  stations selling the item, with jumps from your home system.
+- **History is stored** (`public/js/demand-store.js`, `GET /api/demand/{typeId}`): 90 days per region, one gzipped
+  file per item (`.cache/demand/` locally, the R2 bucket `HISTORY` on Cloudflare; about 30 KB for an item
+  traded everywhere). Each region is fetched again only after ESI's daily history update (11:30 UTC is used), so
+  the first look at an item costs ~67 ESI calls and later looks that day cost none. Only the server calls ESI and
+  writes, so stored history is always CCP's. An item ESI doesn't know is rejected after one call. On Cloudflare
+  each request fetches at most 12 regions and the page asks again until none are pending.
+
 ### Sources
 
 | Source | What it adds | Proxy route |
@@ -437,6 +458,10 @@ plan. Differences from `npm start`:
   Cloudflare's cache (the Cache API does nothing on `workers.dev`). Browsers keep fresh answers
   until the upstream expiry too, so repeat visits don't count against the Worker's request quota.
 - **Watchlists of signed-in characters** are in D1 (`USERS_DB`), one row per character and list.
+- **Market history for Regional demand** is in R2 (`HISTORY`, bucket `eve-arbi-history`). R2 has to be enabled on
+  the Cloudflare account first (dashboard → R2; it may ask for a payment method even though this stays well inside
+  the free tier: 10 GB, 1M writes and 10M reads a month). Without the binding the page reports that history storage
+  isn't configured.
 - **Contract contents are shared** (D1, `/api/contract-items`). A contract's items never change, so
   once anyone's scan has opened a contract, everyone else gets it from the database: after the
   first visitor, opening ~2,000 contracts takes seconds instead of minutes. The Worker fetches

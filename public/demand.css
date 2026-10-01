@@ -1,0 +1,17 @@
+/* Regional demand page — builds on styles.css, market.css and mining.css. */
+.controls .rd-item input { width: 260px; max-width: 100%; }
+.controls input.bad { border-color: var(--red); }
+.rd-table td small { display: block; color: var(--faint); font-size: 10.5px; font-family: system-ui, sans-serif; margin: 0; }
+.rd-table td.region b { font-weight: 600; font-family: system-ui, sans-serif; font-size: 12.5px; }
+.rd-table tbody tr { cursor: pointer; }
+#detail h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
+#detail .kpis { margin-bottom: 10px; }
+#rdChart { width: 100%; height: 240px; display: block; }
+.rd-vol { fill: var(--vol); }
+.rd-vol.zero { fill: none; }
+.rd-price { fill: none; stroke: var(--teal); stroke-width: 1.8; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.rd-window { fill: rgba(45, 212, 191, .06); }
+.rd-legend { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; }
+.rd-legend .sw { display: inline-block; width: 14px; height: 0; border-top: 2px solid var(--teal); margin-left: 8px; }
+.rd-legend .sw.vol { border-top-width: 8px; border-color: var(--vol); width: 10px; margin-left: 0; }
+.rd-chart-axis { display: flex; justify-content: space-between; font: 10.5px var(--mono); color: var(--faint); }

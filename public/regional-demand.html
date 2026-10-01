@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Regional demand · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="market.css">
+  <link rel="stylesheet" href="mining.css">
+  <link rel="stylesheet" href="demand.css">
+</head>
+<body data-page="demand">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Market Watch</h1>
+        <p class="sub">Every station in New Eden, 9 sources merged — find the deals the hubs don't show</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Tools">
+      <a href="index.html">Home</a>
+      <a href="best-items.html">Hub arbitrage</a>
+      <a href="universe-scan.html" aria-current="page">Market watch</a>
+      <a href="item-contracts.html">Contracts</a>
+      <a href="mining.html">Mining</a>
+    </nav>
+    <button id="themeBtn" class="theme-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
+    <div class="refresh">
+      <span id="status" class="status" role="status" aria-live="polite">Pick an item</span>
+      <button id="refreshBtn" class="btn primary" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <nav class="subnav" aria-label="Market watch sections">
+    <span class="subnav-tool">Market watch</span>
+    <div class="tabs">
+      <a href="universe-scan.html" title="Every item, every station: the best hauls in New Eden (key 1)">Universe scan</a>
+      <a href="my-orders.html" title="Your market orders against the live competition (key 2)">My orders</a>
+      <a href="watchlist.html" title="Items you follow, cross-checked across 9 sources (key 3)">Watchlist</a>
+      <a href="regional-demand.html" aria-current="page" title="Regions that buy an item steadily but have little of it listed (key 4)">Regional demand</a>
+    </div>
+    <span class="hint keys">Keys 1–4 switch pages</span>
+  </nav>
+
+  <section class="controls" aria-label="Settings">
+    <label class="rd-item">Item
+      <input id="item" type="text" list="itemList" autocomplete="off" spellcheck="false" placeholder="e.g. Nanite Repair Paste">
+      <datalist id="itemList"></datalist>
+    </label>
+    <label title="Where you'd buy the stock you import: its lowest sell order is your cost">Buy at
+      <select id="refHub"></select>
+    </label>
+    <label>Home system
+      <input id="home" type="text" list="systemList" autocomplete="off" spellcheck="false">
+      <datalist id="systemList"></datalist>
+    </label>
+    <label>Route
+      <select id="flag">
+        <option value="secure">High-sec only</option>
+        <option value="shortest">Shortest (any sec)</option>
+      </select>
+    </label>
+    <label title="Base rate 7.5%. Accounting cuts it by 11% per level: 3.375% at level V.">Sales tax % <input id="tax" type="number" min="0" max="100" step="0.01" inputmode="decimal"></label>
+    <label title="Broker fee on the sell orders you list. NPC stations: 3% base, less with Broker Relations and standings.">Broker fee % <input id="broker" type="number" min="0" max="100" step="0.01" inputmode="decimal"></label>
+    <div class="checks">
+      <label class="inline check" title="Leave out The Forge, Domain, Sinq Laison, Heimatar and Metropolis">
+        <input id="skipHubs" type="checkbox"> Skip hub regions</label>
+      <label class="inline check" title="Count sell orders in player structures as stock">
+        <input id="structures" type="checkbox"> Player structures</label>
+      <label class="inline check wh-toggle" id="whToggle"></label>
+    </div>
+  </section>
+
+  <main class="mw-layout">
+    <section class="kpis" id="kpis" aria-label="Summary"></section>
+
+    <section class="panel" aria-labelledby="rankTitle">
+      <div class="table-head">
+        <h2 id="rankTitle">Where it's short <span id="rankCount" class="count"></span></h2>
+        <label class="inline">Rank by
+          <select id="rank">
+            <option value="isk">ISK/day if you supplied it</option>
+            <option value="shortage">Shortage (fewest days of stock)</option>
+            <option value="score">Score (ISK/day × steady × short)</option>
+          </select>
+        </label>
+      </div>
+      <div class="scan-filters">
+        <label title="Median units traded per day over the last 30 days">Min daily volume <input id="minDaily" type="text" inputmode="decimal" placeholder="1"></label>
+        <label title="Share of the last 30 days with any trade">Min active days % <input id="minActive" type="number" min="0" max="100" step="5" placeholder="0"></label>
+        <label title="Listed units ÷ daily volume">Max days of stock <input id="maxDays" type="text" inputmode="decimal" placeholder="No limit"></label>
+      </div>
+      <div class="table-wrap">
+        <table class="routes mn-table rd-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Region</th><th>Jumps</th>
+            <th title="Median units traded per day, last 30 days">Daily vol</th>
+            <th title="Share of the last 30 days with any trade; swing is how much daily volume varies (lower is steadier)">Active · swing</th>
+            <th title="Units in sell orders in the region now">Stock</th>
+            <th title="Stock ÷ daily volume">Days of stock</th>
+            <th title="Volume-weighted average price, last 7 days">Price</th>
+            <th title="Price vs. the buy hub's lowest sell order">Markup</th>
+            <th title="Daily volume × (price after tax and broker fee − cost). An upper bound: what you'd make supplying all of it">ISK/day</th>
+            <th title="ISK/day × active days ÷ (1 + swing) ÷ (1 + days of stock ÷ 7)">Score</th>
+          </tr></thead>
+          <tbody id="rankBody"></tbody>
+        </table>
+      </div>
+      <div class="scan-foot">
+        <p class="hint">Demand is ESI's daily market history for each region (last 30 days; missing days count as no trades). Stock is the sell
+          orders listed in the region now, from EVE Tycoon (player structures included if ticked), and can be a few minutes old.
+          History is kept on the server and refreshed once a day after ESI's daily update, so looking an item up again costs nothing.
+          Click a region for its 90-day chart and the stations selling it.</p>
+        <button id="moreBtn" class="btn small ghost" type="button" hidden>Show more</button>
+      </div>
+    </section>
+
+    <section class="panel" id="detail" aria-labelledby="detailTitle" hidden>
+      <div class="table-head">
+        <h2 id="detailTitle"></h2>
+        <button id="closeDetail" class="btn small ghost" type="button">Close</button>
+      </div>
+      <div class="kpis" id="detailKpis"></div>
+      <div class="chart-wrap">
+        <svg id="rdChart" viewBox="0 0 900 240" preserveAspectRatio="none" role="img" aria-label="Daily volume and average price, last 90 days"></svg>
+      </div>
+      <p class="hint rd-legend"><span class="sw vol"></span> units traded per day <span class="sw line"></span> average price</p>
+      <h3>Stations selling it</h3>
+      <div class="table-wrap">
+        <table class="routes mn-table">
+          <thead><tr><th class="l">Station</th><th>Jumps</th><th>Sell orders</th><th>Units</th><th>Lowest ask</th><th>Best bid here</th></tr></thead>
+          <tbody id="stationsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/regional-demand.js"></script>
+</body>
+</html>
