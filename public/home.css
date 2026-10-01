@@ -31,6 +31,7 @@
   --h-blue: oklch(0.78 0.11 255);
   --h-amber: oklch(0.85 0.1 80);
   --h-pink: oklch(0.78 0.12 350);
+  --h-violet: oklch(0.74 0.13 295);
   --h-online: oklch(0.8 0.14 150);
   --h-ring: oklch(0.17 0.012 240);
   --h-portrait: repeating-linear-gradient(135deg, oklch(0.3 0.02 230) 0 4px, oklch(0.25 0.016 230) 4px 8px);
@@ -68,6 +69,7 @@
   --h-blue: oklch(0.5 0.15 255);
   --h-amber: oklch(0.53 0.13 70);
   --h-pink: oklch(0.55 0.17 350);
+  --h-violet: oklch(0.52 0.18 295);
   --h-online: oklch(0.6 0.16 150);
   --h-ring: oklch(1 0 0);
   --h-portrait: repeating-linear-gradient(135deg, oklch(0.88 0.01 230) 0 4px, oklch(0.84 0.01 230) 4px 8px);
@@ -155,6 +157,7 @@ body[data-page=home] {
 .tool.market { --accent: var(--h-blue); }
 .tool.contracts { --accent: var(--h-amber); }
 .tool.mining { --accent: var(--h-pink); }
+.tool.routes { --accent: var(--h-violet); }
 .tool-head { flex: 1 1 220px; max-width: 270px; display: flex; flex-direction: column; gap: 10px; padding-top: 16px; border-top: 1px solid color-mix(in oklch, var(--accent) 60%, transparent); }
 .tool-index { font: 11px var(--h-mono); letter-spacing: .14em; color: var(--accent); }
 .tool-head h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.015em; text-transform: none; color: var(--h-text); }
