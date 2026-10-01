@@ -25,6 +25,8 @@
   ],
   // HISTORY: 90 days of market history per item, for the Regional demand page (/api/demand/*).
   // R2 has to be enabled on the account (dashboard → R2) before the first deploy that includes it.
+  // Not bound in previews: preview builds don't create resources, and the bucket only exists once a
+  // production deploy has created it. Previews answer /api/demand/* with "not configured".
   "r2_buckets": [
     { "binding": "HISTORY", "bucket_name": "eve-arbi-history" }
   ],
@@ -39,9 +41,6 @@
     "d1_databases": [
       { "binding": "CONTRACTS_DB", "database_id": "852dda8a-9af2-44c3-a8a0-37c509d70efd" },
       { "binding": "USERS_DB", "database_id": "bee339b5-b2c5-4f2b-8dcd-d9d025c2d588" }
-    ],
-    "r2_buckets": [
-      { "binding": "HISTORY", "bucket_name": "eve-arbi-history" }
     ],
     "unsafe": {
       "bindings": [
