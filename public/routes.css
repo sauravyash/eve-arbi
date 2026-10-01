@@ -1,0 +1,101 @@
+/* Route planner (route-planner.html): waypoint stack, route summary and the system-by-system table. */
+
+.rp-layout .side { gap: 16px; }
+.rp-layout h2 { margin: 0 0 10px; font-size: 14px; }
+.rp-layout .table-head h2 { margin: 0; }
+.sec { font: 600 11.5px var(--mono); }
+.sec.js { color: var(--violet); }
+
+/* Click mode: what clicking a system on the map does */
+.click-mode button[aria-checked=true] { background: var(--teal-soft); color: var(--teal); font-weight: 600; }
+
+/* Summary under the map */
+.rp-summary { margin: 10px 2px 6px; font-size: 13px; color: var(--muted); min-height: 20px; }
+.rp-summary .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.rp-summary .st { display: flex; flex-direction: column; min-width: 74px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2); }
+.rp-summary .st b { font: 600 16px var(--mono); color: var(--text); }
+.rp-summary .st span { font-size: 11px; color: var(--faint); }
+.rp-summary .st.main b { color: var(--violet); font-size: 18px; }
+.rp-summary .st.low b { color: var(--amber); }
+.rp-summary .st.null b { color: var(--red); }
+.rp-summary .st.wh b { color: var(--violet); }
+.rp-summary p { margin: 4px 0 0; }
+.rp-summary .bad { color: var(--red); }
+.rp-summary .whtext { color: var(--violet); }
+.rp-summary .note { display: block; margin-top: 4px; color: var(--teal); }
+.legend .sw.trip { border-color: var(--violet); }
+.legend .dot-wh { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--violet); }
+
+/* Waypoint stack */
+.rp-stack { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rp-stack li {
+  display: grid; grid-template-columns: 14px 24px minmax(0, 1fr) auto; grid-template-areas: "grip n who ops" "grip n leg flag";
+  align-items: center; gap: 2px 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2);
+}
+.rp-stack li.empty { display: block; color: var(--faint); font-size: 12.5px; border-style: dashed; background: none; }
+.rp-stack li.dragging { opacity: .45; }
+.rp-stack li.over { border-color: var(--violet); box-shadow: inset 0 2px 0 var(--violet); }
+.rp-stack .grip { grid-area: grip; color: var(--faint); cursor: grab; font-size: 11px; letter-spacing: -2px; user-select: none; }
+.rp-stack .n {
+  grid-area: n; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--violet); color: var(--on-violet); font: 700 11px system-ui, sans-serif;
+}
+.rp-stack .n.s { background: none; box-shadow: inset 0 0 0 2px var(--violet); color: var(--violet); }
+.rp-stack .who { grid-area: who; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.rp-stack .who small { margin-left: 6px; color: var(--faint); font-size: 11px; }
+.rp-stack .leg { grid-area: leg; font: 11.5px var(--mono); color: var(--muted); }
+.rp-stack .leg.start { color: var(--faint); font-family: inherit; }
+.rp-stack .leg.warn { color: var(--amber); cursor: help; }
+.rp-stack .leg.bad { color: var(--red); }
+.rp-stack select { grid-area: flag; padding: 2px 4px; font-size: 11.5px; justify-self: end; }
+.rp-stack .ops { grid-area: ops; display: flex; gap: 0; justify-self: end; }
+.rp-stack .x[disabled] { opacity: .25; cursor: default; }
+.rp-stack .x { font-size: 14px; }
+
+.rp-add { display: flex; gap: 6px; margin: 0 0 10px; }
+.rp-add input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line-2); border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 13px; }
+.rp-add input.bad { border-color: var(--red); }
+.rp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 0; }
+.rp-actions .label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
+.rp-export { padding-top: 8px; border-top: 1px solid var(--line); margin-top: 10px; }
+.rp-paste { margin: 8px 0; font-size: 12.5px; }
+.rp-paste summary { cursor: pointer; color: var(--muted); }
+.rp-paste textarea {
+  width: 100%; box-sizing: border-box; margin-top: 6px; resize: vertical; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line-2); border-radius: 7px; padding: 6px 8px; font: 12.5px var(--mono);
+}
+
+/* Avoid list and saved routes */
+.rp-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-chips li { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 10px; border: 1px solid var(--line-2); border-radius: 999px; font-size: 12.5px; }
+.rp-chips li.empty { border: 0; padding: 0; color: var(--faint); }
+.rp-saved { list-style: none; margin: 0; padding: 0; }
+.rp-saved li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.rp-saved li.empty { color: var(--faint); border: 0; font-size: 12.5px; }
+.rp-saved small { color: var(--faint); margin-left: auto; }
+button.link { background: none; border: 0; padding: 0; color: var(--teal); font: inherit; cursor: pointer; text-align: left; }
+button.link:hover { text-decoration: underline; }
+
+/* Route table */
+.rp-table td .wh { color: var(--violet); cursor: help; }
+.rp-table td .wh.unknown::after { content: " ?"; color: var(--faint); }
+.rp-table tr.wp td { background: color-mix(in oklab, var(--violet) 9%, transparent); }
+.rp-table tr.wp td:first-child { box-shadow: inset 3px 0 0 var(--violet); }
+.rp-table td.hotv { color: var(--red); font-weight: 600; }
+.rp-table td.ops { white-space: nowrap; }
+.rp-table td.ops .x { font-size: 14px; }
+.rp-table td.ops .x:hover { color: var(--teal); }
+.rp-table td.ops [data-avoid]:hover { color: var(--red); }
+.tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; border: 1px solid var(--line-2); color: var(--muted); }
+.tag.wp { border-color: var(--violet); color: var(--violet); }
+.tag.low { border-color: var(--amber); color: var(--amber); }
+.tag.bad { border-color: var(--red); color: var(--red); }
+
+@media (max-width: 1000px) {
+  .graph-head .click-mode { width: 100%; }
+}
+
+/* Settings bar: switches sit in a row, label after the box */
+.controls .checks { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px 14px; padding-bottom: 7px; }
+.controls .checks label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 12px; }
+.controls .checks .wh-toggle { padding-bottom: 0; }

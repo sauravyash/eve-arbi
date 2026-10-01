@@ -38,7 +38,7 @@ void main() {
 }`;
 
 export class GalaxyMap3D {
-  constructor(glCanvas, overlay, { THREE, tooltip, onSelectHub }) {
+  constructor(glCanvas, overlay, { THREE, tooltip, onSelectHub = () => {}, onPickSystem = null }) {
     this.T = THREE;
     THREE.ColorManagement.enabled = false; // palette hex values straight through, like the 2D canvas
     this.renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true }); // throws without WebGL
@@ -50,6 +50,7 @@ export class GalaxyMap3D {
     this.ctx = overlay.getContext('2d');
     this.tooltip = tooltip;
     this.onSelectHub = onSelectHub;
+    this.onPickSystem = onPickSystem;   // optional: a click on a system that isn't a hub
     this.cam = { target: [0, 0, 0], distance: 200, yaw: 0, pitch: START_PITCH };
     this.secColors = true;
     this.u = null;
@@ -295,6 +296,10 @@ export class GalaxyMap3D {
 
   onClick(px, py) {
     const hub = this.hubAt(px, py);
+    if (!hub && this.onPickSystem && this.proj) {
+      const i = pickNearest(this.proj.sx, this.proj.sy, this.proj.depth, px, py, 10);
+      if (i >= 0) return this.onPickSystem(this.u.id[i]);
+    }
     const sel = this.model?.sel;
     this.onSelectHub(hub ? (sel === hub.id ? null : hub.id) : null);
   }

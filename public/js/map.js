@@ -41,11 +41,12 @@ export const palette = () => PALETTES[isLightTheme() ? 'light' : 'dark'];
 const MIN_SCALE = 0.5, MAX_SCALE = 400; // px per light year
 
 export class GalaxyMap {
-  constructor(canvas, { tooltip, onSelectHub }) {
+  constructor(canvas, { tooltip, onSelectHub = () => {}, onPickSystem = null }) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.tooltip = tooltip;
     this.onSelectHub = onSelectHub;
+    this.onPickSystem = onPickSystem;   // optional: a click on a system that isn't a hub
     this.layout = '3d';
     this.secColors = true;
     this.view = { cx: 0, cy: 0, scale: 10 };
@@ -260,6 +261,10 @@ export class GalaxyMap {
 
   onClick(px, py) {
     const hub = this.hubAt(px, py);
+    if (!hub && this.onPickSystem) {
+      const i = this.nearest(px, py, 10);
+      if (i >= 0) return this.onPickSystem(this.u.id[i]);
+    }
     const sel = this.model?.sel;
     this.onSelectHub(hub ? (sel === hub.id ? null : hub.id) : null);
   }

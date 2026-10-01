@@ -21,6 +21,7 @@ view's query string.
 | Market watch | `universe-scan.html`, `my-orders.html`, `watchlist.html`, `regional-demand.html` |
 | Contracts | `item-contracts.html`, `courier.html`, `lp-stores.html` |
 | Mining | `mining.html` |
+| Route planner | `route-planner.html` |
 
 The old single-page URLs (`/market.html?tab=…`, `/contracts.html?tab=…` and `/?tab=…` for Hub arbitrage)
 redirect to the matching page (`public/js/nav.js`).
@@ -456,6 +457,34 @@ Wormhole space is used by *Shortest* and *Prefer low/null* routes only; *Safest 
 use the local gate graph (or ESI's high-sec route when the map isn't loaded yet). The star map
 skips wormhole systems when drawing a route. Wormhole space never counts as high-sec. Buy-order
 ranges still follow stargates only, as they do in game.
+
+## Route planner (`/route-planner.html`)
+
+Plan a trip as a stack of waypoints on the star map. The first is where you start; with *Follow my
+location* on (sign-in menu), that's your character's system.
+
+- **Clicking the map** does what the mode above it says (keys A, I, S, X): *Add waypoint* puts the
+  system at the end, *Insert best* where it adds fewest jumps, *Set start* replaces the start, *Avoid*
+  adds or removes it from the avoid list.
+- **Each leg** can have its own route preference (high-sec only, no null-sec, shortest), so one stack
+  can go the long safe way with cargo and take the short way back empty. Drag rows or use ↑ ↓ to reorder.
+- **Optimize order** puts the waypoints between the start and the end in the order that flies fewest
+  jumps (exact for up to 10, a good heuristic past that). *Keep destination* keeps the last one last;
+  *Round trip* counts the way home.
+- **Wormholes**: routes use the shortcuts from the [Wormholes](#wormholes) panel, filtered by your
+  *Ship size* (from each hole's type, or EVE Scout's size) and how long a hole must stay open
+  (end-of-life holes count as 4 h at most). *Thera / Turnur* turns on EVE Scout's feed for every page.
+  High-sec routes may cross J-space unless you untick *Safe routes may cross J-space*. The summary says
+  how many jumps the wormholes save.
+- **Danger**: every system on the route shows ESI's ship and pod kills and jumps in the last hour.
+  *Avoid kills/h ≥* avoids systems at least that hot (never your own waypoints). When a leg can't keep
+  to its preference or avoid list, it relaxes them and marks the leg ⚠.
+- **In and out**: paste a list (names, arrows, or in-game chat links), copy the stack as names or chat
+  links (paste into an in-game notepad or mail and click each to set waypoints), copy the whole route,
+  or share a link: the stack, avoid list and settings are in the URL. Saved routes and the avoid list are
+  kept in this browser.
+
+The maths is in `public/js/route-plan.js` (tested in `test/route-plan.test.js`).
 
 ## Hosting on Cloudflare
 

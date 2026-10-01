@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Route planner · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="routes.css">
+</head>
+<body data-page="routes">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Route planner</h1>
+        <p class="sub">Stack waypoints on the star map, through stargates and the wormholes you know about</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Tools">
+      <a href="index.html">Home</a>
+      <a href="best-items.html">Hub arbitrage</a>
+      <a href="universe-scan.html">Market watch</a>
+      <a href="item-contracts.html">Contracts</a>
+      <a href="mining.html">Mining</a>
+      <a href="route-planner.html" aria-current="page">Routes</a>
+    </nav>
+    <button id="themeBtn" class="theme-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
+    <div class="refresh">
+      <span id="status" class="status" role="status" aria-live="polite">Loading star map…</span>
+      <button id="refreshBtn" class="btn primary" type="button" title="Reload kills, traffic and wormhole feeds">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <section class="controls" aria-label="Settings">
+    <label>Route
+      <select id="flag">
+        <option value="secure">High-sec only</option>
+        <option value="nonull">High + low-sec (no null)</option>
+        <option value="shortest">Shortest (any sec)</option>
+      </select>
+    </label>
+    <label title="Wormholes too small for this ship are left out of the route">Ship size
+      <select id="ship">
+        <option value="">Any (frigate)</option>
+        <option value="medium">Cruiser / industrial</option>
+        <option value="large">Battleship</option>
+        <option value="xlarge">Freighter / Orca</option>
+        <option value="capital">Capital</option>
+      </select>
+    </label>
+    <label title="Leave out wormholes that may close before you get there">Hole open for at least
+      <select id="minLeft">
+        <option value="0">Any time</option>
+        <option value="30">30 min</option>
+        <option value="60">1 h</option>
+        <option value="120">2 h</option>
+        <option value="240">4 h (not end of life)</option>
+      </select>
+    </label>
+    <label title="Systems with at least this many ship and pod kills in the last hour are avoided (except your waypoints). From ESI, updated hourly.">Avoid kills/h ≥
+      <input id="hotKills" type="number" min="0" step="1" placeholder="Off">
+    </label>
+    <label title="Your average time per jump, warp and align included: for the time estimate">Seconds per jump
+      <input id="secPerJump" type="number" min="5" max="600" step="5">
+    </label>
+    <div class="checks">
+      <label class="inline check wh-toggle" id="whToggle"></label>
+      <label class="inline check" title="High-sec and no-null routes may pass through wormhole space (Thera, J-space) when a shortcut leads there"><input id="passJ" type="checkbox"> Safe routes may cross J-space</label>
+      <label class="inline check" title="EVE Scout's public Thera and Turnur connections"><input id="scout" type="checkbox"> Thera / Turnur</label>
+      <label class="inline check" title="Count the way back to where you started"><input id="roundTrip" type="checkbox"> Round trip</label>
+    </div>
+  </section>
+
+  <main class="layout rp-layout">
+    <section class="panel graph-panel" aria-label="Star map">
+      <div class="graph-head">
+        <div class="tabs click-mode" role="radiogroup" aria-label="Clicking a system">
+          <button type="button" role="radio" data-mode="add" title="Click a system to add it to the end of the stack (key A)">Add waypoint</button>
+          <button type="button" role="radio" data-mode="insert" title="Click a system to put it where it adds fewest jumps (key I)">Insert best</button>
+          <button type="button" role="radio" data-mode="start" title="Click a system to start from it (key S)">Set start</button>
+          <button type="button" role="radio" data-mode="avoid" title="Click a system to avoid it, or to stop avoiding it (key X)">Avoid</button>
+        </div>
+        <div id="mapTools" class="map-tools">
+          <label class="inline">Layout
+            <select id="mapLayout">
+              <option value="space">In-game 3D</option>
+              <option value="3d">Top-down</option>
+              <option value="2d">In-game 2D map</option>
+            </select>
+          </label>
+          <label class="inline check"><input id="secColors" type="checkbox"> Security colors</label>
+          <div class="btn-group" role="group" aria-label="Map zoom">
+            <button id="mapZoomOut" class="btn small" type="button" aria-label="Zoom out">−</button>
+            <button id="mapZoomIn" class="btn small" type="button" aria-label="Zoom in">+</button>
+            <button id="mapFitRoute" class="btn small" type="button">Route</button>
+            <button id="mapFitAll" class="btn small" type="button">All</button>
+          </div>
+        </div>
+      </div>
+      <div id="mapView" class="map-view">
+        <canvas id="mapCanvas" aria-label="Star map of New Eden. Drag to pan, scroll to zoom, click a system to use it in the route."></canvas>
+        <canvas id="mapGl" hidden aria-hidden="true"></canvas>
+        <canvas id="mapOverlay" hidden aria-label="3D star map of New Eden. Drag to rotate, right-drag or shift-drag to pan, scroll to zoom, click a system to use it in the route."></canvas>
+        <div id="mapTip" class="map-tip" hidden></div>
+        <div id="mapMsg" class="map-msg">Loading star map…</div>
+      </div>
+      <div id="summary" class="rp-summary" aria-live="polite"></div>
+      <ul class="legend">
+        <li><i class="sw trip"></i>Your route</li>
+        <li><i class="dot-wh"></i>Through a wormhole</li>
+        <li id="legendMap" class="sec-legend">Security <i class="secbar"></i><span>1.0</span>→<span>-1.0</span></li>
+      </ul>
+    </section>
+
+    <aside class="side">
+      <section class="panel stack-panel" aria-labelledby="stackTitle">
+        <div class="table-head">
+          <h2 id="stackTitle">Waypoints <span id="stackCount" class="count"></span></h2>
+        </div>
+        <ol id="stack" class="rp-stack" aria-label="Waypoint stack, first is where you start"></ol>
+        <form id="addForm" class="rp-add" autocomplete="off">
+          <input id="addInput" type="text" list="systemList" placeholder="Add a system (J-codes and Thera too)" spellcheck="false" aria-label="System to add">
+          <datalist id="systemList"></datalist>
+          <button class="btn small" type="submit">Add</button>
+        </form>
+        <div class="rp-actions">
+          <button id="optimizeBtn" class="btn small" type="button" title="Reorder the waypoints between your start and the end to fly fewest jumps">Optimize order</button>
+          <label class="inline check" title="Keep the last waypoint last when optimizing"><input id="keepEnd" type="checkbox"> Keep destination</label>
+          <button id="reverseBtn" class="btn small ghost" type="button" title="Fly the stack backwards">Reverse</button>
+          <button id="clearBtn" class="btn small ghost" type="button">Clear</button>
+        </div>
+        <p id="optimizeNote" class="hint" hidden></p>
+        <details class="rp-paste">
+          <summary>Paste a list</summary>
+          <textarea id="pasteText" rows="4" placeholder="One system per line, or separated by commas or arrows. In-game chat links work too."></textarea>
+          <div class="rp-actions">
+            <button id="pasteAdd" class="btn small" type="button">Add to stack</button>
+            <button id="pasteReplace" class="btn small ghost" type="button">Replace stack</button>
+            <span id="pasteMsg" class="hint"></span>
+          </div>
+        </details>
+        <div class="rp-actions rp-export">
+          <span class="label">Copy</span>
+          <button id="copyNames" class="btn small" type="button" title="System names, one per line">Names</button>
+          <button id="copyLinks" class="btn small" type="button" title="In-game chat links: paste into chat, a mail or a notepad and click each to set it as a waypoint">Chat links</button>
+          <button id="copyRoute" class="btn small" type="button" title="Every system along the route, jump by jump">Full route</button>
+          <button id="copyShare" class="btn small" type="button" title="A link to this page with this route">Share link</button>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="avoidTitle">
+        <h2 id="avoidTitle">Avoiding <span id="avoidCount" class="count"></span></h2>
+        <ul id="avoidList" class="rp-chips"></ul>
+        <p class="hint">Use <b>Avoid</b> on the map, or the ⊘ on a row of the route. Kept in this browser.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="savedTitle">
+        <h2 id="savedTitle">Saved routes</h2>
+        <form id="saveForm" class="rp-add" autocomplete="off">
+          <input id="saveName" type="text" placeholder="Name this route" aria-label="Route name" maxlength="60">
+          <button class="btn small" type="submit">Save</button>
+        </form>
+        <ul id="savedList" class="rp-saved"></ul>
+      </section>
+    </aside>
+
+    <section class="panel table-panel" aria-labelledby="routeTitle">
+      <div class="table-head">
+        <h2 id="routeTitle">Route <span id="routeCount" class="count"></span></h2>
+        <label class="inline check"><input id="onlyNotable" type="checkbox"> Only waypoints, wormholes and danger</label>
+      </div>
+      <div class="table-wrap">
+        <table class="routes rp-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">System</th><th>Sec</th><th class="l">Region</th><th class="l">Via</th>
+            <th title="Ship kills / pod kills in the last hour (ESI)">Kills/h</th>
+            <th title="Jumps into the system in the last hour (ESI): traffic">Traffic</th>
+            <th class="l">Notes</th><th></th>
+          </tr></thead>
+          <tbody id="routeBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">Jumps are counted on the stargate map plus the wormhole shortcuts in use (managed on the
+        <a href="mining.html#wormholes">Mining page</a>: your recorded jumps, EVE Scout, Wanderer and ones you add). Kills and traffic are
+        ESI's last-hour counts and refresh hourly. If no route keeps to your settings, the leg relaxes them and says so.</p>
+    </section>
+  </main>
+
+  <script type="module" src="js/route-planner.js"></script>
+</body>
+</html>
