@@ -172,11 +172,17 @@ How it's kept safe (`sso.js`):
     it's smaller.
   - Buy orders with a minimum quantity above 1 are ignored everywhere; that's a common bait-order
     pattern.
-- **Star map** (`scripts/build-universe.js`, `public/js/map.js`): every known-space system and
-  stargate from the SDE (5,255 systems, 6,973 gates). Wormhole, abyssal and Jove regions are
-  left out. Two layouts are available:
-  - *True positions*: a top-down view of the real 3D coordinates.
+- **Star map** (`scripts/build-universe.js`, `public/js/map.js`, `public/js/map3d.js`): every known-space
+  system and stargate from the SDE (5,255 systems, 6,973 gates). Wormhole, abyssal and Jove regions
+  are left out. Three layouts are available:
+  - *In-game 3D* (the default): the real 3D positions, rotatable like the in-game map. It uses
+    three.js (r170, vendored in `public/vendor/three/`) and falls back to Top-down when WebGL isn't
+    available.
+  - *Top-down*: a flat view of the real coordinates.
   - *In-game 2D map*: CCP's flattened layout.
+
+  In 3D, drag to rotate, right-drag or shift-drag to pan, scroll to zoom, and double-click a system
+  to centre it.
 
   Routes are drawn system by system along the actual paths ESI returns.
 - **Jumps** come from ESI `GET /route/{a}/{b}/?flag=secure|shortest|insecure`. The full system path is cached in
