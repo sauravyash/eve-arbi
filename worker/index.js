@@ -20,6 +20,7 @@ import { createSso } from '../sso.js';
 import { compactItems } from '../public/js/contract-value.js';
 import { cleanItems } from '../public/js/watchlist.js';
 import { wandererConnections } from '../wanderer.js';
+import { createDemandStore } from '../public/js/demand-store.js';
 
 const UPSTREAMS = {
   tycoon: { base: 'https://evetycoon.com/api/', maxConcurrent: 3 },
@@ -51,6 +52,8 @@ export default {
     try {
       if (p === '/api/config') return json(200, { serverScans: await scanServerUp(env), sso: !!env.EVE_CLIENT_ID, sharedContracts: !!env.CONTRACTS_DB });
       if (p === '/api/contract-items' && request.method === 'POST') return await contractItems(request, env, ctx);
+      const dm = p.match(/^\/api\/demand\/([1-9]\d{0,9})$/);
+      if (dm) return await demand(request, env, Number(dm[1]));
       const m = p.match(/^\/api\/(tycoon|esi|fuzzwork|goon|adam4eve|evepraisal|zkill|mokaam)\/(.*)$/);
       if (m) return await proxy(request, env, ctx, m[1], m[2] + url.search);
       if (p.startsWith('/sso/') || p === '/api/me' || p.startsWith('/api/me/')) return await account(request, env, url);
@@ -282,6 +285,44 @@ async function contractItems(request, env, ctx) {
   // Now and then, drop contracts that have expired.
   if (Math.random() < 0.01) ctx.waitUntil(db.prepare('DELETE FROM contract_items WHERE expires < ?').bind(Date.now()).run().catch(() => {}));
   return json(200, { items, pending, direct });
+}
+
+// ---------------------------------------------------------------------------
+// Regional demand: 90 days of ESI history per item and region, one gzipped JSON object per item in
+// R2 (HISTORY), re-fetched once a day per region (../public/js/demand-store.js). Each request
+// fetches at most DEMAND_FETCH regions (50 subrequests and 10 ms CPU on the free plan); the page
+// asks again while `pending` > 0.
+// ---------------------------------------------------------------------------
+const DEMAND_FETCH = 12;
+let regionIdsP = null;
+
+const gzip = (text) => new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+const gunzip = (body) => new Response(body.pipeThrough(new DecompressionStream('gzip'))).text();
+
+async function demand(request, env, typeId) {
+  if (request.method !== 'GET') return json(405, { error: 'Method not allowed' });
+  if (!env.HISTORY) return json(404, { error: 'Market history storage (R2 binding HISTORY) is not configured' });
+  regionIdsP ||= env.ASSETS.fetch(new Request(new URL('/data/universe.json', request.url)))
+    .then(r => { if (!r.ok) throw new Error(`universe.json: HTTP ${r.status}`); return r.json(); })
+    .then(u => u.regions.map(r => r.id))
+    .catch(e => { regionIdsP = null; throw e; });
+  const headers = { 'User-Agent': userAgent(env), Accept: 'application/json' };
+  const key = (t) => `demand/${t}.json.gz`;
+  const store = createDemandStore({
+    regionIds: () => regionIdsP,
+    fetchHistory: async (regionId, t) => {
+      const r = await fetch(`${UPSTREAMS.esi.base}markets/${regionId}/history/?type_id=${t}`, { headers });
+      return { status: r.status, rows: r.status === 200 ? await r.json() : null };
+    },
+    load: async (t) => { const o = await env.HISTORY.get(key(t)); return o ? JSON.parse(await gunzip(o.body)) : undefined; },
+    save: async (t, entry) => { await env.HISTORY.put(key(t), await gzip(JSON.stringify(entry))); },
+    maxFetch: DEMAND_FETCH,
+  });
+  try {
+    return json(200, await store.get(typeId));
+  } catch (e) {
+    return json(e.status || 502, { error: String(e.message || e) });
+  }
 }
 
 // ---------------------------------------------------------------------------

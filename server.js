@@ -8,7 +8,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { buildUniverse, buildTypes, buildStations, OUT_FILE as UNIVERSE_FILE, TYPES_FILE, STATIONS_FILE } from './scripts/build-universe.js';
 import { createUniverseScanner, hubView } from './public/js/scan/universe-scanner.js';
 import { createContractScanner } from './public/js/scan/contract-scanner.js';
@@ -16,6 +16,7 @@ import { createSso } from './sso.js';
 import { cleanItems } from './public/js/watchlist.js';
 import { wandererConnections } from './wanderer.js';
 import { loadCache, saveCache, saveCacheSync } from './proxy-store.js';
+import { createDemandStore } from './public/js/demand-store.js';
 
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -228,6 +229,33 @@ const scanner = hubView(universeScanner);
 // Public contracts valued against the hub markets (see contract-scanner.js).
 const contractScanner = createContractScanner({ fetchUpstream, data, store });
 
+// Regional demand: 90 days of ESI history per item and region, kept in .cache/demand/{typeId}.json.gz
+// and re-fetched once a day per region (see demand-store.js).
+const DEMAND_DIR = path.join(CACHE_DIR, 'demand');
+const demandStore = createDemandStore({
+  regionIds: async () => (await data('universe')).regions.map(r => r.id),
+  fetchHistory: async (regionId, typeId) => {
+    const r = await fetchUpstream('esi', `${UPSTREAMS.esi.base}markets/${regionId}/history/?type_id=${typeId}`);
+    return { status: r.status, rows: r.status === 200 ? JSON.parse(r.body) : null };
+  },
+  load: async (typeId) => JSON.parse(gunzipSync(await readFile(path.join(DEMAND_DIR, `${typeId}.json.gz`)))),
+  save: async (typeId, entry) => {
+    await mkdir(DEMAND_DIR, { recursive: true });
+    await writeFile(path.join(DEMAND_DIR, `${typeId}.json.gz`), gzipSync(JSON.stringify(entry)));
+  },
+});
+
+async function demandApi(req, res, typeId) {
+  if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
+  try {
+    const body = Buffer.from(JSON.stringify(await demandStore.get(typeId)));
+    const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+    send(res, 200, gz ? gzipSync(body) : body, { 'Content-Type': 'application/json', ...(gz && { 'Content-Encoding': 'gzip' }) });
+  } catch (e) {
+    send(res, e.status || 502, JSON.stringify({ error: e.message }), { 'Content-Type': 'application/json' });
+  }
+}
+
 // With SCAN_SECRET set, forced rescans from the hosted site's visitors wait this long after the last one.
 const REMOTE_FORCE_GAP = 5 * 60_000;
 
@@ -361,6 +389,7 @@ http.createServer(async (req, res) => {
   const m = u.pathname.match(/^\/api\/(tycoon|esi|fuzzwork|goon|adam4eve|evepraisal|zkill|mokaam)\/(.*)$/);
   const scanMatch = u.pathname.match(/^\/api\/(scan|uscan|cscan)(\/result)?$/);
   const scanners = { scan: scanner, uscan: universeScanner, cscan: contractScanner };
+  const demandMatch = u.pathname.match(/^\/api\/demand\/([1-9]\d{0,9})$/);
   try {
     if (SCAN_SECRET && !isLocalRequest(req) && !hasScanSecret(req)) send(res, 403, 'Forbidden');
     else if (u.pathname === '/api/config') send(res, 200, JSON.stringify({ serverScans: true }), { 'Content-Type': 'application/json' });
@@ -374,6 +403,7 @@ http.createServer(async (req, res) => {
         send(res, r.status, r.body, { 'Content-Type': 'application/json' });
       }
     }
+    else if (demandMatch) await demandApi(req, res, Number(demandMatch[1]));
     else if (scanMatch) await scanApi(req, res, scanMatch[2] || '', u.searchParams, scanners[scanMatch[1]]);
     else if (m) await proxy(req, res, m[1], m[2] + u.search);
     else await serveStatic(req, res, u.pathname);

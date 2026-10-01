@@ -23,6 +23,13 @@
     { "binding": "CONTRACTS_DB", "database_name": "eve-arbi-contracts" },
     { "binding": "USERS_DB", "database_name": "eve-arbi-users" }
   ],
+  // HISTORY: 90 days of market history per item, for the Regional demand page (/api/demand/*).
+  // R2 has to be enabled on the account (dashboard → R2) before the first deploy that includes it.
+  // Not bound in previews: preview builds don't create resources, and the bucket only exists once a
+  // production deploy has created it. Previews answer /api/demand/* with "not configured".
+  "r2_buckets": [
+    { "binding": "HISTORY", "bucket_name": "eve-arbi-history" }
+  ],
   // SQLite-backed Durable Objects are available on the Workers free plan.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
   // EVE_CLIENT_ID, EVE_CALLBACK_URL and CONTACT are set in the dashboard; keep them on deploy.
