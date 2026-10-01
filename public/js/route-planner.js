@@ -17,6 +17,7 @@ import { readUrl, writeUrl } from './url-state.js';
 import {
   FLAGS, FLAG_LABEL, planRoute, findPath, jumpMatrix, optimizeOrder, orderCost, usableLinks, linkShipSize, linkExpiry,
   routeSummary, parseWaypointText, chatLinks, encodeStops, decodeStops, formatDuration, UNREACHABLE,
+  parseBridgeText, bridgeText, lyBetween, BRIDGE_RANGE_LY,
 } from './route-plan.js';
 
 // ---------------------------------------------------------------------------
@@ -60,9 +61,9 @@ function save() {
   history.replaceState(history.state, '', `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`);
 }
 
-const ui = { kills: null, traffic: null, liveAt: 0, liveError: null, note: '', fitOnce: true, dragFrom: -1 };
+const ui = { bridgeFrom: null, kills: null, traffic: null, liveAt: 0, liveError: null, note: '', fitOnce: true, dragFrom: -1 };
 const sc = createShortcuts({ onChange: () => { drawToggle?.(); syncScout(); render(); } });
-let base = null, drawToggle = null, meCtl = null, memo = null;
+let base = null, systems = null, drawToggle = null, meCtl = null, memo = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -72,11 +73,12 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 // ---------------------------------------------------------------------------
 // Travel graph: stargates plus the shortcuts this route may use
 // ---------------------------------------------------------------------------
+// Jump bridges have their own switch; the rest count while wormholes are on.
+const offered = () => sc.links().filter(l => sc.settings.on || l.src === 'bridge');
+
 function travel() {
   if (!base) return null;
-  const links = sc.settings.on
-    ? usableLinks(sc.links(), { ship: settings.ship, minLeftMs: Number(settings.minLeft) * 60_000, whInfo: sc.whInfo })
-    : [];
+  const links = usableLinks(offered(), { ship: settings.ship, minLeftMs: Number(settings.minLeft) * 60_000, whInfo: sc.whInfo });
   const key = `${links.map(l => l.key).sort().join(',')}|${sc.names.size}`;
   if (memo?.key !== key) memo = { key, g: withLinks(base, links, sc.names), links: new Map(links.map(l => [l.key, l])) };
   return memo.g;
@@ -207,6 +209,7 @@ function viaHtml(a, b) {
   const info = l.type ? sc.whInfo(l.type) : null;
   const ship = linkShipSize(l, sc.whInfo);
   const exp = left(linkExpiry(l));
+  if (l.src === 'bridge') return `<span class="wh bridge" title="${esc(['Jump bridge (Ansiblex): any ship but capitals', l.note].filter(Boolean).join('\n'))}">Jump bridge${l.note ? ` · ${esc(l.note)}` : ''}</span>`;
   const bits = [l.kind === 'jump' ? 'Jump' : 'Wormhole', l.type, ship && `${ship} ships`, exp].filter(Boolean);
   const title = [info ? whSummary(info) : l.note, `Source: ${SOURCE_LABEL[l.src] || l.src}`].filter(Boolean).join('\n');
   return `<span class="wh${ship ? '' : ' unknown'}" title="${esc(title)}">${esc(bits.join(' · '))}</span>`;
@@ -246,13 +249,19 @@ function renderStack(p) {
 function renderSummary(p) {
   const box = $('summary');
   if (!p || stops.length < 2) {
-    box.innerHTML = stops.length === 1 ? `Starting in <b>${esc(sysName(stops[0].id))}</b>. Add a destination.` : '';
+    box.innerHTML = (stops.length === 1 ? `Starting in <b>${esc(sysName(stops[0].id))}</b>. Add a destination.` : '')
+      + (ui.note ? `<span class="note">${esc(ui.note)}</span>` : '');
     return;
   }
   const s = routeSummary(p.g, p.path, isShortcut);
   const kills = p.path.slice(1).reduce((t, id) => { const k = ui.kills?.get(id); return t + (k ? k.ship + k.pod : 0); }, 0);
   const hot = p.path.slice(1).filter(id => (ui.kills?.get(id)?.ship ?? 0) > 0).length;
   const saved = p.gatesJumps != null && p.gatesJumps > p.jumps ? p.gatesJumps - p.jumps : 0;
+  let holes = 0, bridged = 0;
+  for (let i = 1; i < p.path.length; i++) {
+    if (isShortcut(p.path[i - 1], p.path[i])) { if (linkFor(p.path[i - 1], p.path[i])?.src === 'bridge') bridged++; else holes++; }
+  }
+  const what = [holes && 'wormholes', bridged && 'jump bridges'].filter(Boolean).join(' and ');
   const stat = (v, l, cls = '') => `<div class="st ${cls}"><b>${v}</b><span>${l}</span></div>`;
   box.innerHTML = `<div class="stats">
       ${stat(p.jumps, 'jumps', 'main')}
@@ -260,11 +269,12 @@ function renderSummary(p) {
       ${stat(s.high, 'high-sec')}
       ${stat(s.low, 'low-sec', s.low ? 'low' : '')}
       ${stat(s.null, 'null-sec', s.null ? 'null' : '')}
-      ${s.jspace || s.wormholes ? stat(s.wormholes, plural(s.wormholes, 'wormhole').replace(/^\d+ /, ''), 'wh') : ''}
+      ${s.jspace || holes ? stat(holes, plural(holes, 'wormhole').replace(/^\d+ /, ''), 'wh') : ''}
+      ${bridged ? stat(bridged, plural(bridged, 'bridge').replace(/^\d+ /, ''), 'wh') : ''}
       ${ui.kills ? stat(kills, `kills/h on route${hot ? ` · ${plural(hot, 'system')}` : ''}`, kills ? 'low' : '') : ''}
     </div>
     <p>${p.broken ? `<b class="bad">${plural(p.broken, 'leg')} with no route.</b> ` : ''}
-      ${saved ? `<b class="whtext">Wormholes save ${plural(saved, 'jump')}</b> (${p.gatesJumps} by stargates only). ` : ''}
+      ${saved ? `<b class="whtext">${what ? what[0].toUpperCase() + what.slice(1) : 'Shortcuts'} save ${plural(saved, 'jump')}</b> (${p.gatesJumps} by stargates only). ` : ''}
       ${s.lowEntries ? `Leaves high-sec ${s.lowEntries === 1 ? 'once' : `${s.lowEntries} times`}. ` : ''}
       ${s.regions.length ? `Through ${esc(s.regions.join(' → '))}.` : ''}
       ${ui.note ? `<span class="note">${esc(ui.note)}</span>` : ''}</p>`;
@@ -331,6 +341,45 @@ function renderAvoid() {
     : '<li class="empty">No systems.</li>';
 }
 
+// ---------------------------------------------------------------------------
+// Jump bridges
+// ---------------------------------------------------------------------------
+const ly = (a, b) => (systems ? lyBetween(systems, base.indexOf.get(a), base.indexOf.get(b)) : null);
+const lyText = (d) => (d == null ? '' : `${d.toFixed(d < 10 ? 1 : 0)} ly`);
+
+// Bridge mode: the first click picks one end, the second adds the bridge.
+function bridgeEnd(id) {
+  if (isJSpace(id)) { ui.note = 'Jump bridges only join known space.'; return render(); }
+  if (!ui.bridgeFrom || ui.bridgeFrom === id) {
+    ui.bridgeFrom = ui.bridgeFrom === id ? null : id;
+    ui.note = ui.bridgeFrom ? `Bridge from ${sysName(id)}: click the other end.` : '';
+    return render();
+  }
+  const a = ui.bridgeFrom, d = ly(a, id);
+  ui.bridgeFrom = null;
+  const added = sc.addBridges([{ a, b: id }]);
+  ui.note = added ? `Added the bridge ${sysName(a)} » ${sysName(id)}${d != null ? ` (${lyText(d)}${d > BRIDGE_RANGE_LY ? ', beyond an Ansiblex\'s 5 ly' : ''})` : ''}.`
+    : `You already have ${sysName(a)} » ${sysName(id)}.`;
+  render();
+}
+
+function renderBridges() {
+  const list = sc.bridges(), on = sc.settings.bridges;
+  $('useBridges').checked = on;
+  $('bridgeCount').textContent = list.length ? `· ${list.length}${on ? '' : ' · off'}` : '';
+  $('bridgeCountLink').textContent = list.length ? `(${list.length})` : 'add';
+  $('bridgeList').innerHTML = list.length ? list.map((b) => {
+    const d = ly(b.a, b.b), far = d != null && d > BRIDGE_RANGE_LY;
+    return `<li class="${on ? '' : 'off'}">
+      <span class="ends"><b>${esc(sysName(b.a))}</b> ${secTag(base, b.a)} » <b>${esc(sysName(b.b))}</b> ${secTag(base, b.b)}</span>
+      <small class="${far ? 'far' : ''}" title="${far ? 'Farther than an Ansiblex reaches: check the pair' : 'Distance'}">${lyText(d)}${far ? ' ⚠' : ''}</small>
+      <button type="button" class="x" data-unbridge="${b.key}" aria-label="Remove the bridge ${esc(sysName(b.a))} to ${esc(sysName(b.b))}">×</button>
+      ${b.note ? `<small class="note">${esc(b.note)}</small>` : ''}
+    </li>`;
+  }).join('') : '<li class="empty">None yet.</li>';
+  $('bridgeCopy').disabled = $('bridgeClear').disabled = !list.length;
+}
+
 function renderSaved() {
   $('savedList').innerHTML = saved.length ? saved.map((r, k) => `<li>
       <button type="button" class="link" data-load="${k}" title="${esc(r.stops.map(s => sysName(s.id)).join(' → '))}">${esc(r.name)}</button>
@@ -348,7 +397,8 @@ function renderMap(p, fit) {
     m.ns.push(k ? String(k) : 'S');
     marks.set(s.id, m);
   });
-  galaxy.setTrip(stops.length ? { path, stops: [...marks.values()].map(m => ({ systemId: m.systemId, n: m.ns.join(','), label: m.label })) } : null);
+  if (ui.bridgeFrom) marks.set(-1, { systemId: ui.bridgeFrom, ns: ['B'], label: `Bridge from ${sysName(ui.bridgeFrom)}: click the other end` });
+  galaxy.setTrip(marks.size ? { path, stops: [...marks.values()].map(m => ({ systemId: m.systemId, n: m.ns.join(','), label: m.label })) } : null);
   if (fit && path.length) galaxy.fitPath(path);
 }
 
@@ -360,11 +410,12 @@ function render({ fit = false } = {}) {
   renderTable(p);
   renderAvoid();
   renderSaved();
+  if (base) renderBridges();
   if (p) sc.resolveNames(p.path.filter(id => !base.indexOf.has(id)));
   renderMap(p, fit || (ui.fitOnce && base && stops.length > 1));
   if (base && stops.length > 1) ui.fitOnce = false;
   $('optimizeBtn').disabled = stops.length < 3;
-  const n = sc.settings.on ? (memo?.links.size ?? 0) : 0;
+  const n = memo?.links.size ?? 0;
   $('status').textContent = !base ? 'Loading star map…'
     : `${n ? `${plural(n, 'shortcut')} in use · ` : ''}${ui.liveError ? `kills unavailable (${ui.liveError})` : ui.liveAt ? `kills as of ${new Date(ui.liveAt).toISOString().slice(11, 16)} EVE` : 'loading kills…'}`;
 }
@@ -390,6 +441,7 @@ async function loadLive() {
 // Map
 // ---------------------------------------------------------------------------
 function pick(id) {
+  if (settings.mode === 'bridge') return bridgeEnd(id);
   if (settings.mode === 'start') setStart(id);
   else if (settings.mode === 'avoid') toggleAvoid(id);
   else if (settings.mode === 'insert') insertBest(id);
@@ -453,12 +505,37 @@ function bind() {
   bindSetting('secColors', 'secColors', { after: () => galaxy.setSecurityColors(settings.secColors) });
   bindSetting('mapLayout', 'mapLayout', { after: () => galaxy.setLayout(settings.mapLayout).then(() => renderMap(plan(), true)) });
   $('scout').addEventListener('change', (e) => sc.update({ scout: e.target.checked }));
+  $('useBridges').addEventListener('change', (e) => sc.update({ bridges: e.target.checked }));
 
-  const setMode = (mode) => { settings.mode = mode; save(); render(); };
+  $('bridgeAdd').addEventListener('click', async () => {
+    const pairs = parseBridgeText($('bridgeText').value);
+    if (!pairs.length) { $('bridgeMsg').textContent = 'No pairs found: one bridge per line, like "1DQ1-A » 8QT-H4".'; return; }
+    $('bridgeMsg').textContent = 'Looking up…';
+    const found = [], missing = new Set();
+    for (const p of pairs) {
+      const [a, b] = await Promise.all([p.a, p.b].map(n => sc.systemByName(n).catch(() => null)));
+      if (!a) missing.add(p.a);
+      if (!b) missing.add(p.b);
+      if (a && b && !isJSpace(a) && !isJSpace(b)) found.push({ a, b, note: p.note });
+    }
+    const added = sc.addBridges(found);
+    const far = found.filter(f => (ly(f.a, f.b) ?? 0) > BRIDGE_RANGE_LY).length;
+    $('bridgeMsg').textContent = `${plural(added, 'bridge')} added${found.length > added ? `, ${found.length - added} already there` : ''}`
+      + `${missing.size ? `; not found: ${[...missing].join(', ')}` : ''}${far ? `; ${far} beyond 5 ly (flagged)` : ''}.`;
+    if (!missing.size) $('bridgeText').value = '';
+  });
+  $('bridgeList').addEventListener('click', (e) => {
+    const key = e.target.closest('[data-unbridge]')?.dataset.unbridge;
+    if (key) sc.removeBridge(key);
+  });
+  $('bridgeCopy').addEventListener('click', (e) => copy(bridgeText(sc.bridges(), sysName), e.currentTarget));
+  $('bridgeClear').addEventListener('click', () => { if (confirm(`Remove all ${sc.bridges().length} jump bridges?`)) sc.removeBridge(null); });
+
+  const setMode = (mode) => { settings.mode = mode; ui.bridgeFrom = null; save(); render(); };
   for (const b of document.querySelectorAll('[data-mode]')) b.addEventListener('click', () => setMode(b.dataset.mode));
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, select, textarea, [contenteditable]')) return;
-    const mode = { a: 'add', i: 'insert', s: 'start', x: 'avoid' }[e.key.toLowerCase()];
+    const mode = { a: 'add', i: 'insert', s: 'start', x: 'avoid', b: 'bridge' }[e.key.toLowerCase()];
     if (mode) setMode(mode);
   });
 
@@ -601,6 +678,7 @@ function init() {
     .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
     .then(u => {
       base = buildGraph(u);
+      systems = u.systems;
       sc.setBase(base);
       galaxy.setUniverse(u);
       galaxy.update({ shown: [], hubs: [], top: null, sel: null, maxV: 0, pathFor: () => null });

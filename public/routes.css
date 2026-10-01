@@ -99,3 +99,14 @@ button.link:hover { text-decoration: underline; }
 .controls .checks { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px 14px; padding-bottom: 7px; }
 .controls .checks label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 12px; }
 .controls .checks .wh-toggle { padding-bottom: 0; }
+
+/* Jump bridges */
+.rp-bridges { list-style: none; margin: 0 0 6px; padding: 0; max-height: 260px; overflow-y: auto; }
+.rp-bridges li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.rp-bridges li.off { opacity: .5; }
+.rp-bridges li.empty { color: var(--faint); border: 0; }
+.rp-bridges .ends { flex: 1; min-width: 0; }
+.rp-bridges small { color: var(--faint); font: 11px var(--mono); }
+.rp-bridges small.far { color: var(--amber); cursor: help; }
+.rp-bridges small.note { flex-basis: 100%; font-family: inherit; }
+.rp-table td .wh.bridge { cursor: default; }

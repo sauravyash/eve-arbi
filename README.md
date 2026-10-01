@@ -476,6 +476,12 @@ location* on (sign-in menu), that's your character's system.
   (end-of-life holes count as 4 h at most). *Thera / Turnur* turns on EVE Scout's feed for every page.
   High-sec routes may cross J-space unless you untick *Safe routes may cross J-space*. The summary says
   how many jumps the wormholes save.
+- **Jump bridges** (Ansiblex): add them by picking *Bridge* above the map and clicking both ends, or
+  paste your alliance's list (one per line: `1DQ1-A » 8QT-H4`, with arrows, tabs, commas, `@ planet`
+  and `- structure name` parts all accepted). *Copy list* gives it back in the same format to share.
+  Bridges never expire, take any ship but capitals, and have their own *Jump bridges* switch: they count
+  in jump totals on every page even with wormholes off. Pairs farther apart than an Ansiblex's 5 ly are
+  flagged, since they're probably a typo. They also show in the Mining page's shortcut list.
 - **Danger**: every system on the route shows ESI's ship and pod kills and jumps in the last hour.
   *Avoid kills/h ≥* avoids systems at least that hot (never your own waypoints). When a leg can't keep
   to its preference or avoid list, it relaxes them and marks the leg ⚠.

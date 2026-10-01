@@ -5,6 +5,7 @@ import { withLinks } from '../public/js/wormholes.js';
 import {
   findPath, planRoute, jumpMatrix, optimizeOrder, orderCost, usableLinks, linkShipSize, linkExpiry,
   routeSummary, parseWaypointText, chatLinks, encodeStops, decodeStops, formatDuration, UNREACHABLE,
+  parseBridgeText, bridgeText, lyBetween,
 } from '../public/js/route-plan.js';
 
 // A line of systems 1–6 with a low-sec pocket: 1(hi) 2(hi) 3(low) 4(hi) 5(hi) 6(null),
@@ -128,4 +129,40 @@ test('chat links, stop encoding and durations', () => {
   assert.deepEqual(decodeStops('30000142,30002187:secure,x,5:bogus'), [...stops, { id: 5 }]);
   assert.equal(formatDuration(20), '< 1 min');
   assert.equal(formatDuration(4320), '1 h 12 min');
+});
+
+test('parseBridgeText reads bridge lists in the usual formats', () => {
+  assert.deepEqual(parseBridgeText([
+    '1DQ1-A » 8QT-H4 - Imperium Bridge',
+    'E3OI-U @ 1-1 <-> 8QT-H4 @ 3-2',
+    'J5A-IX → MJXW-P',
+    'Q-HESZ\tUMI-KK',
+    'BWF-ZZ, 3-FKCZ',
+    'not a bridge',
+    'Jita » jita',
+  ].join('\r\n')), [
+    { a: '1DQ1-A', b: '8QT-H4', note: 'Imperium Bridge' },
+    { a: 'E3OI-U', b: '8QT-H4' },
+    { a: 'J5A-IX', b: 'MJXW-P' },
+    { a: 'Q-HESZ', b: 'UMI-KK' },
+    { a: 'BWF-ZZ', b: '3-FKCZ' },
+  ]);
+  const name = (id) => ({ 1: '1DQ1-A', 2: '8QT-H4' }[id]);
+  const text = bridgeText([{ a: 1, b: 2, note: 'Home' }, { a: 2, b: 1 }], name);
+  assert.equal(text, '1DQ1-A » 8QT-H4 - Home\n8QT-H4 » 1DQ1-A');
+  assert.deepEqual(parseBridgeText(text)[0], { a: '1DQ1-A', b: '8QT-H4', note: 'Home' });
+});
+
+test('jump bridges take every ship but capitals and never expire', () => {
+  const bridge = { key: 'br', kind: 'bridge', src: 'bridge', at: 0, expiresAt: null };
+  assert.equal(linkShipSize(bridge), 'xlarge');
+  assert.equal(linkExpiry(bridge), null);
+  assert.deepEqual(usableLinks([bridge], { ship: 'xlarge', minLeftMs: 4 * 3_600_000 }).map(l => l.key), ['br']);
+  assert.deepEqual(usableLinks([bridge], { ship: 'capital' }), []);
+});
+
+test('lyBetween measures in three dimensions', () => {
+  const systems = { x: [0, 3], y: [0, 4], z3: [0, 12] };
+  assert.equal(lyBetween(systems, 0, 1), 13);
+  assert.equal(lyBetween(null, 0, 1), null);
 });
