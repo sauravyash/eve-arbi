@@ -13,6 +13,9 @@ import { shipHolds, capacityFor } from './holds.js';
 import { packRoute, multibuyText } from './manifest.js';
 import { mountFitButton } from './fit-dialog.js';
 import { mountSectionNav } from './nav.js';
+import {
+  MAX_TRACKED, trackKey, newTracked, isActive, nextCheckAt, isDue, checksLeft, resubscribe, withCheck, quoteTracked, cleanTracked,
+} from './tracking.js';
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -1123,7 +1126,7 @@ function renderScanTable() {
     <tr data-i="${i}" class="${i === 0 ? 'top' : ''} ${row.key === ui.scanPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
       <td class="l item" title="${esc(row.name)}"><button class="star ${w ? 'on' : ''}" type="button" data-star
-        aria-label="${w ? 'In watchlist' : `Add ${esc(row.name)} to watchlist`}">${w ? '★' : '☆'}</button>${esc(row.name)}${copyButton(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
+        aria-label="${w ? 'In watchlist' : `Add ${esc(row.name)} to watchlist`}">${w ? '★' : '☆'}</button>${trackButton(row)}${esc(row.name)}${copyButton(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
       <td class="l">${loc(row.from)}</td>
       <td class="l">${loc(row.to, row.ranged ? '<small class="note">sells into ranged buy orders</small>' : '')}</td>
       <td class="jumps">${jumpsCell}${routeStrip(rowPath(row)) || ''}</td>
@@ -1142,6 +1145,7 @@ function renderScanTable() {
 
   body.querySelectorAll('tr[data-i]').forEach(tr => tr.addEventListener('click', (e) => {
     const row = shown[Number(tr.dataset.i)];
+    if (e.target.closest('[data-track]')) { toggleTracked(row); return; }
     if (e.target.closest('[data-star]')) {
       if (!watched.has(row.typeId)) addItem(row.typeId, row.name);
       render();
@@ -1279,6 +1283,166 @@ async function startScan() {
     }
   } catch (e) { scan.status = { state: 'error', error: e.message }; }
   pollScan();
+}
+
+// ---------------------------------------------------------------------------
+// Tracked hauls: a Best items row (one item, one pickup → drop-off) re-priced every 10 minutes
+// for an hour from that item's orders alone, so it doesn't need a market scan (tracking.js).
+// Kept in localStorage; checks run on every Hub arbitrage page, and open tabs share them.
+// ---------------------------------------------------------------------------
+const TRACK_KEY = 'arbi.tracked';
+const tracking = { list: cleanTracked(LS.get(TRACK_KEY, [])), busy: new Set() };
+const saveTracked = () => LS.set(TRACK_KEY, tracking.list);
+const reloadTracked = () => { tracking.list = cleanTracked(LS.get(TRACK_KEY, [])); };
+const isTracked = (row) => tracking.list.some(t => t.key === trackKey(row.typeId, row.from.id, row.to.id));
+// Replaces one entry, re-reading storage first so another tab's checks aren't overwritten.
+function putTracked(key, fn) {
+  reloadTracked();
+  tracking.list = tracking.list.map(t => (t.key === key ? fn(t) : t));
+  saveTracked();
+}
+
+const CLOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
+function trackButton(row) {
+  const on = isTracked(row);
+  return `<button class="track ${on ? 'on' : ''}" type="button" data-track aria-pressed="${on}"
+    title="${on ? 'Tracked: click to stop' : 'Track this haul: re-price it every 10 minutes for an hour'}" aria-label="${on ? 'Stop tracking' : 'Track'} ${esc(row.name)}">${CLOCK}</button>`;
+}
+
+function toggleTracked(row) {
+  reloadTracked();
+  const key = trackKey(row.typeId, row.from.id, row.to.id);
+  if (tracking.list.some(t => t.key === key)) {
+    tracking.list = tracking.list.filter(t => t.key !== key);
+  } else {
+    if (tracking.list.length >= MAX_TRACKED) { alert(`You can track up to ${MAX_TRACKED} hauls. Remove one first.`); return; }
+    const end = (e) => ({
+      loc: e.id, sys: e.systemId, name: e.name, station: e.station,
+      regionId: e.hub?.regionId ?? (trip.graph ? systemInfo(trip.graph, e.systemId)?.regionId : null),
+    });
+    tracking.list = [newTracked({ typeId: row.typeId, name: row.name, vol: row.vol, from: end(row.from), to: end(row.to) }, Date.now()), ...tracking.list];
+  }
+  saveTracked();
+  renderScan();
+  renderTracked();
+  tickTracked();
+}
+
+function trackedJumps(t) {
+  if (t.from.sys === t.to.sys) return 0;
+  if (hubById[t.from.sys] && hubById[t.to.sys] && t.from.loc === hubById[t.from.sys].stationId && t.to.loc === hubById[t.to.sys].stationId) {
+    return jumpsFor(t.from.sys, t.to.sys);
+  }
+  return trip.graph ? tripDistFrom(t.from.sys)(t.to.sys) : null;
+}
+
+async function checkTracked(key, now = Date.now()) {
+  reloadTracked();
+  const t = tracking.list.find(x => x.key === key);
+  if (!t || tracking.busy.has(key) || !isDue(t, now)) return;
+  // Claim the slot first, so another open tab doesn't check it too.
+  putTracked(key, x => ({ ...x, checkedAt: now }));
+  tracking.busy.add(key);
+  renderTracked();
+  let quote = null, error = null;
+  try {
+    const { data } = await getJson(`/api/tycoon/v1/market/orders/${t.typeId}`);
+    const f = settings.scan;
+    const info = trip.catalog?.[t.typeId];
+    const cargo = parseAmount(f.cargo) ?? Infinity;
+    // Buy-order ranges are counted in jumps on the shortest path, whatever the route setting.
+    const g = trip.graph;
+    quote = quoteTracked(data.orders || [], t, {
+      taxRate: (Number(settings.taxPct) || 0) / 100,
+      maxVolume: info ? capacityFor(ship.holds, cargo, info).m3 : cargo,
+      maxCost: parseAmount(f.budget) ?? Infinity,
+      jumps: g ? (a, b) => { const d = jumpsFrom(g, b, 'shortest')[g.indexOf.get(a)]; return d == null || d < 0 ? null : d; } : null,   // one BFS, from the drop-off
+    });
+  } catch (e) { error = e.message; }
+  putTracked(key, x => withCheck(x, now, quote, error));
+  tracking.busy.delete(key);
+  renderTracked();
+}
+
+function tickTracked() {
+  const now = Date.now();
+  reloadTracked();
+  for (const t of tracking.list) if (isDue(t, now)) checkTracked(t.key, now);
+  renderTracked();
+}
+
+function renderTracked() {
+  const body = $('trackBody');
+  if (!body) return;
+  const now = Date.now();
+  const list = tracking.list;
+  const active = list.filter(t => isActive(t, now)).length;
+  $('trackCount').textContent = list.length ? `· ${active} of ${list.length} active` : '';
+  if (!list.length) {
+    body.innerHTML = `<tr class="empty"><td colspan="9">Nothing tracked yet. Click ${CLOCK.replace('<svg', '<svg class="inline-icon"')} on a row below to re-price that haul every 10 minutes for an hour.</td></tr>`;
+    return;
+  }
+  const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
+  const t = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const loc = (e) => `<div class="loc"><b>${esc(e.name)}</b><small title="${esc(e.station)}">${esc(e.station)}</small></div>`;
+  body.innerHTML = list.map((tr) => {
+    const p = tr.points.at(-1), prev = tr.points.at(-2);
+    const jumps = trackedJumps(tr);
+    const on = isActive(tr, now);
+    const delta = p && prev ? p.profit - prev.profit : null;
+    const deltaCell = delta ? `<small class="${delta > 0 ? 'up' : 'down'}" title="Since the check at ${t(prev.at)}">${delta > 0 ? '▲' : '▼'} ${formatIsk(Math.abs(delta))}</small>` : '';
+    let status;
+    if (tracking.busy.has(tr.key)) status = 'Checking…';
+    else if (on) {
+      const next = nextCheckAt(tr), left = checksLeft(tr, now);
+      status = `<span title="Tracking until ${t(tr.until)}">Next ${next <= now ? 'now' : t(next)} · ${left} check${left === 1 ? '' : 's'} left</span>`;
+    } else status = `<span class="muted">Stopped ${t(tr.until)}</span>`;
+    if (tr.error) status += `<small class="warn-m" title="${esc(tr.error)}">Last check failed</small>`;
+    return `<tr data-key="${esc(tr.key)}" class="${on ? '' : 'expired'}">
+      <td class="l item" title="${esc(tr.name)}">${esc(tr.name)}${copyButton(tr.name)}</td>
+      <td class="l">${loc(tr.from)}</td>
+      <td class="l">${loc(tr.to)}</td>
+      <td>${jumps ?? '<span class="muted">?</span>'}</td>
+      <td>${p ? `${n(p.buy)} → ${n(p.sell)}` : '<span class="muted">—</span>'}</td>
+      <td>${p ? p.units.toLocaleString() : '<span class="muted">—</span>'}</td>
+      <td class="${p && p.profit <= 0 ? 'neg' : ''}">${p ? n(p.profit) : '<span class="muted">—</span>'}${deltaCell}${sparkline(tr.points)}</td>
+      <td>${p && jumps != null ? n(p.profit / Math.max(1, jumps)) : '<span class="muted">—</span>'}</td>
+      <td class="l track-status">${status}${p ? `<small class="muted">Checked ${t(p.at)}</small>` : ''}
+        <span class="track-actions">${on ? '' : '<button class="btn small" type="button" data-resub title="Re-price this haul every 10 minutes for another hour">Track another hour</button>'}
+        <button class="x" type="button" data-untrack aria-label="Stop tracking ${esc(tr.name)}" title="Remove">✕</button></span></td>
+    </tr>`;
+  }).join('');
+}
+
+// Profit over the tracked checks, as a small line under the number.
+function sparkline(points) {
+  if (points.length < 2) return '';
+  const v = points.map(p => p.profit), lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1;
+  const xy = v.map((y, i) => `${(i / (v.length - 1) * 60).toFixed(1)},${(14 - (y - lo) / span * 12).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 60 16" aria-hidden="true"><polyline points="${xy}"/></svg>`;
+}
+
+function bindTracked() {
+  $('trackBody')?.addEventListener('click', (e) => {
+    const key = e.target.closest('tr[data-key]')?.dataset.key;
+    if (!key) return;
+    if (e.target.closest('[data-untrack]')) {
+      reloadTracked();
+      tracking.list = tracking.list.filter(t => t.key !== key);
+      saveTracked();
+      renderScan();
+      renderTracked();
+    } else if (e.target.closest('[data-resub]')) {
+      putTracked(key, t => resubscribe(t, Date.now()));
+      tickTracked();
+    }
+  });
+  // Another tab tracked, checked or removed a haul.
+  addEventListener('storage', (e) => { if (e.key === TRACK_KEY) { reloadTracked(); renderScan(); renderTracked(); } });
+  // Background tabs' timers are throttled; this is coarse anyway (checks are 10 minutes apart).
+  setInterval(tickTracked, 30_000);
+  addEventListener('visibilitychange', () => { if (!document.hidden) tickTracked(); });
+  tickTracked();
 }
 
 // Ship field: a ship picked by hand fills Cargo m³ with its base hold (unless that's locked to
@@ -1728,6 +1892,7 @@ bindStart();
 bindLoads();
 bindRouteTip();
 bindTrips();
+bindTracked();
 fetch('data/types.json').then(r => r.json()).then(t => { trip.catalog = t; trip.memo = null; scan.memo = null; initShipList(t); render(); meCtl.reapply(); }).catch(() => { trip.catalog = {}; });
 fetch('data/stations.json').then(r => r.json()).then(t => { trip.stations = t; scan.memo = null; render(); }).catch(() => {});
 tripPoll();
