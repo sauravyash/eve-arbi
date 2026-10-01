@@ -336,9 +336,10 @@ function renderWormholes() {
       <td class="l">${esc(sysName(l.a))} ${secSpan(l.a)} ↔ ${esc(sysName(l.b))} ${secSpan(l.b)}${what}</td>
       <td class="l">${SOURCE_LABEL[l.src] || l.src}${l.note ? ` <small class="muted"${info ? ` title="${esc(whSummary(info))} (ellatha.com wormhole database)"` : ''}>${esc(l.note)}</small>` : ''}</td>
       <td>${ago(l.at)}</td>
-      <td>${l.src === 'wanderer' ? '<span class="muted" title="Wanderer drops a connection when it collapses">mapped</span>' : left(expires)}</td>
+      <td>${l.src === 'wanderer' ? '<span class="muted" title="Wanderer drops a connection when it collapses">mapped</span>' : l.src === 'bridge' ? '<span class="muted">permanent</span>' : left(expires)}</td>
       <td><input type="checkbox" data-use="${l.key}" data-at="${l.at}"${l.use ? ' checked' : ''} aria-label="Use this connection"></td>
-      <td>${l.src === 'manual' ? `<button class="btn small ghost" type="button" data-del="${l.key}">Remove</button>` : ''}</td>
+      <td>${l.src === 'manual' ? `<button class="btn small ghost" type="button" data-del="${l.key}">Remove</button>`
+        : l.src === 'bridge' ? '<a class="muted" href="route-planner.html#bridges" title="Jump bridges are managed on the Route planner">Manage</a>' : ''}</td>
     </tr>`;
   }).join('') || `<tr class="empty"><td colspan="6" class="l muted">${!w.trail ? 'No shortcuts.'
     : signedIn ? 'No wormhole jumps recorded yet. Keep this app open (any page) while you fly and they\'ll show up here.'

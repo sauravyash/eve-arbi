@@ -74,6 +74,7 @@
     </label>
     <div class="checks">
       <label class="inline check wh-toggle" id="whToggle"></label>
+      <label class="inline check" title="Your jump bridges (Ansiblex) count on every page, even with wormholes off"><input id="useBridges" type="checkbox"> Jump bridges <a href="#bridges" id="bridgeCountLink"></a></label>
       <label class="inline check" title="High-sec and no-null routes may pass through wormhole space (Thera, J-space) when a shortcut leads there"><input id="passJ" type="checkbox"> Safe routes may cross J-space</label>
       <label class="inline check" title="EVE Scout's public Thera and Turnur connections"><input id="scout" type="checkbox"> Thera / Turnur</label>
       <label class="inline check" title="Count the way back to where you started"><input id="roundTrip" type="checkbox"> Round trip</label>
@@ -88,6 +89,7 @@
           <button type="button" role="radio" data-mode="insert" title="Click a system to put it where it adds fewest jumps (key I)">Insert best</button>
           <button type="button" role="radio" data-mode="start" title="Click a system to start from it (key S)">Set start</button>
           <button type="button" role="radio" data-mode="avoid" title="Click a system to avoid it, or to stop avoiding it (key X)">Avoid</button>
+          <button type="button" role="radio" data-mode="bridge" title="Click both ends of a jump bridge to add it (key B)">Bridge</button>
         </div>
         <div id="mapTools" class="map-tools">
           <label class="inline">Layout
@@ -116,7 +118,7 @@
       <div id="summary" class="rp-summary" aria-live="polite"></div>
       <ul class="legend">
         <li><i class="sw trip"></i>Your route</li>
-        <li><i class="dot-wh"></i>Through a wormhole</li>
+        <li><i class="dot-wh"></i>Through a wormhole or jump bridge</li>
         <li id="legendMap" class="sec-legend">Security <i class="secbar"></i><span>1.0</span>→<span>-1.0</span></li>
       </ul>
     </section>
@@ -161,6 +163,27 @@
         <h2 id="avoidTitle">Avoiding <span id="avoidCount" class="count"></span></h2>
         <ul id="avoidList" class="rp-chips"></ul>
         <p class="hint">Use <b>Avoid</b> on the map, or the ⊘ on a row of the route. Kept in this browser.</p>
+      </section>
+
+      <section class="panel" id="bridges" aria-labelledby="bridgeTitle">
+        <div class="table-head">
+          <h2 id="bridgeTitle">Jump bridges <span id="bridgeCount" class="count"></span></h2>
+        </div>
+        <ul id="bridgeList" class="rp-bridges"></ul>
+        <details class="rp-paste" id="bridgeImport">
+          <summary>Add or import bridges</summary>
+          <textarea id="bridgeText" rows="4" placeholder="One bridge per line: 1DQ1-A » 8QT-H4&#10;Structure names, arrows, tabs and commas work too."></textarea>
+          <div class="rp-actions">
+            <button id="bridgeAdd" class="btn small" type="button">Add</button>
+            <span id="bridgeMsg" class="hint"></span>
+          </div>
+        </details>
+        <div class="rp-actions">
+          <button id="bridgeCopy" class="btn small ghost" type="button" title="Your bridges as text, one per line, to share with your fleet">Copy list</button>
+          <button id="bridgeClear" class="btn small ghost" type="button">Remove all</button>
+        </div>
+        <p class="hint">Or pick <b>Bridge</b> above the map and click both ends. Bridges take any ship but capitals, never expire, and count on
+          every page. An Ansiblex reaches 5 ly; longer pairs are flagged.</p>
       </section>
 
       <section class="panel" aria-labelledby="savedTitle">
