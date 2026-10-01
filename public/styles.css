@@ -399,6 +399,27 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .star { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 15px; padding: 0 6px 0 0; vertical-align: -1px; }
 .star:hover, .star.on { color: var(--amber); }
 .warn-m { color: var(--amber); }
+
+/* tracked hauls (Best items) */
+body[data-page=scan] .layout { grid-template-areas: "graph side" "track track" "work work"; }
+@media (max-width: 1000px) { body[data-page=scan] .layout { grid-template-areas: "graph" "side" "track" "work"; } }
+.track-panel { grid-area: track; min-width: 0; }
+.track { display: inline-grid; place-items: center; background: none; border: 0; color: var(--faint); cursor: pointer; padding: 0 6px 0 0; vertical-align: -3px; }
+.track svg, .inline-icon { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.inline-icon { vertical-align: -2px; }
+.track:hover, .track.on { color: var(--teal); }
+.track:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; border-radius: 4px; }
+.track-table tbody tr { cursor: default; }
+.track-table tr.expired td { opacity: .7; }
+.track-table tr.expired td.track-status { opacity: 1; }
+.track-table td small { display: block; font-size: 10.5px; }
+.track-table td small.up { color: var(--green); }
+.track-table td small.down { color: var(--red); }
+.track-table td.track-status { font-size: 12px; white-space: normal; min-width: 150px; }
+.track-table .track-actions { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.track-table .spark { display: block; width: 60px; height: 16px; margin: 2px 0 0 auto; }
+.track-table .spark polyline { fill: none; stroke: var(--teal); stroke-width: 1.5; stroke-linejoin: round; }
+.track-panel .scan-status { max-width: 520px; }
 .scan-foot { display: flex; align-items: flex-start; gap: 12px; }
 .scan-foot .hint { flex: 1; margin-bottom: 0; }
 

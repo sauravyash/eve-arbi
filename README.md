@@ -172,6 +172,14 @@ How it's kept safe (`sso.js`):
     it's smaller.
   - Buy orders with a minimum quantity above 1 are ignored everywhere; that's a common bait-order
     pattern.
+- **Tracked hauls** (`public/js/tracking.js`): the clock button on a *Best items* row tracks that item
+  on that pickup → drop-off route. Only tracked hauls are re-priced, from the item's EVE Tycoon orders
+  (one request each, no market scan), every 10 minutes for an hour. Then they stop until you
+  click *Track another hour*. The *Tracked hauls* panel shows the latest prices, units, profit,
+  the change since the last check and a profit trend, with your tax, cargo and budget applied. Up
+  to 25 are kept in `localStorage`. Checks run while any Hub arbitrage page is open, and open tabs
+  share them, so each haul is checked only once per slot. Checks missed while no page was open
+  don't pile up: one check runs when you're back, if the hour isn't over.
 - **Star map** (`scripts/build-universe.js`, `public/js/map.js`, `public/js/map3d.js`): every known-space
   system and stargate from the SDE (5,255 systems, 6,973 gates). Wormhole, abyssal and Jove regions
   are left out. Three layouts are available:
