@@ -1,5 +1,6 @@
 // Route planner page: a stack of waypoints flown leg by leg over the stargate map plus the wormhole
-// shortcuts in use (shortcuts.js), drawn on the star map (map.js / map3d.js) as numbered stops.
+// shortcuts in use (shortcuts.js), drawn on the star map (map.js / map3d.js) as numbered stops. The
+// Wormhole shortcuts panel at the bottom (wormhole-panel.js) manages those shortcuts for every page.
 // The maths lives in route-plan.js; this file is state, DOM and the map.
 //
 // Kept in this browser (localStorage, routes.*): settings, the stack, systems to avoid and saved
@@ -11,6 +12,7 @@ import { createMapSwitch, loadThree, migrateMapLayout } from './map-switch.js';
 import { buildGraph, systemInfo } from './galaxy.js';
 import { withLinks, isJSpace, whSummary } from './wormholes.js';
 import { createShortcuts, mountToggle, SOURCE_LABEL, pairKey } from './shortcuts.js';
+import { mountWormholePanel } from './wormhole-panel.js';
 import { createMe } from './me.js';
 import { formatIsk } from './arbitrage.js';
 import { readUrl, writeUrl } from './url-state.js';
@@ -61,8 +63,8 @@ function save() {
 }
 
 const ui = { kills: null, traffic: null, liveAt: 0, liveError: null, note: '', fitOnce: true, dragFrom: -1 };
-const sc = createShortcuts({ onChange: () => { drawToggle?.(); syncScout(); render(); } });
-let base = null, drawToggle = null, meCtl = null, memo = null;
+const sc = createShortcuts({ onChange: () => { drawToggle?.(); syncScout(); renderWh?.(); render(); } });
+let base = null, drawToggle = null, renderWh = null, meCtl = null, memo = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -590,10 +592,12 @@ function init() {
   bind();
   syncScout();
   drawToggle = mountToggle($('whToggle'), sc);
+  renderWh = mountWormholePanel(sc, { secTag: (id) => (base ? secTag(base, id) : ''), signedIn: () => !!meCtl?.status?.loggedIn });
+  renderWh();
   galaxy.setSecurityColors(settings.secColors);
   galaxy.setLayout(settings.mapLayout);
   meCtl = createMe({
-    el: $('me'), returnTo: '/route-planner.html', systemName: sysName, isk: (v) => formatIsk(v),
+    el: $('me'), returnTo: '/route-planner.html', systemName: sysName, isk: (v) => formatIsk(v), onStatus: () => renderWh(),
     // Following your location makes your system the start of the stack.
     onFollow: (loc) => { if (loc?.systemId && base) setStart(loc.systemId); },
   });
@@ -608,6 +612,7 @@ function init() {
       $('mapMsg').hidden = true;
       sc.resolveNames([...stops.map(s => s.id), ...avoid]);
       if (stops.length < 2) galaxy.fitAll();
+      renderWh();
       render();
       meCtl.reapply();
     })
