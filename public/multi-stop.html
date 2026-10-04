@@ -148,6 +148,24 @@
     </aside>
 
 
+    <section class="panel track-panel" id="sec-track" aria-label="Tracked hauls">
+      <div class="table-head">
+        <h2>Tracked hauls <span id="trackCount" class="count"></span></h2>
+        <span class="scan-status">Only these items are re-priced: every 10 min for an hour, then they stop until you track them for another hour.</span>
+      </div>
+      <div class="table-wrap">
+        <table class="routes scan-table track-table">
+          <thead><tr>
+            <th class="l">Item</th><th class="l">Buy at</th><th class="l">Sell at</th><th>Jumps</th><th>Buy → Sell</th>
+            <th>Units</th><th>Profit</th><th>Profit/jump</th><th class="l">Tracking</th>
+          </tr></thead>
+          <tbody id="trackBody"></tbody>
+        </table>
+      </div>
+      <p class="hint foot">Prices come from EVE Tycoon's orders for each tracked item (one request per check), walked against
+        buy orders reachable from the drop-off, with your sales tax, cargo and budget. Checks run while any Hub arbitrage page is open.</p>
+    </section>
+
     <section class="panel trips-panel" id="sec-trips" aria-label="Multi-stop trade routes">
       <div class="table-head">
         <h2>Multi-stop routes <span class="count">· chained hauls across New Eden</span></h2>

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CHECK_EVERY, TRACK_FOR, newTracked, isActive, nextCheckAt, isDue, checksLeft, resubscribe, withCheck,
-  bidReaches, quoteTracked, cleanTracked,
+  bidReaches, quoteTracked, cleanTracked, haulStatus, goneCheck, lastGood,
 } from '../public/js/tracking.js';
 
 const T0 = 1_700_000_000_000;
@@ -87,6 +87,26 @@ test('quoteTracked walks the pickup asks against bids at the drop-off within lim
   assert.equal(none.buy, null);
   assert.equal(none.units, 0);
   assert.equal(none.margin, null);
+});
+
+test('haulStatus says why a haul is no longer worth it', () => {
+  assert.equal(haulStatus({ buy: 10, sell: 20, units: 5, profit: 50, depth: 5 }), 'ok');
+  assert.equal(haulStatus({ buy: null, sell: 20, units: 0, profit: 0, depth: 0 }), 'no-ask');
+  assert.equal(haulStatus({ buy: 10, sell: null, units: 0, profit: 0, depth: 0 }), 'no-bid');
+  assert.equal(haulStatus({ buy: 10, sell: 20, units: 0, profit: 0, depth: 5 }), 'nofit');
+  assert.equal(haulStatus({ buy: 20, sell: 10, units: 0, profit: 0, depth: 0 }), 'unprofitable');
+});
+
+test('goneCheck and lastGood read the price history', () => {
+  let t = newTracked(haul, T0);
+  assert.equal(goneCheck(t), null);
+  assert.equal(lastGood(t), null);
+  t = withCheck(t, T0, { buy: 10, sell: 20, units: 5, profit: 50, depth: 5 });
+  t = withCheck(t, T0 + 1, { buy: null, sell: 20, units: 0, profit: 0, depth: 0 });
+  assert.deepEqual(goneCheck(t), { status: 'no-ask', at: T0 + 1 });
+  assert.equal(lastGood(t).at, T0);
+  t = withCheck(t, T0 + 2, null, 'HTTP 500');   // a failed check keeps the last result
+  assert.deepEqual(goneCheck(t), { status: 'no-ask', at: T0 + 1 });
 });
 
 test('cleanTracked drops broken and duplicate entries', () => {

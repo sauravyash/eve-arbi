@@ -1,5 +1,5 @@
 // Mining page: where to sell a load of ore, gas or ice (mining-value.js), with jumps that count
-// wormhole shortcuts (shortcuts.js). The wormhole panel here manages them for every page.
+// wormhole shortcuts (shortcuts.js), managed on the Routes page.
 //
 // Prices: EVE Tycoon's orders for each item in every region, player structures included (one call
 // per item, through the caching proxy). Only buy orders are kept.
@@ -9,8 +9,8 @@ import { normalizeTycoonOrder, isNpcStation } from './market-merge.js';
 import { buildGraph, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
 import { buildRangeContext } from './ranges.js';
 import { priceLoad, parsePaste } from './mining-value.js';
-import { shortcutsOn, isJSpace, whSummary } from './wormholes.js';
-import { createShortcuts, SOURCE_LABEL } from './shortcuts.js';
+import { shortcutsOn, isJSpace } from './wormholes.js';
+import { createShortcuts, mountToggle } from './shortcuts.js';
 import { createMe } from './me.js';
 import { createBuyback } from './mining-buyback.js';
 import { itemPic, removeButton, copyButton } from './watchlist.js';
@@ -27,7 +27,6 @@ const LS = {
 const JITA = HUBS[0];
 const PAGE = 25;
 const CONCURRENCY = 3;
-const HOUR = 3_600_000;
 const KIND_LABEL = { ore: 'Ore', moon: 'Moon ore', ice: 'Ice', gas: 'Gas', mineral: 'Mineral' };
 
 const DEFAULTS = { home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, taxV: 1, maxJumps: '', minShare: '', structures: true, rank: 'isk', kind: '' };
@@ -48,8 +47,8 @@ const saveLoad = () => LS.set('mining.items', load.items);
 const books = {};                                           // typeId → {orders, at, error, loading}
 const locNames = new Map();                                 // structure/station ID → name (from Tycoon)
 const ui = { limit: PAGE, open: null, ver: 0, memo: null, error: null };
-const sc = createShortcuts({ onChange: () => { render(); meCtl?.render(); } });
-let base = null, ctx = null, types = null, stations = null, typeByName = null, meCtl = null, bb = null;
+const sc = createShortcuts({ onChange: () => { drawToggle?.(); render(); meCtl?.render(); } });
+let base = null, ctx = null, types = null, stations = null, typeByName = null, meCtl = null, bb = null, drawToggle = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -71,12 +70,6 @@ function ago(ms) {
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
-}
-function left(ms) {
-  if (!ms) return '—';
-  const d = ms - Date.now();
-  if (d <= 0) return 'expired';
-  return d >= HOUR ? `${Math.floor(d / HOUR)}h ${Math.floor((d % HOUR) / 60_000)}m` : `${Math.ceil(d / 60_000)}m`;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,36 +309,6 @@ function renderPerItem(v) {
   }).join('');
 }
 
-function renderWormholes() {
-  const w = sc.settings, links = sc.links();
-  sc.resolveNames([settings.home, ...links.flatMap(l => [l.a, l.b])]);
-  const used = links.filter(l => l.use).length;
-  $('whCount').textContent = !w.on ? '· off' : links.length ? `· ${used} in use on every page` : '';
-  const feed = (name, label) => {
-    const f = sc.feeds[name];
-    return f.error ? `${label}: ${f.error}` : f.loading && !f.at ? `${label}: loading…` : f.at ? `${label}: ${f.links.length} connection${f.links.length === 1 ? '' : 's'}, ${ago(f.at)}` : '';
-  };
-  $('whFeeds').textContent = [w.scout && feed('evescout', 'EVE Scout'), w.wanderer.on && feed('wanderer', 'Wanderer')].filter(Boolean).join(' · ');
-  $('whFeeds').classList.toggle('warn', !!((w.scout && sc.feeds.evescout.error) || (w.wanderer.on && sc.feeds.wanderer.error)));
-  const signedIn = meCtl?.status?.loggedIn;
-  $('whBody').innerHTML = links.map(l => {
-    const expires = l.expiresAt || (l.src === 'trail' ? l.at + w.hours * HOUR : null);
-    const info = sc.whInfo(l.type);
-    const what = l.kind === 'jump' ? '<span class="badge stale" title="No stargate joins these systems: a wormhole, a jump bridge or a cyno. Untick it if you can\'t fly it again.">no gate</span>' : '';
-    return `<tr class="static${l.use && w.on ? '' : ' off'}">
-      <td class="l">${esc(sysName(l.a))} ${secSpan(l.a)} ↔ ${esc(sysName(l.b))} ${secSpan(l.b)}${what}</td>
-      <td class="l">${SOURCE_LABEL[l.src] || l.src}${l.note ? ` <small class="muted"${info ? ` title="${esc(whSummary(info))} (ellatha.com wormhole database)"` : ''}>${esc(l.note)}</small>` : ''}</td>
-      <td>${ago(l.at)}</td>
-      <td>${l.src === 'wanderer' ? '<span class="muted" title="Wanderer drops a connection when it collapses">mapped</span>' : l.src === 'bridge' ? '<span class="muted">permanent</span>' : left(expires)}</td>
-      <td><input type="checkbox" data-use="${l.key}" data-at="${l.at}"${l.use ? ' checked' : ''} aria-label="Use this connection"></td>
-      <td>${l.src === 'manual' ? `<button class="btn small ghost" type="button" data-del="${l.key}">Remove</button>`
-        : l.src === 'bridge' ? '<a class="muted" href="route-planner.html#bridges" title="Jump bridges are managed on the Route planner">Manage</a>' : ''}</td>
-    </tr>`;
-  }).join('') || `<tr class="empty"><td colspan="6" class="l muted">${!w.trail ? 'No shortcuts.'
-    : signedIn ? 'No wormhole jumps recorded yet. Keep this app open (any page) while you fly and they\'ll show up here.'
-      : 'Sign in with EVE to record your wormhole jumps, or use one of the sources above.'}</td></tr>`;
-}
-
 function render() {
   const v = compute();
   renderStatus(v);
@@ -353,7 +316,7 @@ function render() {
   renderKpis(v);
   renderStations(v);
   renderPerItem(v);
-  renderWormholes();
+  sc.resolveNames([settings.home]);
   const input = $('home');
   if (base && document.activeElement !== input) input.value = sysName(settings.home);
 }
@@ -479,46 +442,7 @@ function init() {
   });
   $('moreBtn').addEventListener('click', () => { ui.limit += PAGE; renderStations(compute()); });
   $('refreshBtn').addEventListener('click', () => refresh(true));
-
-  // Wormholes (shared by every page, see shortcuts.js)
-  const w = sc.settings;
-  $('whOn').checked = w.on;
-  $('whTrail').checked = w.trail;
-  $('whScout').checked = w.scout;
-  $('whHours').value = w.hours;
-  $('whWanderer').checked = w.wanderer.on;
-  $('whWUrl').value = w.wanderer.url;
-  $('whWMap').value = w.wanderer.map;
-  $('whWToken').value = w.wanderer.token;
-  $('whOn').addEventListener('change', () => sc.update({ on: $('whOn').checked }));
-  $('whTrail').addEventListener('change', () => sc.update({ trail: $('whTrail').checked }));
-  $('whScout').addEventListener('change', () => sc.update({ scout: $('whScout').checked }));
-  $('whHours').addEventListener('input', () => {
-    const h = Number($('whHours').value);
-    if (h >= 1 && h <= 48) sc.update({ hours: h });
-  });
-  const wanderer = () => sc.update({ wanderer: {
-    on: $('whWanderer').checked, url: $('whWUrl').value.trim(), map: $('whWMap').value.trim(), token: $('whWToken').value.trim(),
-  } });
-  for (const id of ['whWanderer', 'whWUrl', 'whWMap', 'whWToken']) $(id).addEventListener('change', wanderer);
-  $('whAdd').addEventListener('click', async () => {
-    const [a, b] = await Promise.all([sc.systemByName($('whFrom').value), sc.systemByName($('whTo').value)].map(p => p.catch(() => null)));
-    const type = $('whType').value.trim(), typeOk = !type || !!sc.whInfo(type);
-    $('whFrom').classList.toggle('bad', !a);
-    $('whTo').classList.toggle('bad', !b);
-    $('whType').classList.toggle('bad', !typeOk);
-    if (!a || !b || a === b || !typeOk) return;
-    sc.addManual(a, b, type);
-    $('whFrom').value = ''; $('whTo').value = ''; $('whType').value = '';
-  });
-  $('whBody').addEventListener('change', (e) => {
-    const key = e.target.dataset.use;
-    if (key) sc.setUse(key, e.target.checked, Number(e.target.dataset.at));
-  });
-  $('whBody').addEventListener('click', (e) => {
-    const key = e.target.closest('[data-del]')?.dataset.del;
-    if (key) sc.removeManual(key);
-  });
+  drawToggle = mountToggle($('whToggle'), sc);
 
   fetch('data/universe.json').then(r => r.json()).then(u => {
     base = buildGraph(u);

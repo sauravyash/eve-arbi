@@ -404,8 +404,9 @@ Wormhole shortcuts count in **every jump total on every page**:
 - Market watch: hauls, jumps from home and *Near system*
 - Contracts: pickup, delivery and backhaul distances
 - Mining: jumps to each station
+- Routes: every leg of the route
 
-They're managed in the Mining page's *Wormhole shortcuts* panel. Each page's settings bar has a
+They're managed in the Routes page's *Wormhole shortcuts* panel. Each page's settings bar has a
 **Wormholes (n)** switch that turns them on or off everywhere, with a link to that panel.
 Everything is kept in `localStorage` (`wh.*`), so every page and tab shares it
 (`public/js/shortcuts.js`).
@@ -471,7 +472,7 @@ location* on (sign-in menu), that's your character's system.
 - **Optimize order** puts the waypoints between the start and the end in the order that flies fewest
   jumps (exact for up to 10, a good heuristic past that). *Keep destination* keeps the last one last;
   *Round trip* counts the way home.
-- **Wormholes**: routes use the shortcuts from the [Wormholes](#wormholes) panel, filtered by your
+- **Wormholes**: routes use the shortcuts from the *Wormhole shortcuts* panel at the bottom of the page (see [Wormholes](#wormholes)), filtered by your
   *Ship size* (from each hole's type, or EVE Scout's size) and how long a hole must stay open
   (end-of-life holes count as 4 h at most). *Thera / Turnur* turns on EVE Scout's feed for every page.
   High-sec routes may cross J-space unless you untick *Safe routes may cross J-space*. The summary says
@@ -481,7 +482,7 @@ location* on (sign-in menu), that's your character's system.
   and `- structure name` parts all accepted). *Copy list* gives it back in the same format to share.
   Bridges never expire, take any ship but capitals, and have their own *Jump bridges* switch: they count
   in jump totals on every page even with wormholes off. Pairs farther apart than an Ansiblex's 5 ly are
-  flagged, since they're probably a typo. They also show in the Mining page's shortcut list.
+  flagged, since they're probably a typo. They also show in the *Wormhole shortcuts* panel.
 - **Danger**: every system on the route shows ESI's ship and pod kills and jumps in the last hour.
   *Avoid kills/h ≥* avoids systems at least that hot (never your own waypoints). When a leg can't keep
   to its preference or avoid list, it relaxes them and marks the leg ⚠.

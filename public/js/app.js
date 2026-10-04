@@ -16,6 +16,7 @@ import { mountFitButton } from './fit-dialog.js';
 import { mountSectionNav } from './nav.js';
 import {
   MAX_TRACKED, trackKey, newTracked, isActive, nextCheckAt, isDue, checksLeft, resubscribe, withCheck, quoteTracked, cleanTracked,
+  STATUS_TEXT, goneCheck, lastGood,
 } from './tracking.js';
 
 // ---------------------------------------------------------------------------
@@ -1111,23 +1112,22 @@ function renderScanTable() {
   }
 
   const shown = scan.rows.slice(0, ui.scanLimit);
-  const watched = new Set(settings.items.map(i => i.typeId));
   const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
   const loc = (e, extra = '') => `<div class="loc"><b>${esc(e.name)}</b><small title="${esc(e.station)}">${esc(e.station)}</small>${extra}</div>`;
   const jumpsOf = (j) => `${j} jump${j === 1 ? '' : 's'}`;
   const rank = settings.scan.rank;
+  const at = scanAt();
   body.innerHTML = shown.map((row, i) => {
-    const w = watched.has(row.typeId);
+    const gone = goneHaul(row.typeId, row.from.id, row.to.id, at);
     const jumpsCell = (row.jumps == null ? '<span class="muted">?</span>'
       : row.approach != null ? `<span title="${jumpsOf(row.approach)} from you to the pickup, then ${jumpsOf(row.jumps)} to the drop-off">${row.approach} + ${row.jumps}</span>`
       : row.jumps) + (row.jumps == null ? '' : routeWhMark(row));
     const holds = row.holds.length
       ? `<small class="hold" title="Also uses the ${esc(row.holds.map(h => h.name.toLowerCase()).join(' and '))}">+ ${esc(row.holds.map(h => h.name).join(', '))}</small>` : '';
     return `
-    <tr data-i="${i}" class="${i === 0 ? 'top' : ''} ${row.key === ui.scanPick ? 'picked' : ''}">
+    <tr data-i="${i}" class="${i === 0 ? 'top' : ''} ${row.key === ui.scanPick ? 'picked' : ''} ${gone ? 'gone' : ''}">
       <td class="l rank">${i + 1}</td>
-      <td class="l item" title="${esc(row.name)}"><button class="star ${w ? 'on' : ''}" type="button" data-star
-        aria-label="${w ? 'In watchlist' : `Add ${esc(row.name)} to watchlist`}">${w ? '★' : '☆'}</button>${trackButton(row)}${esc(row.name)}${copyButton(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
+      <td class="l item" title="${esc(row.name)}">${trackButton(row)}${esc(row.name)}${copyButton(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}${goneBadge(gone)}</td>
       <td class="l">${loc(row.from)}</td>
       <td class="l">${loc(row.to, row.ranged ? '<small class="note">sells into ranged buy orders</small>' : '')}</td>
       <td class="jumps">${jumpsCell}${routeStrip(rowPath(row)) || ''}</td>
@@ -1147,11 +1147,6 @@ function renderScanTable() {
   body.querySelectorAll('tr[data-i]').forEach(tr => tr.addEventListener('click', (e) => {
     const row = shown[Number(tr.dataset.i)];
     if (e.target.closest('[data-track]')) { toggleTracked(row); return; }
-    if (e.target.closest('[data-star]')) {
-      if (!watched.has(row.typeId)) addItem(row.typeId, row.name);
-      render();
-      return;
-    }
     settings.graphItem = 'scan';
     saveSettings();
     ui.selectedHub = row.from.hub?.id ?? null;
@@ -1185,13 +1180,16 @@ function renderLoads() {
   const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
   const loc = (e) => `<div class="loc"><b>${esc(e.name)}</b><small title="${esc(e.station)}">${esc(e.station)}</small></div>`;
   const rank = settings.scan.rank;
+  const at = scanAt();
   body.innerHTML = shown.map((rt, i) => {
-    const names = rt.items.slice(0, 3).map(e => `<span class="nw"><b>${esc(e.name)}</b>${copyButton(e.name)}</span>`).join(', ');
+    const dead = rt.items.filter(e => goneHaul(e.t, rt.from.id, rt.to.id, at));
+    const names = rt.items.slice(0, 3).map(e => `<span class="nw ${dead.includes(e) ? 'gone-item' : ''}"><b>${esc(e.name)}</b>${copyButton(e.name)}</span>`).join(', ');
     const jumps = rt.jumps == null ? '<span class="muted">?</span>' : `${rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps}${routeWhMark(rt)}`;
     return `<tr data-key="${esc(rt.key)}" class="${i === 0 ? 'top' : ''} ${rt.key === ui.loadPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
       <td class="l">${loc(rt.from)}</td><td class="l">${loc(rt.to)}</td><td class="jumps">${jumps}${routeStrip(rowPath(rt)) || ''}</td>
-      <td class="l itm">${rt.items.length} item${rt.items.length === 1 ? '' : 's'}: ${names}${rt.items.length > 3 ? ` +${rt.items.length - 3} more` : ''}${rt.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
+      <td class="l itm">${rt.items.length} item${rt.items.length === 1 ? '' : 's'}: ${names}${rt.items.length > 3 ? ` +${rt.items.length - 3} more` : ''}${rt.stale ? '<span class="badge stale">OLD</span>' : ''}
+        ${goneNote(dead.length, rt.items.length, rt.profit - dead.reduce((p, e) => p + e.profit, 0), 'item')}</td>
       <td>${Math.round(rt.volume).toLocaleString()}</td><td>${n(rt.cost)}</td>
       <td class="${rank === 'margin' ? 'metric' : ''}">${rt.margin.toFixed(1)}%</td>
       <td class="${rank === 'profit' ? 'metric' : ''}">${n(rt.profit)}</td>
@@ -1208,13 +1206,18 @@ function renderLoadDetail(rt) {
   const jumps = rt.jumps == null ? '' : ` · ${rt.approach != null ? `${rt.approach} jumps from you, then ` : ''}${rt.jumps} jump${rt.jumps === 1 ? '' : 's'}`;
   $('loadWhere').textContent = `Buy at ${rt.from.station}, sell at ${rt.to.station}${jumps}. Sell into buy orders; prices are the first and last order filled.`;
   const n = (v) => formatIsk(v);
-  $('loadItems').innerHTML = rt.items.map(e => {
+  const at = scanAt();
+  let lost = 0;
+  $('loadItems').innerHTML = rt.items.map((e, i) => {
+    const gone = goneHaul(e.t, rt.from.id, rt.to.id, at);
+    if (gone) lost += e.profit;
     const holds = Object.keys(e.used).filter(p => p !== 'cargo').map(p => holdName[p]).filter(Boolean);
-    const px = e.worstBuy !== e.buy || e.worstSell !== e.sell ? `${n(e.buy)}–${n(e.worstBuy)} → ${n(e.sell)}–${n(e.worstSell)}` : `${n(e.buy)} → ${n(e.sell)}`;
-    return `<tr><td class="l">${esc(e.name)}${copyButton(e.name)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
+    const range = (a, b) => (a === b ? n(a) : `${n(a)}–${n(b)}`);
+    const px = `<span class="nw">${range(e.buy, e.worstBuy)}</span> <span class="nw">→ ${range(e.sell, e.worstSell)}</span>`;
+    return `<tr class="${gone ? 'gone' : ''}"><td class="l">${trackButton(loadHaul(rt, e), `data-i="${i}"`)}<span class="${gone ? 'gone-item' : ''}">${esc(e.name)}</span>${copyButton(e.name)}${goneBadge(gone)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
       <td>${e.units.toLocaleString()}</td><td>${Math.round(e.volume).toLocaleString()}</td><td>${px}</td><td>${n(e.profit)}</td></tr>`;
   }).join('') + `<tr class="total"><td class="l"><b>Total</b></td><td></td><td><b>${Math.round(rt.volume).toLocaleString()}</b></td>
-    <td><b>${n(rt.cost)}</b> spent</td><td><b>${n(rt.profit)}</b></td></tr>`;
+    <td><b>${n(rt.cost)}</b> spent</td><td><b>${n(rt.profit)}</b>${lost ? `<small class="gone-note">~${n(Math.max(0, rt.profit - lost))} without the gone items</small>` : ''}</td></tr>`;
 }
 
 function selectLoad(rt) {
@@ -1237,6 +1240,12 @@ function bindLoads() {
   $('loadBody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-key]');
     if (tr) selectLoad(routeRows().find(x => x.key === tr.dataset.key));
+  });
+  $('loadItems').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-track]');
+    const rt = btn && routeRows().find(x => x.key === ui.loadPick);
+    const item = rt?.items[Number(btn.dataset.i)];
+    if (item) toggleTracked(loadHaul(rt, item));
   });
   $('loadClear').addEventListener('click', () => selectLoad(null));
   $('loadMore').addEventListener('click', () => { ui.loadLimit += 50; renderLoads(); });
@@ -1287,8 +1296,9 @@ async function startScan() {
 }
 
 // ---------------------------------------------------------------------------
-// Tracked hauls: a Best items row (one item, one pickup → drop-off) re-priced every 10 minutes
-// for an hour from that item's orders alone, so it doesn't need a market scan (tracking.js).
+// Tracked hauls: one item on one pickup → drop-off (a Best items row, a Single route shopping-list
+// item or a Multi-stop purchase) re-priced every 10 minutes for an hour from that item's orders
+// alone, so it doesn't need a market scan (tracking.js).
 // Kept in localStorage; checks run on every Hub arbitrage page, and open tabs share them.
 // ---------------------------------------------------------------------------
 const TRACK_KEY = 'arbi.tracked';
@@ -1303,30 +1313,69 @@ function putTracked(key, fn) {
   saveTracked();
 }
 
-const CLOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
-function trackButton(row) {
+// A Single route shopping-list item or a Multi-stop leg, as a haul toggleTracked can take.
+const loadHaul = (rt, e) => ({ typeId: e.t, name: e.name, vol: e.vol, from: rt.from, to: rt.to });
+const legHaul = (l) => ({ typeId: l.t, name: l.name, vol: trip.catalog?.[l.t]?.[1] || 0, from: scanEnd(l.f, l.fs), to: scanEnd(l.d, l.ds) });
+
+// A tracked haul whose latest check found its orders gone (or no margin left), when that check is
+// newer than the scan a table was built from; a rescan since then knows better. Not fitting the
+// cargo or budget isn't "gone": the table would have priced it with the same limits.
+function goneHaul(typeId, fromLoc, toLoc, scanAt) {
+  const t = tracking.list.find(x => x.key === trackKey(typeId, fromLoc, toLoc));
+  const g = t && goneCheck(t);
+  if (!g || g.status === 'nofit' || !(g.at > (scanAt ?? 0))) return null;
+  return { ...g, text: STATUS_TEXT[g.status] };
+}
+const goneTitle = (g) => `${g.text} (tracked check at ${new Date(g.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+const goneBadge = (g) => (g ? `<span class="badge gone" title="${esc(goneTitle(g))}">GONE</span>` : '');
+// "1 of 3 items gone · ~12M profit left", under a route whose tracked hauls were found gone.
+function goneNote(gone, total, liveProfit, noun) {
+  if (!gone) return '';
+  return `<small class="gone-note">${gone} of ${total} ${noun}${total === 1 ? '' : 's'} gone · ~${formatIsk(Math.max(0, liveProfit))} profit left</small>`;
+}
+const scanAt = () => (allStations() ? trip.result : scan.result)?.finishedAt;
+
+// `attrs`: extra attributes the page's click handler uses to find the haul again.
+function trackButton(row, attrs = '') {
   const on = isTracked(row);
-  return `<button class="track ${on ? 'on' : ''}" type="button" data-track aria-pressed="${on}"
-    title="${on ? 'Tracked: click to stop' : 'Track this haul: re-price it every 10 minutes for an hour'}" aria-label="${on ? 'Stop tracking' : 'Track'} ${esc(row.name)}">${CLOCK}</button>`;
+  return `<button class="star ${on ? 'on' : ''}" type="button" data-track ${attrs} aria-pressed="${on}"
+    title="${on ? 'Tracked: click to stop' : 'Track this haul: re-price it every 10 minutes for an hour'}" aria-label="${on ? 'Stop tracking' : 'Track'} ${esc(row.name)}">${on ? '★' : '☆'}</button>`;
 }
 
-function toggleTracked(row) {
+const toggleTracked = (row) => setTracked([row], !isTracked(row));
+
+// Tracks (on) or stops tracking (off) several hauls at once; adding is all or nothing, so a route
+// is never left half tracked because the list filled up.
+function setTracked(rows, on) {
   reloadTracked();
-  const key = trackKey(row.typeId, row.from.id, row.to.id);
-  if (tracking.list.some(t => t.key === key)) {
-    tracking.list = tracking.list.filter(t => t.key !== key);
+  const keyOf = (row) => trackKey(row.typeId, row.from.id, row.to.id);
+  const keys = new Set(rows.map(keyOf));
+  if (!on) {
+    tracking.list = tracking.list.filter(t => !keys.has(t.key));
   } else {
-    if (tracking.list.length >= MAX_TRACKED) { alert(`You can track up to ${MAX_TRACKED} hauls. Remove one first.`); return; }
+    const have = new Set(tracking.list.map(t => t.key));
+    const add = rows.filter((row, i) => !have.has(keyOf(row)) && rows.findIndex(r => keyOf(r) === keyOf(row)) === i);
+    if (tracking.list.length + add.length > MAX_TRACKED) {
+      alert(`You can track up to ${MAX_TRACKED} hauls${add.length > 1 ? `, and this needs room for ${add.length} more` : ''}. Remove some first.`);
+      return;
+    }
     const end = (e) => ({
       loc: e.id, sys: e.systemId, name: e.name, station: e.station,
       regionId: e.hub?.regionId ?? (trip.graph ? systemInfo(trip.graph, e.systemId)?.regionId : null),
     });
-    tracking.list = [newTracked({ typeId: row.typeId, name: row.name, vol: row.vol, from: end(row.from), to: end(row.to) }, Date.now()), ...tracking.list];
+    const now = Date.now();
+    tracking.list = [...add.map(row => newTracked({ typeId: row.typeId, name: row.name, vol: row.vol, from: end(row.from), to: end(row.to) }, now)), ...tracking.list];
   }
   saveTracked();
-  renderScan();
+  renderTrackButtons();
   renderTracked();
   tickTracked();
+}
+
+// Every list that shows track buttons (only the ones on this page render).
+function renderTrackButtons() {
+  renderScan();
+  renderTrips();
 }
 
 function trackedJumps(t) {
@@ -1362,6 +1411,7 @@ async function checkTracked(key, now = Date.now()) {
   } catch (e) { error = e.message; }
   putTracked(key, x => withCheck(x, now, quote, error));
   tracking.busy.delete(key);
+  renderTrackButtons();   // the routes tables flag hauls a check found gone
   renderTracked();
 }
 
@@ -1380,7 +1430,8 @@ function renderTracked() {
   const active = list.filter(t => isActive(t, now)).length;
   $('trackCount').textContent = list.length ? `· ${active} of ${list.length} active` : '';
   if (!list.length) {
-    body.innerHTML = `<tr class="empty"><td colspan="9">Nothing tracked yet. Click ${CLOCK.replace('<svg', '<svg class="inline-icon"')} on a row below to re-price that haul every 10 minutes for an hour.</td></tr>`;
+    const where = { load: "next to an item in a route's shopping list", trips: 'next to an item in a route below (the big star tracks the whole route)' }[document.body.dataset.page] || 'on a row below';
+    body.innerHTML = `<tr class="empty"><td colspan="9">Nothing tracked yet. Click ☆ ${where} to re-price that haul every 10 minutes for an hour.</td></tr>`;
     return;
   }
   const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
@@ -1390,7 +1441,8 @@ function renderTracked() {
     const p = tr.points.at(-1), prev = tr.points.at(-2);
     const jumps = trackedJumps(tr);
     const on = isActive(tr, now);
-    const delta = p && prev ? p.profit - prev.profit : null;
+    const gone = goneCheck(tr), good = gone && lastGood(tr);
+    const delta = p && prev && !gone ? p.profit - prev.profit : null;
     const deltaCell = delta ? `<small class="${delta > 0 ? 'up' : 'down'}" title="Since the check at ${t(prev.at)}">${delta > 0 ? '▲' : '▼'} ${formatIsk(Math.abs(delta))}</small>` : '';
     let status;
     if (tracking.busy.has(tr.key)) status = 'Checking…';
@@ -1399,15 +1451,19 @@ function renderTracked() {
       status = `<span title="Tracking until ${t(tr.until)}">Next ${next <= now ? 'now' : t(next)} · ${left} check${left === 1 ? '' : 's'} left</span>`;
     } else status = `<span class="muted">Stopped ${t(tr.until)}</span>`;
     if (tr.error) status += `<small class="warn-m" title="${esc(tr.error)}">Last check failed</small>`;
-    return `<tr data-key="${esc(tr.key)}" class="${on ? '' : 'expired'}">
-      <td class="l item" title="${esc(tr.name)}">${esc(tr.name)}${copyButton(tr.name)}</td>
+    const profitCell = gone
+      ? `<span class="gone-why">${esc(STATUS_TEXT[gone.status])}</span>${good ? `<small class="muted">was ${formatIsk(good.profit)} at ${t(good.at)}</small>` : ''}`
+      : p ? n(p.profit) : '<span class="muted">—</span>';
+    return `<tr data-key="${esc(tr.key)}" class="${on ? '' : 'expired'} ${gone ? 'gone' : ''}">
+      <td class="l item" title="${esc(tr.name)}"><button class="star on" type="button" data-untrack
+        title="Tracked: click to stop" aria-label="Stop tracking ${esc(tr.name)}">★</button>${esc(tr.name)}${copyButton(tr.name)}</td>
       <td class="l">${loc(tr.from)}</td>
       <td class="l">${loc(tr.to)}</td>
       <td>${jumps ?? '<span class="muted">?</span>'}</td>
       <td>${p ? `${n(p.buy)} → ${n(p.sell)}` : '<span class="muted">—</span>'}</td>
-      <td>${p ? p.units.toLocaleString() : '<span class="muted">—</span>'}</td>
-      <td class="${p && p.profit <= 0 ? 'neg' : ''}">${p ? n(p.profit) : '<span class="muted">—</span>'}${deltaCell}${sparkline(tr.points)}</td>
-      <td>${p && jumps != null ? n(p.profit / Math.max(1, jumps)) : '<span class="muted">—</span>'}</td>
+      <td>${p && !gone ? p.units.toLocaleString() : '<span class="muted">—</span>'}</td>
+      <td class="${p && p.profit <= 0 && !gone ? 'neg' : ''}">${profitCell}${deltaCell}${sparkline(tr.points)}</td>
+      <td>${p && !gone && jumps != null ? n(p.profit / Math.max(1, jumps)) : '<span class="muted">—</span>'}</td>
       <td class="l track-status">${status}${p ? `<small class="muted">Checked ${t(p.at)}</small>` : ''}
         <span class="track-actions">${on ? '' : '<button class="btn small" type="button" data-resub title="Re-price this haul every 10 minutes for another hour">Track another hour</button>'}
         <button class="x" type="button" data-untrack aria-label="Stop tracking ${esc(tr.name)}" title="Remove">✕</button></span></td>
@@ -1431,7 +1487,7 @@ function bindTracked() {
       reloadTracked();
       tracking.list = tracking.list.filter(t => t.key !== key);
       saveTracked();
-      renderScan();
+      renderTrackButtons();
       renderTracked();
     } else if (e.target.closest('[data-resub]')) {
       putTracked(key, t => resubscribe(t, Date.now()));
@@ -1439,7 +1495,7 @@ function bindTracked() {
     }
   });
   // Another tab tracked, checked or removed a haul.
-  addEventListener('storage', (e) => { if (e.key === TRACK_KEY) { reloadTracked(); renderScan(); renderTracked(); } });
+  addEventListener('storage', (e) => { if (e.key === TRACK_KEY) { reloadTracked(); renderTrackButtons(); renderTracked(); } });
   // Background tabs' timers are throttled; this is coarse anyway (checks are 10 minutes apart).
   setInterval(tickTracked, 30_000);
   addEventListener('visibilitychange', () => { if (!document.hidden) tickTracked(); });
@@ -1646,6 +1702,16 @@ function selectTrip(tr) {
   $('mapView').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+// The big star on a Multi-stop route: tracks every haul on it (or stops them all when they all are).
+function routeStar(tr) {
+  const hauls = tr.legs.map(legHaul), n = hauls.filter(isTracked).length, all = n === hauls.length;
+  const title = all ? 'Every haul on this route is tracked: click to stop them all'
+    : n ? `${n} of ${hauls.length} hauls tracked: click to track the rest`
+    : `Track all ${hauls.length} hauls on this route: re-price them every 10 minutes for an hour`;
+  return `<button class="star big ${all ? 'on' : n ? 'part' : ''}" type="button" data-track-all aria-pressed="${all ? 'true' : n ? 'mixed' : 'false'}"
+    title="${title}" aria-label="${title}">${n ? '★' : '☆'}</button>`;
+}
+
 function tripStopsHtml(tr) {
   const geo = tripGeometry(tr);
   let at = settings.trips.start;
@@ -1655,8 +1721,10 @@ function tripStopsHtml(tr) {
     const seg = hop ? pathBetween(travel(), at, st.systemId, tripFlag()) : null;
     const strip = seg && routeStrip(seg, [[0, i ? `Stop ${i}` : 'Start'], [seg.length - 1, `Stop ${i + 1}`]]);
     at = st.systemId;
-    const sell = st.sells.map(l => `Sell <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} → <span class="up">+${formatIsk(l.profit)}</span>`);
-    const buy = st.buys.map(l => `Buy <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} for ${formatIsk(l.cost)}${l.x ? ' (sell point uses ranged buy orders)' : ''}`);
+    const gone = (l) => goneHaul(l.t, l.f, l.d, trip.result?.finishedAt);
+    const strike = (l, html) => { const g = gone(l); return g ? `<span class="gone-item" title="${esc(goneTitle(g))}">${html}</span>` : html; };
+    const sell = st.sells.map(l => strike(l, `Sell <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} → <span class="up">+${formatIsk(l.profit)}</span>`));
+    const buy = st.buys.map(l => `${trackButton(legHaul(l), `data-leg="${tr.legs.indexOf(l)}"`)}${strike(l, `Buy <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} for ${formatIsk(l.cost)}${l.x ? ' (sell point uses ranged buy orders)' : ''}`)}${goneBadge(gone(l))}`);
     rows.push(`<li><span class="n">${i + 1}</span>
       <span class="where">${esc(stationName(st.locationId, st.systemId))}<small>${esc(sysName(st.systemId))}</small></span>
       <span class="act">${[...sell, ...buy].join('<br>')}</span>
@@ -1704,10 +1772,11 @@ function renderTrips() {
     body.innerHTML = trips.slice(0, 30).map((tr, i) => {
       const route = [settings.trips.start, ...tripStops(tr).map(s => s.systemId)]
         .filter((s, k, a) => s !== a[k - 1]).map(s => `<span class="sys">${esc(sysName(s))}</span>`).join(' → ');
-      const items = tr.legs.map(l => `<span class="nw">${esc(l.name)}${copyButton(l.name)}</span>`).join(' · ');
+      const dead = tr.legs.filter(l => goneHaul(l.t, l.f, l.d, r.finishedAt));
+      const items = tr.legs.map((l, k) => `<span class="nw">${trackButton(legHaul(l), `data-leg="${k}"`)}<span class="${dead.includes(l) ? 'gone-item' : ''}">${esc(l.name)}</span>${copyButton(l.name)}</span>`).join(' · ');
       return `<tr data-key="${esc(tr.key)}" class="${tr.key === ui.tripPick ? 'picked' : ''}">
         <td class="l rank">${i + 1}</td>
-        <td class="l route">${route}<span class="itm">${items}</span></td>
+        <td class="l route">${routeStar(tr)}${route}<span class="itm">${items}</span>${goneNote(dead.length, tr.legs.length, tr.profit - dead.reduce((p, l) => p + l.profit, 0), 'haul')}</td>
         <td>${tr.legs.length}</td><td>${tr.jumps}${sc.inUse() ? whMark(tripGeometry(tr).path) : ''}</td><td>${formatIsk(tr.peakCost)}</td>
         <td>${formatIsk(tr.profit)}</td><td class="metric">${formatIsk(tr.perJump)}</td></tr>`;
     }).join('') || '<tr class="empty"><td colspan="7">No chained routes with these settings — try more empty jumps between hauls or a lower min profit.</td></tr>';
@@ -1747,7 +1816,20 @@ function bindTrips() {
   $('tripScanBtn').addEventListener('click', tripStartScan);
   $('tripBody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-key]');
-    if (tr) selectTrip(tripList().find(x => x.key === tr.dataset.key));
+    if (!tr) return;
+    const picked = tripList().find(x => x.key === tr.dataset.key);
+    if (e.target.closest('[data-track-all]')) {
+      if (picked) { const hauls = picked.legs.map(legHaul); setTracked(hauls, !hauls.every(isTracked)); }
+      return;
+    }
+    const btn = e.target.closest('[data-track]');
+    if (btn) { const leg = picked?.legs[Number(btn.dataset.leg)]; if (leg) toggleTracked(legHaul(leg)); return; }
+    selectTrip(picked);
+  });
+  $('tripStops').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-track]');
+    const leg = btn && tripList().find(x => x.key === ui.tripPick)?.legs[Number(btn.dataset.leg)];
+    if (leg) toggleTracked(legHaul(leg));
   });
   $('tripClear').addEventListener('click', () => selectTrip(null));
   $('tripCopy').addEventListener('click', async () => {

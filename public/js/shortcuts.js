@@ -6,7 +6,7 @@
 //   evescout  — EVE Scout's public Thera and Turnur connections (api.eve-scout.com, CORS allowed)
 //   wanderer  — a Wanderer mapper's connections, with its map API token (through /api/wanderer, since
 //               Wanderer sends no CORS headers)
-//   manual    — pairs you add on the Mining page, optionally with the hole's type
+//   manual    — pairs you add on the Routes page, optionally with the hole's type
 //   bridge    — jump bridges (Ansiblex) you add on the Route planner page. They don't expire, and they
 //               have their own switch (settings.bridges): they count even with wormholes switched off.
 //
@@ -258,13 +258,13 @@ export function createShortcuts({ onChange = () => {} } = {}) {
 
 /**
  * A "Wormholes" switch for a page's settings bar: turns shortcuts on or off everywhere and links to
- * the Mining page, where they're managed.
+ * the Routes page, where they're managed (wormhole-panel.js).
  */
 export function mountToggle(el, sc) {
   const draw = () => {
     const n = sc.links().filter(l => l.use).length;
     el.innerHTML = `<input type="checkbox"${sc.settings.on ? ' checked' : ''}> Wormholes
-      <a href="mining.html#wormholes" title="Wormhole shortcuts count in every jump total. Manage them on the Mining page.">${n ? `(${n})` : 'set up'}</a>`;
+      <a href="route-planner.html#wormholes" title="Wormhole shortcuts count in every jump total. Manage them on the Routes page.">${n ? `(${n})` : 'set up'}</a>`;
   };
   el.addEventListener('change', (e) => { if (e.target.type === 'checkbox') sc.update({ on: e.target.checked }); });
   draw();

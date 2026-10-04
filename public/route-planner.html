@@ -212,9 +212,56 @@
           <tbody id="routeBody"></tbody>
         </table>
       </div>
-      <p class="hint">Jumps are counted on the stargate map plus the wormhole shortcuts in use (managed on the
-        <a href="mining.html#wormholes">Mining page</a>: your recorded jumps, EVE Scout, Wanderer and ones you add). Kills and traffic are
+      <p class="hint">Jumps are counted on the stargate map plus the <a href="#wormholes">wormhole shortcuts</a> in use
+        (your recorded jumps, EVE Scout, Wanderer and ones you add). Kills and traffic are
         ESI's last-hour counts and refresh hourly. If no route keeps to your settings, the leg relaxes them and says so.</p>
+    </section>
+
+    <!-- Wormholes -->
+    <section class="panel wh-panel" id="wormholes" aria-labelledby="whTitle">
+      <div class="table-head">
+        <h2 id="whTitle">Wormhole shortcuts <span id="whCount" class="count"></span></h2>
+        <label class="inline check" title="Count shortcuts in jump totals on every page (Routes, Hub arbitrage, Market watch, Contracts, Mining)">
+          <input id="whOn" type="checkbox"> Use on every page</label>
+        <span id="whFeeds" class="scan-status" role="status" aria-live="polite"></span>
+      </div>
+      <div class="scan-filters rp-wh-opts">
+        <label class="inline check" title="Every character signed in on this browser records its system changes; jumps with no stargate between them become shortcuts">
+          <input id="whTrail" type="checkbox"> My characters' recent jumps</label>
+        <label class="inline check" title="Public Thera and Turnur connections from EVE Scout (api.eve-scout.com)">
+          <input id="whScout" type="checkbox"> Thera &amp; Turnur (EVE Scout)</label>
+        <label title="Most wormholes live 16–24 hours; forget ones you took longer ago than this">Forget after (hours)
+          <input id="whHours" type="number" min="1" max="48" step="1"></label>
+        <fieldset class="near" aria-label="Add a wormhole by hand">
+          <label>From <input id="whFrom" type="text" list="systemList" autocomplete="off" spellcheck="false" placeholder="System or J-code"></label>
+          <label>To <input id="whTo" type="text" list="systemList" autocomplete="off" spellcheck="false" placeholder="System or J-code"></label>
+          <label title="Optional: the hole's type from its info window (not K162, the exit side). The shortcut then lasts as long as that type can live, instead of the Forget after hours.">Type
+            <input id="whType" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. Q063" size="6" maxlength="12"></label>
+          <button id="whAdd" class="btn small" type="button">Add</button>
+        </fieldset>
+      </div>
+      <div class="scan-filters rp-wh-opts">
+        <fieldset class="near rp-wanderer" aria-label="Wanderer mapper">
+          <label class="inline check" title="Your group's Wanderer map (wanderer.ltd or a self-hosted copy): every connection on it becomes a shortcut">
+            <input id="whWanderer" type="checkbox"> Wanderer map</label>
+          <label>Site <input id="whWUrl" type="url" placeholder="https://wanderer.ltd" spellcheck="false"></label>
+          <label title="The part after /maps/ or before the map name in its address">Map slug <input id="whWMap" type="text" placeholder="my-map" spellcheck="false"></label>
+          <label title="Map settings → API token. Kept in this browser only and sent to the Wanderer site through this app's server.">API token
+            <input id="whWToken" type="password" autocomplete="off" spellcheck="false"></label>
+        </fieldset>
+      </div>
+      <div class="table-wrap">
+        <table class="routes rp-wh">
+          <thead><tr><th class="l">Connection</th><th class="l">Found by</th><th>Seen</th><th>Expires</th><th>Use</th><th></th></tr></thead>
+          <tbody id="whBody"></tbody>
+        </table>
+      </div>
+      <p id="whHint" class="hint">ESI doesn't keep a travel history, so this app can't look back at jumps you made before. What it can do:
+        while you're signed in with <i>Record my wormhole jumps</i> on (character menu), every system change is recorded from then on.
+        Two readings in a row in systems that no stargate joins mean you took a wormhole (or a jump bridge or cyno), and that pair becomes a
+        shortcut here, for every character you sign in with on this browser. Group mappers know far more: link a <a href="https://wanderer.ltd" target="_blank" rel="noopener">Wanderer</a>
+        map with its API token and all its connections count too. Shortcuts apply to jump totals on every page (untick <i>Use on every page</i> to
+        turn them off). Jumps through wormhole space count one per hole, and never count as high-sec. Order ranges still follow stargates, as in game.</p>
     </section>
   </main>
 
