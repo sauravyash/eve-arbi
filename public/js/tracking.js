@@ -92,6 +92,36 @@ export function quoteTracked(orders, t, { taxRate = 0, maxVolume = Infinity, max
   };
 }
 
+/**
+ * What a check found, from its quote: "ok" (worth hauling), "no-ask" (nothing for sale at the
+ * pickup), "no-bid" (no buy order reaches the drop-off), "nofit" (profitable, but not one unit
+ * fits your cargo or budget) or "unprofitable" (both sides there, no margin after tax).
+ */
+export function haulStatus(q) {
+  if (q.buy == null) return 'no-ask';
+  if (q.sell == null) return 'no-bid';
+  if (q.units > 0 && q.profit > 0) return 'ok';
+  return q.depth > 0 ? 'nofit' : 'unprofitable';
+}
+
+export const STATUS_TEXT = {
+  'no-ask': 'No sell orders at the pickup',
+  'no-bid': 'No buy orders reach the drop-off',
+  nofit: "Doesn't fit your cargo or budget",
+  unprofitable: 'Orders still there, no longer profitable',
+};
+
+/** The latest check, when it found the haul gone (not "ok"), else null. */
+export function goneCheck(t) {
+  const p = t.points.at(-1);
+  if (!p) return null;
+  const status = haulStatus(p);
+  return status === 'ok' ? null : { status, at: p.at };
+}
+
+/** The most recent check that found the haul worth hauling, or null. */
+export const lastGood = (t) => t.points.findLast(p => haulStatus(p) === 'ok') ?? null;
+
 /** Keeps a stored list sane: known shape, no duplicates, capped. */
 export function cleanTracked(list) {
   const out = [], seen = new Set();
