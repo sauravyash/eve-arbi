@@ -110,7 +110,7 @@ test('routeSummary counts security bands, regions and wormhole steps', () => {
   const path = [1, 2, 3, 4, 5, 31000001];
   const s = routeSummary(g, path, (a, b) => g.shortcuts.has(a < b ? `${a}-${b}` : `${b}-${a}`));
   assert.deepEqual({ ...s, minSec: Math.round(s.minSec * 10) / 10 },
-    { jumps: 5, high: 3, low: 1, null: 0, jspace: 1, wormholes: 1, regions: ['West', 'East'], minSec: 0.3, lowEntries: 2 });
+    { jumps: 5, high: 3, low: 1, null: 0, jspace: 1, wormholes: 1, regions: ['West', 'East'], minSec: 0.3, lowEntries: 2, zarzakh: 0 });
 });
 
 test('parseWaypointText reads lists, arrows, chat links and numbered lines', () => {

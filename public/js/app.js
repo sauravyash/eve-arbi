@@ -1,8 +1,8 @@
-import { HUBS, DEFAULT_TAX_PCT, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
+import { HUBS, DEFAULT_TAX_PCT, ZARZAKH_TOLL, barredFromZarzakh, pairKey, extractHubBooks, computeRoutes, summarizeSteps, formatIsk } from './arbitrage.js';
 import { scanClient, tabNote, showProgress } from './scan-client.js';
 import { GalaxyMap, secColor, secLabel } from './map.js';
 import { createMapSwitch, loadThree, migrateMapLayout } from './map-switch.js';
-import { buildGraph, inHighSec, outOfNullSec, jumpsFrom, pathBetween, systemInfo } from './galaxy.js';
+import { buildGraph, inHighSec, outOfNullSec, jumpsFrom, pathBetween, systemInfo, ZARZAKH, passesZarzakh } from './galaxy.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
 import { shortcutsOn, isJSpace } from './wormholes.js';
 import { isNpcStation } from './market-merge.js';
@@ -36,7 +36,7 @@ const OLD_DEFAULT_ITEMS = [
 const JUMP_TTL = 24 * 3600_000;
 
 const DEFAULTS = {
-  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, maxJumps: '', graphItem: 'all', showAll: false,
+  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, maxJumps: '', zarzakhToll: '', graphItem: 'all', showAll: false,
   view: 'map', mapLayout: 'space', mapV: 1, secColors: true,
   scan: { scope: 'hubs', cargo: '', ship: '', budget: '', minProfit: '5m', from: '', to: '', near: '0', maxMargin: '100', rank: 'ppj', q: '', hideShips: false, structures: false },
   trips: { start: 30000142, legs: '3', link: '3', minProfit: '1m', rank: 'perJump', hideShips: false, hideHubs: false, structures: false },
@@ -52,7 +52,7 @@ const hubIds = ['', ...HUBS.map(h => String(h.id))];
 const scanEnds = [...hubIds, 'hubs', 'offhub', 'me'];
 const URL_FIELDS = [
   ['flag', ['secure', 'nonull', 'shortest', 'insecure']], ['sellMode', ['instant', 'relist']], ['metric', ['unit', 'depth']],
-  ['taxPct', v => v >= 0 && v <= 100], ['maxJumps', v => v === '' || Number(v) > 0], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['space', '3d', '2d']], 'secColors',
+  ['taxPct', v => v >= 0 && v <= 100], ['maxJumps', v => v === '' || Number(v) > 0], 'zarzakhToll', 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['space', '3d', '2d']], 'secColors',
   ['scan.scope', ['hubs', 'all']], 'scan.cargo', ['scan.ship', v => v === '' || Number(v) > 0], 'scan.budget', 'scan.minProfit',
   ['scan.from', scanEnds], ['scan.to', scanEnds], ['scan.near', v => v === '' || Number(v) >= 0], 'scan.maxMargin',
   ['scan.rank', ['ppj', 'profit', 'iskm3', 'margin']], 'scan.q', 'scan.hideShips', 'scan.structures',
@@ -119,9 +119,19 @@ async function fetchItem(item) {
   }
 }
 
+// Hub pairs ESI's /route is asked about. It doesn't know Zarzakh's gate lock (galaxy.js ZARZAKH),
+// so pairs with Zarzakh come from the local map only (hubPath).
+function esiPairs() {
+  const out = [];
+  for (let i = 0; i < HUBS.length; i++) for (let j = i + 1; j < HUBS.length; j++) {
+    if (HUBS[i].id !== ZARZAKH && HUBS[j].id !== ZARZAKH) out.push([HUBS[i], HUBS[j]]);
+  }
+  return out;
+}
+
 function jumpsFresh(flag) {
   const c = jumpCache[flag];
-  return c && c.expiresAt > Date.now() && Object.keys(c.pairs).length === HUBS.length * (HUBS.length - 1) / 2;
+  return c && c.expiresAt > Date.now() && esiPairs().every(([a, b]) => c.pairs[pairKey(a.id, b.id)]);
 }
 
 async function fetchJumps(flag) {
@@ -129,9 +139,8 @@ async function fetchJumps(flag) {
   const c = jumpCache[flag] ||= { pairs: {}, expiresAt: 0 };
   const failures = [];
   let expiresAt = Date.now() + JUMP_TTL;
-  const tasks = [];
-  for (let i = 0; i < HUBS.length; i++) for (let j = i + 1; j < HUBS.length; j++) {
-    const a = HUBS[i], b = HUBS[j];
+  const tasks = [], pairs = esiPairs();
+  for (const [a, b] of pairs) {
     // ESI has no "avoid null-sec" flag: hub paths for it come from the local map (hubPath).
     tasks.push(getJson(`/api/esi/route/${a.id}/${b.id}/?flag=${flag === 'nonull' ? 'secure' : flag}`)
       .then(({ data, headers }) => {
@@ -145,7 +154,7 @@ async function fetchJumps(flag) {
   // Only mark fresh if every pair resolved; otherwise retry missing pairs next refresh.
   c.expiresAt = failures.length ? 0 : expiresAt;
   saveJumps();
-  if (failures.length) throw new Error(`Route lookup failed (${failures.length}/10)`);
+  if (failures.length) throw new Error(`Route lookup failed (${failures.length}/${pairs.length})`);
 }
 
 async function refresh() {
@@ -176,12 +185,17 @@ let drawToggle = () => {};
 const sc = createShortcuts({ onChange: () => { drawToggle(); trip.memo = null; scan.memo = null; render(); renderTrips(); } });
 const travel = () => sc.travelGraph() || trip.graph;
 
-// System path between two hubs (lower hub ID first), or null until ESI answers.
+// System path between two hubs (lower hub ID first), or null until ESI answers. Zarzakh's pairs,
+// and any ESI path that would fly through it, come from the local map instead. Zarzakh is outside
+// high-sec, so on Safest its path is worked out from its end: the fewest jumps out to high-sec, then
+// high-sec only (galaxy.js jumpsFrom).
 function hubPath(k) {
-  const esi = jumpCache[settings.flag]?.pairs[k] || null;
-  if (!trip.graph || (!sc.inUse() && settings.flag !== 'nonull')) return esi;
   const [a, b] = k.split('-').map(Number);
-  const local = pathBetween(travel(), a, b, tripFlag());
+  const zarzakh = a === ZARZAKH || b === ZARZAKH;
+  const cached = zarzakh ? null : jumpCache[settings.flag]?.pairs[k] || null;
+  const esi = passesZarzakh(cached) ? null : cached;
+  if (!trip.graph || (!sc.inUse() && settings.flag !== 'nonull' && !zarzakh && esi === cached)) return esi;
+  const local = b === ZARZAKH ? pathBetween(travel(), b, a, tripFlag())?.reverse() ?? null : pathBetween(travel(), a, b, tripFlag());
   return local && (!esi || local.length < esi.length) ? local : esi;
 }
 
@@ -222,24 +236,39 @@ function jumpCap() {
   return settings.maxJumps !== '' && n > 0 ? n : Infinity;
 }
 
+// Zarzakh's entry toll (arbitrage.js ZARZAKH_TOLL), taken off every haul and trip that goes in
+// there: your own figure, else the default.
+function zarzakhToll() {
+  return parseAmount(settings.zarzakhToll) ?? ZARZAKH_TOLL;
+}
+// Whether the ship in the Ship field (or the one you're flying) can't take the gates into Zarzakh.
+function shipBarred() {
+  const info = ship.typeId && trip.catalog?.[ship.typeId];
+  return !!info && barredFromZarzakh(info[1]);
+}
+// After a jump count whose haul goes into Zarzakh.
+function tollMark(paid) {
+  return paid ? `<span class="toll-mark" title="Goes into Zarzakh: ${formatIsk(paid)} ISK entry toll taken off the profit">⛩</span>` : '';
+}
+
 function metricOf(r) {
   return settings.metric === 'depth' && settings.sellMode === 'instant' ? r.depthPerJump : r.iskPerJump;
 }
 
 function allRoutes() {
-  const taxRate = (Number(settings.taxPct) || 0) / 100;
+  const taxRate = (Number(settings.taxPct) || 0) / 100, barred = shipBarred();
   return settings.items.flatMap(item => {
     const m = market[item.typeId];
     const routes = computeRoutes({
       item, books: m?.books || null, overrides: overrides.prices[item.typeId] || {},
-      jumps: jumpsFor, sellMode: settings.sellMode, taxRate,
+      jumps: jumpsFor, sellMode: settings.sellMode, taxRate, toll: zarzakhToll(),
     });
     const stale = m?.status === 'stale' || m?.status === 'cached';
     for (const r of routes) {
       r.stale = stale && !r.overridden;
       r.metric = metricOf(r);
     }
-    return routes.filter(r => !(r.jumps > jumpCap()));
+    return routes.filter(r => !(r.jumps > jumpCap()) && !(barred && (r.from.toll || r.to.toll)));
   });
 }
 
@@ -284,7 +313,7 @@ function renderStatus() {
 const SVGNS = 'http://www.w3.org/2000/svg';
 const G = { cx: 320, cy: 282, R: 212, nodeR: 38 };
 const nodePos = HUBS.map((h, i) => {
-  const a = (-90 + i * 72) * Math.PI / 180;
+  const a = (-90 + i * 360 / HUBS.length) * Math.PI / 180;
   return { hub: h, x: G.cx + G.R * Math.cos(a), y: G.cy + G.R * Math.sin(a) };
 });
 const posOf = Object.fromEntries(nodePos.map(p => [p.hub.id, p]));
@@ -730,7 +759,7 @@ function renderTable(routes) {
     <tr data-i="${i}" class="${r === topRow && r.metric > 0 ? 'top' : ''}">
       <td class="l">${esc(r.from.name)}<span class="arrow">→</span>${esc(r.to.name)}${r.stale ? '<span class="badge stale">STALE</span>' : ''}${r.overridden ? '<span class="badge ov">OVR</span>' : ''}</td>
       <td class="l">${esc(r.item.name)}${copyButton(r.item.name)}</td>
-      <td>${r.jumps == null ? '<span class="muted">?</span>' : `${r.jumps}${jumpsOverridden(r) ? '' : whMark(pathFor(r))}`}</td>
+      <td>${r.jumps == null ? '<span class="muted">?</span>' : `${r.jumps}${jumpsOverridden(r) ? '' : whMark(pathFor(r))}${tollMark(r.toll)}`}</td>
       <td>${n(r.buy)}</td>
       <td>${n(r.sell)}</td>
       <td>${n(r.spread)}</td>
@@ -872,7 +901,7 @@ function scanRows() {
   const r = all ? trip.result : scan.result;
   if (!r) return [];
   const f = settings.scan;
-  const memoKey = [all, r.finishedAt, JSON.stringify(f), settings.taxPct, settings.flag, settings.maxJumps, settings.trips.start, ship.typeId, ship.holds.length,
+  const memoKey = [all, r.finishedAt, JSON.stringify(f), settings.taxPct, settings.zarzakhToll, settings.flag, settings.maxJumps, settings.trips.start, ship.typeId, ship.holds.length,
     all ? '' : `${Object.keys(jumpCache[settings.flag]?.pairs || {}).length}${JSON.stringify(overrides.jumps)}`, sc.key()].join('|');
   if (scan.memo?.key === memoKey) return scan.memo.rows;
 
@@ -887,6 +916,7 @@ function scanRows() {
   const fromOk = endFilter(f.from, near), toOk = endFilter(f.to, near);
   // Buying near you: the flight to the pickup counts towards profit per jump.
   const approachFrom = f.from === 'me' && trip.graph ? tripDistFrom(settings.trips.start) : null;
+  const tollIsk = zarzakhToll(), barred = shipBarred();
   const room = new Map();   // typeId → capacityFor(…)
   const rows = [], groups = new Map();
   for (const c of r.candidates) {
@@ -899,6 +929,9 @@ function scanRows() {
     const [name, vol] = info;
     if (q && !name.toLowerCase().includes(q)) continue;
     if (f.hideShips && info[2] === SHIP_CATEGORY) continue;
+    const intoZarzakh = fs === ZARZAKH || ds === ZARZAKH;
+    if (intoZarzakh && barred) continue;
+    const toll = intoZarzakh ? tollIsk : 0;
     let cap = room.get(c.t);
     if (!cap) room.set(c.t, cap = capacityFor(ship.holds, maxVolume, info));
     const sum = summarizeSteps(c.s, { taxRate, unitVolume: vol, maxVolume: cap.m3, maxCost });
@@ -917,16 +950,17 @@ function scanRows() {
     // Every haul on a pickup → drop-off pair, whatever its own profit, for Single route, many items.
     const gk = `${fl}>${dl}`;
     let g = groups.get(gk);
-    if (!g) groups.set(gk, g = { key: gk, fl, fs, dl, ds, jumps, approach, hauls: [] });
+    if (!g) groups.set(gk, g = { key: gk, fl, fs, dl, ds, jumps, approach, toll, hauls: [] });
     g.hauls.push({ key: `${c.t}:${gk}`, t: c.t, name, vol, steps: c.s, pools: poolsFor(cap) });
-    if (sum.profit < minProfit) continue;
+    const profit = sum.profit - toll;
+    if (profit < minProfit) continue;
     const total = jumps == null ? null : jumps + (approach ?? 0);
     rows.push({
       key: `${c.t}:${fl}:${dl}`, typeId: c.t, name, vol, from: scanEnd(fl, fs), to: scanEnd(dl, ds), jumps, approach, stale,
       ranged: !!c.x, holds: sum.volume > maxVolume + 1e-6 ? cap.holds : [],
-      ...sum, margin,
-      ppj: total == null ? null : sum.profit / Math.max(1, total),
-      iskm3: sum.volume > 0 ? sum.profit / sum.volume : null,
+      ...sum, profit, toll, margin,
+      ppj: total == null ? null : profit / Math.max(1, total),
+      iskm3: sum.volume > 0 ? profit / sum.volume : null,
     });
   }
   const key = { ppj: r => r.ppj ?? -Infinity, profit: r => r.profit, iskm3: r => r.iskm3 ?? -Infinity, margin: r => r.margin }[f.rank] || (r => r.ppj ?? -Infinity);
@@ -959,14 +993,15 @@ function routeRows() {
   const routes = [];
   for (const g of m.groups) {
     const load = packRoute(g.hauls, { pools, taxRate, maxCost });
-    if (!load.items.length || load.profit < minProfit) continue;
+    const profit = load.profit - g.toll;
+    if (!load.items.length || profit < minProfit) continue;
     const total = g.jumps == null ? null : g.jumps + (g.approach ?? 0);
     routes.push({
-      ...load, key: g.key, jumps: g.jumps, approach: g.approach, stale: m.stale,
+      ...load, profit, toll: g.toll, key: g.key, jumps: g.jumps, approach: g.approach, stale: m.stale,
       from: scanEnd(g.fl, g.fs), to: scanEnd(g.dl, g.ds),
-      ppj: total == null ? null : load.profit / Math.max(1, total),
-      iskm3: load.volume > 0 ? load.profit / load.volume : null,
-      margin: load.cost ? load.profit / load.cost * 100 : 0,
+      ppj: total == null ? null : profit / Math.max(1, total),
+      iskm3: load.volume > 0 ? profit / load.volume : null,
+      margin: load.cost ? profit / load.cost * 100 : 0,
     });
   }
   const key = { ppj: r => r.ppj ?? -Infinity, profit: r => r.profit, iskm3: r => r.iskm3 ?? -Infinity, margin: r => r.margin }[f.rank] || (r => r.ppj ?? -Infinity);
@@ -1128,7 +1163,7 @@ function renderScanTable() {
     const gone = goneHaul(row.typeId, row.from.id, row.to.id, at);
     const jumpsCell = (row.jumps == null ? '<span class="muted">?</span>'
       : row.approach != null ? `<span title="${jumpsOf(row.approach)} from you to the pickup, then ${jumpsOf(row.jumps)} to the drop-off">${row.approach} + ${row.jumps}</span>`
-      : row.jumps) + (row.jumps == null ? '' : routeWhMark(row));
+      : row.jumps) + (row.jumps == null ? '' : routeWhMark(row) + tollMark(row.toll));
     const holds = row.holds.length
       ? `<small class="hold" title="Also uses the ${esc(row.holds.map(h => h.name.toLowerCase()).join(' and '))}">+ ${esc(row.holds.map(h => h.name).join(', '))}</small>` : '';
     return `
@@ -1191,7 +1226,7 @@ function renderLoads() {
   body.innerHTML = shown.map((rt, i) => {
     const dead = rt.items.filter(e => goneHaul(e.t, rt.from.id, rt.to.id, at));
     const names = rt.items.slice(0, 3).map(e => `<span class="nw ${dead.includes(e) ? 'gone-item' : ''}"><b>${esc(e.name)}</b>${copyButton(e.name)}</span>`).join(', ');
-    const jumps = rt.jumps == null ? '<span class="muted">?</span>' : `${rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps}${routeWhMark(rt)}`;
+    const jumps = rt.jumps == null ? '<span class="muted">?</span>' : `${rt.approach != null ? `${rt.approach} + ${rt.jumps}` : rt.jumps}${routeWhMark(rt)}${tollMark(rt.toll)}`;
     return `<tr data-key="${esc(rt.key)}" class="${i === 0 ? 'top' : ''} ${rt.key === ui.loadPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
       <td class="l">${loc(rt.from)}</td><td class="l">${loc(rt.to)}</td><td class="jumps">${jumps}${routeStrip(rowPath(rt)) || ''}</td>
@@ -1615,7 +1650,9 @@ async function tripStartScan() {
 function safeEnds(from, to) {
   if (!trip.graph) return true;
   if (settings.flag === 'secure') return inHighSec(trip.graph, from) && inHighSec(trip.graph, to);
-  if (settings.flag === 'nonull') return outOfNullSec(trip.graph, from) && outOfNullSec(trip.graph, to);
+  // Zarzakh is null-sec on paper, but off two low-sec gates and never bubbled (galaxy.js ZARZAKH).
+  const outOfNull = (s) => s === ZARZAKH || outOfNullSec(trip.graph, s);
+  if (settings.flag === 'nonull') return outOfNull(from) && outOfNull(to);
   return true;
 }
 
@@ -1628,7 +1665,8 @@ function tripDistFrom(sys) {
 function tripList() {
   const r = trip.result, t = settings.trips;
   if (!r || !trip.graph || !trip.catalog) return [];
-  const key = [r.finishedAt, JSON.stringify(t), settings.taxPct, settings.scan.cargo, settings.scan.budget, settings.maxJumps, tripFlag(), sc.key()].join('|');
+  const barred = shipBarred(), toll = zarzakhToll();
+  const key = [r.finishedAt, JSON.stringify(t), settings.taxPct, settings.scan.cargo, settings.scan.budget, settings.maxJumps, tripFlag(), sc.key(), toll, barred].join('|');
   if (trip.memo?.key === key) return trip.memo.trips;
   const cached = tripCacheGet(key);
   if (cached) { trip.memo = { key, trips: cached }; return cached; }
@@ -1637,8 +1675,8 @@ function tripList() {
     catalog: trip.catalog, taxRate: (Number(settings.taxPct) || 0) / 100, maxVolume, maxCost,
     minProfit: parseAmount(t.minProfit) ?? 0, hideShips: t.hideShips, hideHubs: t.hideHubs, structures: t.structures, isNpcStation,
   });
-  const trips = planTrips(legs.filter(L => safeEnds(L.fs, L.ds)), {
-    start: t.start, distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3, maxVolume, maxCost,
+  const trips = planTrips(legs.filter(L => safeEnds(L.fs, L.ds) && !(barred && (L.fs === ZARZAKH || L.ds === ZARZAKH))), {
+    start: t.start, entryFee: (sys) => (sys === ZARZAKH ? toll : 0), distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3, maxVolume, maxCost,
     jumps: { indexOf: travel().indexOf, from: (sys) => jumpsFrom(travel(), sys, tripFlag()) },
     maxLink: t.link === '' ? 3 : Math.max(0, Number(t.link) || 0), rank: t.rank, maxJumps: jumpCap(),
   }).map(tr => ({ ...tr, key: tr.legs.map(l => `${l.t}:${l.f}:${l.d}`).join('>') }));
@@ -1786,7 +1824,7 @@ function renderTrips() {
       return `<tr data-key="${esc(tr.key)}" class="${tr.key === ui.tripPick ? 'picked' : ''}">
         <td class="l rank">${i + 1}</td>
         <td class="l route">${routeStar(tr)}${route}<span class="itm">${items}</span>${goneNote(dead.length, tr.legs.length, tr.profit - dead.reduce((p, l) => p + l.profit, 0), 'haul')}</td>
-        <td>${tr.legs.length}</td><td>${tr.jumps}${sc.inUse() ? whMark(tripGeometry(tr).path) : ''}</td><td title="Most cargo aboard at once">${cargoM3(tr.peakVolume)}</td><td>${formatIsk(tr.peakCost)}</td>
+        <td>${tr.legs.length}</td><td>${tr.jumps}${sc.inUse() ? whMark(tripGeometry(tr).path) : ''}${tollMark(tr.toll)}</td><td title="Most cargo aboard at once">${cargoM3(tr.peakVolume)}</td><td>${formatIsk(tr.peakCost)}</td>
         <td>${formatIsk(tr.profit)}</td><td class="metric">${formatIsk(tr.perJump)}</td></tr>`;
     }).join('') || '<tr class="empty"><td colspan="8">No chained routes with these settings — try more empty jumps between hauls, a lower min profit or a higher Max jumps.</td></tr>';
   }
@@ -1973,6 +2011,10 @@ bindSetting('taxPct', 'taxPct', { parse: v => Math.min(100, Math.max(0, Number(v
 bindSetting('maxJumps', 'maxJumps', {
   parse: v => { const n = Math.round(Number(v)); return String(v).trim() !== '' && n > 0 ? String(n) : ''; },
   after: () => { $('maxJumps').value = settings.maxJumps; },
+});
+bindSetting('zarzakhToll', 'zarzakhToll', {
+  parse: v => (String(v).trim() === '' || parseAmount(v) == null ? '' : String(v).trim()),
+  after: () => { $('zarzakhToll').value = settings.zarzakhToll; scan.memo = null; trip.memo = null; },
 });
 bindSetting('graphItem', 'graphItem');
 bindSetting('showAll', 'showAll');

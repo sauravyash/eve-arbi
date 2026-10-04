@@ -7,7 +7,18 @@ export const HUBS = [
   { id: 30002659, name: 'Dodixie', region: 'Sinq Laison', regionId: 10000032, stationId: 60011866, station: 'Dodixie IX - Moon 20 - Federation Navy Assembly Plant' },
   { id: 30002510, name: 'Rens',    region: 'Heimatar',    regionId: 10000030, stationId: 60004588, station: 'Rens VI - Moon 8 - Brutor Tribe Treasury' },
   { id: 30002053, name: 'Hek',     region: 'Metropolis',  regionId: 10000042, stationId: 60005686, station: 'Hek VIII - Moon 12 - Boundless Creation Factory' },
+  // A dead end on the gate map with a toll on the way in (galaxy.js ZARZAKH, ZARZAKH_TOLL below).
+  { id: 30100000, name: 'Zarzakh', region: 'Yasna Zakh', regionId: 10001000, stationId: 60015187, station: 'Zarzakh - Deathless Custodians - The Fulcrum', toll: true },
 ];
+
+// ISK the Deathless charge each time you take a stargate into Zarzakh. It goes by the ship's mass,
+// from about 10k ISK for a frigate up to ~100m for the biggest hulls (pirate-enlisted pilots pay
+// nothing), so this is a hauler-sized default; pages that rank hauls let you set your own.
+export const ZARZAKH_TOLL = 1_000_000;
+
+// Capital hulls (packaged 1,000,000 m³ and up: freighters, jump freighters, carriers, …) can't take
+// the gates into Zarzakh; the Orca (500,000 m³) can.
+export const barredFromZarzakh = (packagedM3) => packagedM3 >= 1_000_000;
 
 // EVE's base sales tax. The Accounting skill cuts it by 11% a level (3.375% at level V); every
 // page's Sales tax % starts here and can be set to your own rate.
@@ -109,8 +120,9 @@ function stepsUsed(steps, units) {
  * @param {function} p.jumps    (fromId, toId) => number|null
  * @param {'instant'|'relist'} p.sellMode  instant = dump into buy orders at B; relist = match lowest sell at B
  * @param {number} p.taxRate    fraction deducted from sale revenue
+ * @param {number} p.toll       ISK to get into a hub with `toll` (Zarzakh), taken off the depth profit
  */
-export function computeRoutes({ item, books, overrides = {}, jumps, sellMode = 'instant', taxRate = 0, hubs = HUBS }) {
+export function computeRoutes({ item, books, overrides = {}, jumps, sellMode = 'instant', taxRate = 0, toll = 0, hubs = HUBS }) {
   const routes = [];
   for (const from of hubs) {
     for (const to of hubs) {
@@ -126,7 +138,7 @@ export function computeRoutes({ item, books, overrides = {}, jumps, sellMode = '
       const j = jumps(from.id, to.id);
 
       const r = { item, from, to, buy, sell, jumps: j, overridden, spread: null, iskPerJump: null,
-                  units: null, depthProfit: null, depthPerJump: null, status: 'ok' };
+                  units: null, depthProfit: null, depthPerJump: null, status: 'ok', toll: from.toll || to.toll ? toll : 0 };
 
       if (buy == null || sell == null) {
         // Books loaded but a side is empty → no market; no books at all → unknown.
@@ -135,7 +147,7 @@ export function computeRoutes({ item, books, overrides = {}, jumps, sellMode = '
         r.spread = sell * (1 - taxRate) - buy;
         if (sellMode === 'instant' && !overridden && bookA && bookB) {
           const d = matchDepth(bookA.asks, bookB.bids, taxRate);
-          r.units = d.units; r.depthProfit = d.profit;
+          r.units = d.units; r.depthProfit = d.units ? d.profit - r.toll : d.profit;   // no haul, no trip in
         }
         if (j == null) r.status = 'unknown';
         else {

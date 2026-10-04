@@ -5,8 +5,11 @@
 // of systems to avoid. A stack of waypoints is flown leg by leg, each leg with its own preference if
 // you set one, and the waypoints between the first and (optionally) the last can be put in the order
 // that flies fewest jumps (optimizeOrder).
+//
+// Zarzakh (galaxy.js ZARZAKH) locks you to the gate you came in by, so routes never pass through
+// it, and a stack that stops there leaves by the same gate it arrived through.
 
-import { isHighSec, isNullSec } from './galaxy.js';
+import { isHighSec, isNullSec, ZARZAKH, zarzakhEntries } from './galaxy.js';
 import { isJSpace } from './wormholes.js';
 
 export const FLAGS = ['secure', 'nonull', 'shortest'];
@@ -20,6 +23,7 @@ function allowedFn(g, { flag = 'shortest', avoid, passJSpace = true }) {
   return (i) => {
     if (avoid?.has(g.id[i])) return false;
     if (!ok) return true;
+    if (flag === 'nonull' && i === g.noTransit) return true;   // off low-sec, and no bubbles
     return passJSpace && inJSpace(g, i) ? true : ok(g.sec[i]);
   };
 }
@@ -27,7 +31,9 @@ function allowedFn(g, { flag = 'shortest', avoid, passJSpace = true }) {
 /**
  * Breadth-first from `a`: jumps to every system (-1 = unreachable) and the system each was reached
  * from, both indexed like g.id. The start is always allowed; so is `b` when given, so a route can
- * end in a system the preference or avoid list would otherwise skip.
+ * end in a system the preference or avoid list would otherwise skip. Zarzakh is a dead end unless
+ * you start there; `opts.exitVia` (a system ID) is the only gate out of it when you do. With
+ * `opts.noZarzakh` (a capital or freighter: its gates won't take them) it is never entered at all.
  */
 export function searchFrom(g, a, opts = {}, b = null) {
   const dist = new Int32Array(g.n).fill(-1), prev = new Int32Array(g.n).fill(-1);
@@ -35,14 +41,18 @@ export function searchFrom(g, a, opts = {}, b = null) {
   if (from == null) return { dist, prev };
   const end = b == null ? -1 : g.indexOf.get(b) ?? -1;
   const ok = allowedFn(g, opts);
+  const lock = from === g.noTransit && opts.exitVia != null ? g.indexOf.get(opts.exitVia) ?? -1 : -1;
   const q = new Uint32Array(g.n);
   let head = 0, tail = 0;
   q[tail++] = from; dist[from] = 0;
   while (head < tail) {
     const v = q[head++];
     if (v === end) break;
+    if (v === g.noTransit && v !== from) continue;
     for (let k = g.start[v]; k < g.start[v + 1]; k++) {
       const w = g.adj[k];
+      if (v === from && lock >= 0 && w !== lock) continue;
+      if (w === g.noTransit && opts.noZarzakh) continue;
       if (dist[w] !== -1 || (w !== end && !ok(w))) continue;
       dist[w] = dist[v] + 1; prev[w] = v;
       q[tail++] = w;
@@ -90,7 +100,9 @@ export function planRoute(g, stops, opts = {}) {
   let jumps = 0, broken = 0;
   for (let k = 1; k < stops.length; k++) {
     const from = stops[k - 1].id, to = stops[k].id, flag = stops[k].flag || opts.flag || 'shortest';
-    const r = findPath(g, from, to, { ...opts, flag });
+    // Arrived in Zarzakh: out by the gate you came in through.
+    const exitVia = from === ZARZAKH && path.length > 1 && path[path.length - 1] === ZARZAKH ? path[path.length - 2] : null;
+    const r = findPath(g, from, to, { ...opts, flag, exitVia });
     legs.push({ from, to, flag, path: r?.path ?? null, jumps: r?.jumps ?? null, fallback: r?.fallback ?? null });
     if (!r) { broken++; continue; }
     jumps += r.jumps;
@@ -237,10 +249,12 @@ export function usableLinks(links, { ship = '', minLeftMs = 0, now = Date.now(),
 /**
  * What a path flies through.
  * @returns {{jumps, high, low, null, jspace, wormholes, regions: string[], minSec: number|null, lowEntries: number}}
- *   counts are systems after the start; lowEntries counts steps from high-sec into low-, null- or J-space
+ *   counts are systems after the start; lowEntries counts steps from high-sec into low-, null- or J-space;
+ *   zarzakh counts the times it goes into Zarzakh (a toll each)
  */
 export function routeSummary(g, path, isShortcut = () => false) {
-  const out = { jumps: Math.max(0, (path?.length || 0) - 1), high: 0, low: 0, null: 0, jspace: 0, wormholes: 0, regions: [], minSec: null, lowEntries: 0 };
+  const out = { jumps: Math.max(0, (path?.length || 0) - 1), high: 0, low: 0, null: 0, jspace: 0, wormholes: 0, regions: [], minSec: null, lowEntries: 0,
+    zarzakh: zarzakhEntries(path) };
   if (!path?.length) return out;
   let wasHigh = null;
   path.forEach((id, k) => {

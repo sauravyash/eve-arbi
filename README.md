@@ -1,7 +1,7 @@
 # EVE Hub Arbitrage
 
 A local web app that shows live hub-to-hub hauling arbitrage between Jita, Amarr, Dodixie,
-Rens and Hek on a star map of New Eden. It can scan the whole market to rank the best items to
+Rens, Hek and Zarzakh on a star map of New Eden. It can scan the whole market to rank the best items to
 haul, and keeps a sortable route table for your watchlist.
 
 It is read-only. It uses public market data, never touches the EVE client and places no orders.
@@ -153,11 +153,11 @@ How it's kept safe (`sso.js`):
   - **Sell at B** = best buy order a seller docked at B's station can fill: orders in that
     station, non-`STATION`-range orders in the system, or `REGION`-range orders in the region.
     In *relist* mode it's the lowest sell order at B instead.
-- **Whole-market scan** (`public/js/scan/hub-scanner.js`, `POST /api/scan`) pulls every order in the five hub regions
+- **Whole-market scan** (`public/js/scan/hub-scanner.js`, `POST /api/scan`) pulls every order in the six hub regions
   from ESI's bulk `/markets/{region}/orders/` endpoint. That's about 900 pages (~1 minute),
   well inside ESI's market-order rate limit of 12,000 requests per 15 minutes. EVE Tycoon's
   per-item endpoint would need ~19,500 requests for the same coverage.
-  - For every item and each of the 20 hub→hub directions, it walks the hub station's sell
+  - For every item and each of the 30 hub→hub directions, it walks the hub station's sell
     orders against the destination's reachable buy orders. It keeps every haul with at least
     100k ISK profit, along with its fill steps.
   - The browser then applies sales tax, cargo m³ (packaged volumes) and budget limits, and ranks
@@ -203,6 +203,26 @@ How it's kept safe (`sso.js`):
   - *Depth profit* walks A's asks against B's bids and sums every still-profitable unit.
     *Profit/jump* is that total divided by jumps. It's more useful when comparing cheap bulk
     items with expensive ones.
+
+### Zarzakh
+
+Zarzakh (Yasna Zakh) is a trade hub with its own travel rules, and every route in the app follows them
+(`public/js/galaxy.js` `ZARZAKH`):
+
+- **Gate lock.** Taking a stargate in locks you to that gate for six hours, so routes may start or end
+  in Zarzakh but never pass through it. In the route planner a waypoint there is left by the gate you
+  arrived through. ESI's `/route` doesn't know this, so hub pairs with Zarzakh (and any ESI path that
+  would cross it) are worked out from the local map.
+- **Security.** It's null-sec on paper but sits off two low-sec gates (Turnur, Alsavoinon) and has no
+  bubbles, so *High + low-sec* routes may end there. On *Safest*, its hub routes take the fewest jumps
+  out to high-sec and stay there.
+- **Entry toll.** Every way in costs a toll by ship mass (about 10k ISK for a frigate; pirate-enlisted
+  pilots pay nothing). Hub arbitrage takes **Zarzakh toll** (default 1m, `ZARZAKH_TOLL` in
+  `arbitrage.js`) off each haul's profit, and multi-stop trips pay it on each arrival. ⛩ marks a
+  route that goes in.
+- **No capitals.** Freighters, jump freighters and other capitals can't take its gates (the Orca can):
+  with one in the Ship field, Zarzakh hauls are left out, and *Capital* in the route planner never
+  goes there.
 
 ## Market watch (`/universe-scan.html`)
 

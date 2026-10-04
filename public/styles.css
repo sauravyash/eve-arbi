@@ -224,6 +224,7 @@ label.check input { accent-color: var(--teal); }
 /* Reached through a wormhole shortcut instead of a stargate. */
 .route-strip i.wh { border-radius: 50%; }
 .wh-mark { color: var(--violet); margin-left: 3px; font-family: system-ui, sans-serif; cursor: help; }
+.toll-mark { color: var(--amber); margin-left: 3px; font-family: system-ui, sans-serif; cursor: help; }
 .route-tip {
   position: fixed; pointer-events: none; z-index: 50; white-space: nowrap;
   background: var(--tip-bg); color: var(--muted); border: 1px solid var(--line-2); border-radius: 6px;

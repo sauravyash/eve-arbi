@@ -40,9 +40,13 @@ export function buildRangeContext(g, stations) {
   const dist = (fromSys) => (idx(fromSys) == null ? null : jumpsFrom(g, fromSys, 'shortest'));
   const regionOf = (sys) => { const i = idx(sys); return i == null ? null : g.regionId[i]; };
   const hasStation = (i) => stationIn.has(g.id[i]);
-  // Step one jump along a shortest path downhill in `d` (d[next] = d[cur] - 1).
+  // Step one jump along a shortest path downhill in `d` (d[next] = d[cur] - 1), never through
+  // Zarzakh (galaxy.js ZARZAKH) unless that's where the path ends.
   const downhill = (i, d) => {
-    for (let k = g.start[i]; k < g.start[i + 1]; k++) if (d[g.adj[k]] === d[i] - 1) return g.adj[k];
+    for (let k = g.start[i]; k < g.start[i + 1]; k++) {
+      const w = g.adj[k];
+      if (d[w] === d[i] - 1 && (w !== g.noTransit || d[w] === 0)) return w;
+    }
     return -1;
   };
 
@@ -71,6 +75,7 @@ export function buildRangeContext(g, stations) {
       for (let i = 0; i < g.n; i++) if (g.regionId[i] === regionId && hasStation(i)) { d[i] = 0; q[tail++] = i; }
       while (head < tail) {
         const v = q[head++];
+        if (v === g.noTransit && d[v] > 0) continue;
         for (let k = g.start[v]; k < g.start[v + 1]; k++) {
           const w = g.adj[k];
           if (d[w] === -1) { d[w] = d[v] + 1; q[tail++] = w; }
