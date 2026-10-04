@@ -61,6 +61,10 @@ export function evaluateLegs(result, { catalog = {}, taxRate = 0, maxVolume = In
   return legs;
 }
 
+// Visiting orders of 2 or 3 drop-offs; on a tie the first wins.
+const PERMS2 = [[0, 1], [1, 0]];
+const PERMS3 = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+
 // Bounded min-heap on .score: keeps the `cap` best records pushed into it.
 function topK(cap) {
   const h = [];
@@ -110,11 +114,13 @@ function topK(cap) {
  * @param {'perJump'|'profit'} [o.rank='perJump']
  * @param {number} [o.maxReuse=2]   listed trips a single haul may appear in
  * @param {(sys: number) => number} [o.entryFee]  ISK to fly into a system (Zarzakh's toll), paid on each arrival from elsewhere
+ * @param {{sys: number, gates: number[]}} [o.lockIn]  a system you leave by the gate you came in through (Zarzakh's
+ *   gate lock, galaxy.js ZARZAKH), with its gates (neighbouring systems) in the order galaxy.js pathBetween tries them
  * @returns {{legs, events, startJumps, jumps, profit, toll, peakCost, peakVolume, perJump}[]} trips with ≥ 2 legs, best first;
  *   events are the stops in flying order: {kind: 'buy'|'sell', leg (index into legs), hop (jumps from the previous event)}
  */
 export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink = 3, rank = 'perJump', maxVolume = Infinity, maxCost = Infinity,
-  maxJumps = Infinity, entryFee = () => 0, beam = 400, perPickup = 80, limit = 60, maxReuse = 2, spread = 4, keep = 16 } = {}) {
+  maxJumps = Infinity, entryFee = () => 0, lockIn = null, beam = 400, perPickup = 80, limit = 60, maxReuse = 2, spread = 4, keep = 16 } = {}) {
   // Every system a trip can visit gets a small local id; jumps between them are read from one
   // Int16Array row per system (-1: unreachable), built the first time a trip is there.
   const loc = new Map(), sysOf = [];
@@ -139,6 +145,9 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
       uv: L.units ? (L.volume || 0) / L.units : 0, buy: L.buy || L.cost / L.units, margin: L.sell - L.buy || Infinity,
     });
   });
+  // The gate-locked system, when a haul goes there, and its gates.
+  const lockK = lockIn && loc.has(lockIn.sys) ? loc.get(lockIn.sys) : -1;
+  const gateK = lockK < 0 ? [] : lockIn.gates.map(local);
   const pickK = Int32Array.from(byPick.keys());
   const P = pickK.length, K = sysOf.length;
   // Entry fee per local system; a hop of 0 stays put and pays nothing. `tourFee`: the fees of a selling tour.
@@ -165,18 +174,45 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
     r[k] = 0;
     return r;
   };
-  // Pickups ordered by jumps from a system (counting sort; unreachable ones left out).
-  const orders = new Array(K);
-  const pickupsBy = (k) => {
-    let o = orders[k];
-    if (o) return o;
+  // Gate lock: a trip from k comes in through the nearest gate (the first of them on a tie, the
+  // one pathBetween's path takes), and jumps out of the locked system are 1 + jumps from that gate.
+  const entryOf = new Int32Array(K).fill(-2);
+  const entry = (k) => {
+    if (entryOf[k] !== -2) return entryOf[k];
     const r = row(k);
+    let best = -1;
+    for (const gk of gateK) if (r[gk] >= 0 && (best < 0 || r[gk] < r[best])) best = gk;
+    return (entryOf[k] = best);
+  };
+  const viaRows = new Map();
+  // Jumps from k when the trip is there; `via` is the gate it must leave the locked system by (-1: any).
+  const rowAt = (k, via) => {
+    if (k !== lockK || via < 0) return row(k);
+    let r = viaRows.get(via);
+    if (r) return r;
+    const rv = row(via);
+    r = Int16Array.from(rv, j => (j < 0 ? -1 : j + 1));
+    r[lockK] = 0;
+    viaRows.set(via, r);
+    return r;
+  };
+  // The exit gate after flying `hop` jumps from state s to `to`.
+  const viaOn = (s, to, hop) => (to !== lockK ? -1 : hop > 0 ? entry(s.at) : s.via);
+
+  // Pickups ordered by jumps from a system (counting sort; unreachable ones left out).
+  const orders = new Map();
+  const pickupsBy = (k, via) => {
+    const key = k * (K + 1) + via + 1;
+    let o = orders.get(key);
+    if (o) return o;
+    const r = rowAt(k, via);
     let max = 0;
     for (let p = 0; p < P; p++) if (r[pickK[p]] > max) max = r[pickK[p]];
     const count = new Uint32Array(max + 2);
     for (let p = 0; p < P; p++) { const j = r[pickK[p]]; if (j >= 0) count[j + 1]++; }
     for (let j = 1; j < count.length; j++) count[j] += count[j - 1];
-    o = orders[k] = new Uint32Array(count[max + 1]);
+    o = new Uint32Array(count[max + 1]);
+    orders.set(key, o);
     for (let p = 0; p < P; p++) { const j = r[pickK[p]]; if (j >= 0) o[count[j]++] = p; }
     return o;
   };
@@ -185,7 +221,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
   const scoreOf = (gain, jumps) => (perJump ? gain / Math.max(1, jumps) : gain);
 
   // Trip states link back to their parent; `evs` are the buys and sales on arriving at `at`.
-  const root = { at: startK, jumps: 0, bank: 0, pend: 0, vol: 0, cost: 0, peakCost: 0, peakVol: 0, n: 0, open: [], used: [], prev: null, evs: [], hop: 0, fees: 0 };
+  const root = { at: startK, jumps: 0, bank: 0, pend: 0, vol: 0, cost: 0, peakCost: 0, peakVol: 0, n: 0, open: [], used: [], prev: null, evs: [], hop: 0, fees: 0, via: -1 };
   const found = [];
 
   // Arrive at `to` (hop jumps on), sell what is bound there, then buy H (if any) and sell it
@@ -208,43 +244,40 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
       if (H.dk === to) { evs.push({ kind: 'sell', H }); bank += H.profit; }
       else { open.push(H); pend += H.profit; vol += H.volume; cost += H.cost; }
     }
-    return { at: to, jumps: s.jumps + hop, bank, pend, vol, cost, peakCost, peakVol, n, open, used, prev: s, evs, hop, fees: s.fees + paid };
+    return { at: to, jumps: s.jumps + hop, bank, pend, vol, cost, peakCost, peakVol, n, open, used, prev: s, evs, hop, fees: s.fees + paid,
+      via: viaOn(s, to, hop) };
   };
 
-  // Fewest jumps to sell everything bound for `drops` (distinct systems) starting at `from`,
-  // with the drop-offs in that order: exact for up to 3 (jumps are symmetric), nearest first
-  // beyond. null: something can't be reached.
-  const tour = (from, drops) => {
+  // Fewest jumps to sell everything bound for `drops` (distinct systems) starting at `from` (left
+  // by gate `via` when that's the locked system), with the drop-offs in that order: exact for up to
+  // 3, nearest first beyond. null: something can't be reached.
+  const leave = (prev, x) => rowAt(x, x === lockK ? entry(prev) : -1);   // from drop-off x, reached from prev
+  const tour = (from, drops, via = -1) => {
     const k = drops.length;
     if (!k) return { jumps: 0, order: drops };
-    const d = row(from);
+    const d = rowAt(from, via);
     if (k === 1) return d[drops[0]] < 0 ? null : { jumps: d[drops[0]], order: drops };
     if (k <= 3) {
-      const [x, y, z] = drops, rx = row(x), dxy = rx[y];
-      if (dxy < 0) return null;
-      const vx = d[x], vy = d[y];
-      if (k === 2) {
-        if (vx < 0 && vy < 0) return null;
-        return vy < 0 || (vx >= 0 && vx <= vy) ? { jumps: vx + dxy, order: [x, y] } : { jumps: vy + dxy, order: [y, x] };
-      }
-      const dxz = rx[z], dyz = row(y)[z], vz = d[z];
-      if (dxz < 0 || dyz < 0) return null;
       let best = Infinity, order = null;
-      // Visit one end of the path first; the middle one is the drop-off not at either end.
-      const tryPath = (v, a, b, c, inner) => { if (v >= 0 && v + inner < best) { best = v + inner; order = [a, b, c]; } };
-      tryPath(vx, x, y, z, dxy + dyz); tryPath(vx, x, z, y, dxz + dyz);
-      tryPath(vy, y, x, z, dxy + dxz); tryPath(vy, y, z, x, dyz + dxz);
-      tryPath(vz, z, x, y, dxz + dxy); tryPath(vz, z, y, x, dyz + dxy);
+      for (const perm of k === 2 ? PERMS2 : PERMS3) {
+        let at = from, prev = -1, total = 0;
+        for (let i = 0; i < k && total < best; i++) {
+          const x = drops[perm[i]], j = i ? leave(prev, at)[x] : d[x];
+          if (j < 0) { total = Infinity; break; }
+          total += j; prev = at; at = x;
+        }
+        if (total < best) { best = total; order = perm.map(i => drops[i]); }
+      }
       return order && { jumps: best, order };
     }
     const left = [...drops], order = [];
-    let at = from, total = 0;
+    let at = from, prev = -1, total = 0;
     while (left.length) {
-      const da = row(at);
+      const da = prev < 0 ? d : leave(prev, at);
       let best = -1, bj = Infinity;
       left.forEach((x, m) => { const j = da[x]; if (j >= 0 && j < bj) { bj = j; best = m; } });
       if (best < 0) return null;
-      total += bj; at = left[best]; order.push(at); left.splice(best, 1);
+      total += bj; prev = at; at = left[best]; order.push(at); left.splice(best, 1);
     }
     return { jumps: total, order };
   };
@@ -261,7 +294,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
   for (let level = 0; level < 2 * maxLegs && frontier.length; level++) {
     const heap = topK(beam * 4);
     for (const s of frontier) {
-      const here = s.at, fromHere = row(here);
+      const here = s.at, fromHere = rowAt(here, s.via);
       const toDrop = s.open.map(o => fromHere[o.dk]);
       const gain0 = s.bank + s.pend;
 
@@ -269,7 +302,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
       for (const D of dropsOf(s.open)) {
         const hop = fromHere[D];
         if (hop < 0) continue;
-        const rest = tour(D, dropsOf(s.open, D));
+        const rest = tour(D, dropsOf(s.open, D), viaOn(s, D, hop));
         if (!rest) continue; // something aboard could never be sold from there
         if (s.jumps + hop + rest.jumps > maxJumps) continue;
         heap.push({ s, to: D, hop, H: null, rest, score: scoreOf(gain0 - feeOf(D, hop) - tourFee(rest), s.jumps + hop + rest.jumps) });
@@ -281,7 +314,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
       // at most `maxReuse` trips, so only the best few can ever be shown (the rest of `keep` is
       // slack for trips whose new haul is already listed often enough).
       const mine = topK(keep);
-      const order = pickupsBy(here), usedTypes = s.used.map(u => u.t);
+      const order = pickupsBy(here, s.via), usedTypes = s.used.map(u => u.t);
       // A pickup a jumps away costs at least 2·(a − jumps to a drop-off) extra, so nothing past
       // the farthest drop-off + maxLink/2 can be on the way.
       const dropRows = s.open.map(o => row(o.dk));
@@ -333,7 +366,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
           if (scoreOf(fee0 + most, s.jumps + a + Math.max(far0, jl)) <= floor) { took++; continue; }
           let rest = tours.get(H0.dk);
           if (rest === undefined) {
-            tours.set(H0.dk, rest = tour(sys, aboard.includes(H0.dk) || H0.dk === sys ? aboard : [...aboard, H0.dk]));
+            tours.set(H0.dk, rest = tour(sys, aboard.includes(H0.dk) || H0.dk === sys ? aboard : [...aboard, H0.dk], viaOn(s, sys, a)));
           }
           if (!rest) continue;
           const total = s.jumps + a + rest.jumps;
@@ -361,7 +394,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
       if (r.H && (inBeam.get(r.H.i) || 0) >= spread) continue;
       if (r.s.used.some(u => (inBeam.get(u.i) || 0) >= spread)) continue;
       const st = build(r.s, r.to, r.hop, r.H, r.fit);
-      const key = `${st.at}|${st.used.map(u => u.i).sort((x, y) => x - y).join(',')}|${st.open.map(u => u.i).sort((x, y) => x - y).join(',')}`;
+      const key = `${st.at}|${st.via}|${st.used.map(u => u.i).sort((x, y) => x - y).join(',')}|${st.open.map(u => u.i).sort((x, y) => x - y).join(',')}`;
       if (seenState.has(key)) continue;
       seenState.add(key);
       for (const u of st.used) inBeam.set(u.i, (inBeam.get(u.i) || 0) + 1);
@@ -373,7 +406,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
   // Materialise a finished trip: the move, then the sales in tour order.
   const finish = (r) => {
     let st = build(r.s, r.to, r.hop, r.H, r.fit);
-    for (const D of r.rest.order) st = build(st, D, row(st.at)[D], null);
+    for (const D of r.rest.order) st = build(st, D, rowAt(st.at, st.via)[D], null);
     return st;
   };
 
