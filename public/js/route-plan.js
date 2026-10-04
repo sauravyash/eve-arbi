@@ -190,6 +190,10 @@ export function orderCost(d, order, roundTrip = false) {
 // EVE Scout's ship size names, smallest first; a hole lets through every size up to its own.
 export const SHIP_SIZES = ['small', 'medium', 'large', 'xlarge', 'capital'];
 const HOUR = 3_600_000;
+// Jump bridges (Ansiblex) take every subcapital, freighters and jump freighters included, but no capital.
+export const BRIDGE_SHIPS = 'xlarge';
+// The farthest an Ansiblex can reach.
+export const BRIDGE_RANGE_LY = 5;
 const EOL_HOURS = 4;   // a hole at end of life has under 4 h left
 
 /**
@@ -197,6 +201,7 @@ const EOL_HOURS = 4;   // a hole at end of life has under 4 h left
  * from its type code (whInfo), else EVE Scout's "… medium ships" note.
  */
 export function linkShipSize(l, whInfo = () => null) {
+  if (l?.kind === 'bridge') return BRIDGE_SHIPS;
   const t = l?.type ? whInfo(l.type)?.ships : null;
   if (t) return t;
   const m = /\b(small|medium|large|xlarge|capital) ships\b/i.exec(l?.note || '');
@@ -278,6 +283,41 @@ export function parseWaypointText(text) {
     if (name) out.push({ name });
   }
   return out;
+}
+
+// "1DQ1-A » 8QT-H4", "1DQ1-A <-> 8QT-H4", "1DQ1-A → 8QT-H4", tab or comma separated, …
+const BRIDGE_SEP = /\s*(?:»|«|<->|<=>|<-->|↔|⇄|-->|->|→|=>|\t|,)\s*/;
+
+/**
+ * Jump bridges in pasted text, one per line: two systems joined by », an arrow, a tab or a comma.
+ * Structure names work too ("1DQ1-A » 8QT-H4 - Imperium Bridge", "1DQ1-A @ 1-1 » 8QT-H4 @ 3-2"):
+ * anything after " - " or " @ " on either side is dropped, and a name after " - " becomes the note.
+ * @returns {{a: string, b: string, note?: string}[]}  system names, as typed
+ */
+export function parseBridgeText(text) {
+  const out = [];
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const parts = raw.trim().split(BRIDGE_SEP).filter(Boolean);
+    if (parts.length < 2) continue;
+    const clean = (p) => p.replace(/\s+@\s.*$/, '').replace(/\s+-\s.*$/, '').trim();
+    const a = clean(parts[0]), b = clean(parts[1]);
+    if (!a || !b || a.toLowerCase() === b.toLowerCase()) continue;
+    const note = / - (.+)$/.exec(parts[1])?.[1]?.trim();
+    out.push(note ? { a, b, note } : { a, b });
+  }
+  return out;
+}
+
+/** Bridges as text for sharing, one "A » B" per line (what parseBridgeText reads). */
+export function bridgeText(bridges, name) {
+  return bridges.map(b => `${name(b.a)} » ${name(b.b)}${b.note ? ` - ${b.note}` : ''}`).join('\n');
+}
+
+/** Light years between two systems of universe.json (by index), or null without coordinates. */
+export function lyBetween(systems, i, j) {
+  const { x, y, z3 } = systems || {};
+  if (!x || i == null || j == null) return null;
+  return Math.hypot(x[i] - x[j], y[i] - y[j], (z3?.[i] ?? 0) - (z3?.[j] ?? 0));
 }
 
 /** In-game chat links for systems ("<url=showinfo:5//30000142>Jita</url>"), for chat, mails and notepads. */

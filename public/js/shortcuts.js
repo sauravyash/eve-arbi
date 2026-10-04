@@ -7,6 +7,8 @@
 //   wanderer  — a Wanderer mapper's connections, with its map API token (through /api/wanderer, since
 //               Wanderer sends no CORS headers)
 //   manual    — pairs you add on the Routes page, optionally with the hole's type
+//   bridge    — jump bridges (Ansiblex) you add on the Route planner page. They don't expire, and they
+//               have their own switch (settings.bridges): they count even with wormholes switched off.
 //
 // Wormhole types (what a Q063 leads to, how long it lives, what fits through) come from
 // public/wormhole-types.json, a snapshot of ellatha.com's wormhole database (scripts/build-wormholes.js).
@@ -21,10 +23,10 @@ import { readAllTrails, TRAIL_PREFIX } from './me.js';
 const HOUR = 3_600_000;
 const EVE_SCOUT = 'https://api.eve-scout.com/v2/public/signatures';
 const SCOUT_TTL = 5 * 60_000, WANDERER_TTL = 2 * 60_000;
-const KEYS = { settings: 'wh.settings', links: 'wh.links', off: 'wh.off', names: 'wh.sysNames' };
+const KEYS = { settings: 'wh.settings', links: 'wh.links', off: 'wh.off', names: 'wh.sysNames', bridges: 'wh.bridges' };
 
-export const WH_DEFAULTS = { on: true, trail: true, scout: false, hours: 16, wanderer: { on: false, url: 'https://wanderer.ltd', map: '', token: '' } };
-export const SOURCE_LABEL = { trail: 'Your jump', evescout: 'EVE Scout', wanderer: 'Wanderer', manual: 'Added by you' };
+export const WH_DEFAULTS = { on: true, bridges: true, trail: true, scout: false, hours: 16, wanderer: { on: false, url: 'https://wanderer.ltd', map: '', token: '' } };
+export const SOURCE_LABEL = { trail: 'Your jump', evescout: 'EVE Scout', wanderer: 'Wanderer', manual: 'Added by you', bridge: 'Jump bridge' };
 export const pairKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 
 const LS = {
@@ -59,6 +61,7 @@ export function createShortcuts({ onChange = () => {} } = {}) {
   let settings = readSettings();
   let manual = LS.get(KEYS.links, []);
   let off = LS.get(KEYS.off, {});
+  let bridges = LS.get(KEYS.bridges, []);   // [{a, b, at, note?}]
   const names = new Map(LS.get(KEYS.names, []));
   const feeds = {
     evescout: { links: [], at: 0, error: null, loading: null },
@@ -114,6 +117,7 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     manual.filter(l => !(l.expiresAt <= now)).forEach(add);
     if (settings.scout) feeds.evescout.links.filter(l => !(l.expiresAt <= now)).forEach(add);
     if (settings.wanderer.on) feeds.wanderer.links.forEach(add);
+    if (settings.bridges) bridges.forEach(b => add({ ...b, expiresAt: null, kind: 'bridge', src: 'bridge' }));
     const list = [...out.values()].sort((x, y) => y.at - x.at);
     for (const l of list) l.use = !(off[l.key] >= l.at);
     return list;
@@ -161,6 +165,7 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     if (e.key === KEYS.settings) { settings = readSettings(); refresh(); changed(); }
     else if (e.key === KEYS.links) { manual = LS.get(KEYS.links, []); changed(); }
     else if (e.key === KEYS.off) { off = LS.get(KEYS.off, {}); changed(); }
+    else if (e.key === KEYS.bridges) { bridges = LS.get(KEYS.bridges, []); changed(); }
     else if (e.key.startsWith(TRAIL_PREFIX)) changed();
   });
 
@@ -184,7 +189,7 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     /** The gate graph plus the shortcuts in use (the gate graph itself when there are none or they're off). */
     travelGraph() {
       if (!base) return null;
-      const used = settings.on ? links().filter(l => l.use) : [];
+      const used = links().filter(l => l.use && (settings.on || l.src === 'bridge'));
       const key = used.map(l => l.key).sort().join(',');
       if (memo?.key !== `${key}|${names.size}` || memo.base !== base) {
         memo = { key: `${key}|${names.size}`, base, g: withLinks(base, used, names), count: used.length };
@@ -213,6 +218,31 @@ export function createShortcuts({ onChange = () => {} } = {}) {
       manual.push({ a, b, at: now, expiresAt: now + hours * HOUR, kind: 'wormhole', src: 'manual', type: code, note: code || undefined });
       delete off[pairKey(a, b)];
       LS.set(KEYS.links, manual); LS.set(KEYS.off, off);
+      changed();
+    },
+    /** Your jump bridges, oldest first. */
+    bridges: () => bridges.map(b => ({ ...b, key: pairKey(b.a, b.b) })),
+    /**
+     * Adds jump bridges ({a, b, note?} system IDs); a pair you already have keeps its place.
+     * @returns {number} how many were new
+     */
+    addBridges(pairs) {
+      const have = new Set(bridges.map(b => pairKey(b.a, b.b)));
+      let added = 0;
+      for (const { a, b, note } of pairs) {
+        const key = pairKey(a, b);
+        if (!a || !b || a === b || have.has(key)) continue;
+        have.add(key);
+        bridges.push({ a, b, at: Date.now(), ...(note && { note: String(note).slice(0, 80) }) });
+        delete off[key];
+        added++;
+      }
+      if (added) { LS.set(KEYS.bridges, bridges); LS.set(KEYS.off, off); changed(); }
+      return added;
+    },
+    removeBridge(key) {
+      bridges = key == null ? [] : bridges.filter(b => pairKey(b.a, b.b) !== key);
+      LS.set(KEYS.bridges, bridges);
       changed();
     },
     removeManual(key) {

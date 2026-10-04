@@ -87,13 +87,14 @@ export function mountWormholePanel(sc, { secTag = () => '', signedIn = () => fal
       const expires = l.expiresAt || (l.src === 'trail' ? l.at + w.hours * HOUR : null);
       const info = sc.whInfo(l.type);
       const what = l.kind === 'jump' ? '<span class="badge stale" title="No stargate joins these systems: a wormhole, a jump bridge or a cyno. Untick it if you can\'t fly it again.">no gate</span>' : '';
-      return `<tr class="static${l.use && w.on ? '' : ' off'}">
+      return `<tr class="static${l.use && (w.on || l.src === 'bridge') ? '' : ' off'}">
         <td class="l">${esc(sc.sysName(l.a))} ${secTag(l.a)} ↔ ${esc(sc.sysName(l.b))} ${secTag(l.b)}${what}</td>
         <td class="l">${SOURCE_LABEL[l.src] || l.src}${l.note ? ` <small class="muted"${info ? ` title="${esc(whSummary(info))} (ellatha.com wormhole database)"` : ''}>${esc(l.note)}</small>` : ''}</td>
         <td>${ago(l.at)}</td>
-        <td>${l.src === 'wanderer' ? '<span class="muted" title="Wanderer drops a connection when it collapses">mapped</span>' : left(expires)}</td>
+        <td>${l.src === 'wanderer' ? '<span class="muted" title="Wanderer drops a connection when it collapses">mapped</span>' : l.src === 'bridge' ? '<span class="muted">permanent</span>' : left(expires)}</td>
         <td><input type="checkbox" data-use="${l.key}" data-at="${l.at}"${l.use ? ' checked' : ''} aria-label="Use this connection"></td>
-        <td>${l.src === 'manual' ? `<button class="btn small ghost" type="button" data-del="${l.key}">Remove</button>` : ''}</td>
+        <td>${l.src === 'manual' ? `<button class="btn small ghost" type="button" data-del="${l.key}">Remove</button>`
+          : l.src === 'bridge' ? '<a class="muted" href="#bridges" title="Jump bridges are managed in the Jump bridges panel">Manage</a>' : ''}</td>
       </tr>`;
     }).join('') || `<tr class="empty"><td colspan="6" class="l muted">${!w.trail ? 'No shortcuts.'
       : signedIn() ? 'No wormhole jumps recorded yet. Keep this app open (any page) while you fly and they\'ll show up here.'
