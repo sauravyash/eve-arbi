@@ -5,7 +5,7 @@ import {
   palette, isLightTheme, secBand, paintRoutes, paintHubs, paintTrip, tooltipHtml, placeTooltip, drawSpaced,
 } from './map.js';
 import {
-  worldPositions, cameraBasis, projectAll, projectPoint, orbit, pan, zoomAt, fitSphere, lerpCamera, pickNearest,
+  worldPositions, cameraBasis, projectAll, projectPoint, orbit, pan, zoomAt, zoomToward, fitSphere, lerpCamera, pickNearest,
   placeLabels, regionCentres, FOV_Y, NEAR,
 } from './map3d-math.js';
 
@@ -204,6 +204,27 @@ export class GalaxyMap3D {
     this.draw();
   }
 
+  // Wheel and pinch zoom pinned to the star nearest the cursor, so the map never slides out from under it. The anchor
+  // sticks while the cursor stays put (or for a whole pinch, keep); otherwise stars spreading apart could hand it to a
+  // neighbour mid-zoom.
+  zoomAtStar(factor, px, py, keep = false) {
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    if (!this.u) return this.zoomBy(factor, px, py);
+    const a = this._anchor;
+    let i = a && (keep || Math.hypot(a.px - px, a.py - py) < 3) ? a.i : -1;
+    if (i < 0) {
+      const p = this._pick = projectAll(this.pos, this.cam, w, h, this._pick);
+      const minDepth = 0.05 * this.cam.distance; // same near cull as paint()
+      for (let k = 0; k < this.u.n; k++) if (p.depth[k] < minDepth) { p.sx[k] = NaN; p.sy[k] = NaN; }
+      i = pickNearest(p.sx, p.sy, p.depth, px, py, Infinity);
+      if (i < 0) return this.zoomBy(factor, px, py);
+      this._anchor = { i, px, py };
+    }
+    this.anim = null;
+    this.cam = zoomToward(this.cam, factor, [this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]], w, h);
+    this.draw();
+  }
+
   // --- input -----------------------------------------------------------------
   bindInput() {
     const c = this.canvas, pointers = new Map();
@@ -213,13 +234,14 @@ export class GalaxyMap3D {
     c.addEventListener('contextmenu', (e) => e.preventDefault()); // right-drag pans
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
-      this.zoomBy(Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015)), ...local(e));
+      this.zoomAtStar(Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015)), ...local(e));
     }, { passive: false });
 
     c.addEventListener('pointerdown', (e) => {
       c.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, [e.clientX, e.clientY]);
       this.anim = null;
+      this._anchor = null; // the view is about to move: pick a fresh zoom anchor next scroll
       if (pointers.size === 1) {
         drag = { x: e.clientX, y: e.clientY, mode: e.button === 2 || e.shiftKey ? 'pan' : 'orbit', moved: false };
       } else if (pointers.size === 2) {
@@ -237,7 +259,7 @@ export class GalaxyMap3D {
         const d = Math.hypot(a[0] - b[0], a[1] - b[1]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
         const r = c.getBoundingClientRect();
         this.cam = pan(this.cam, mx - pinch.mx, my - pinch.my, h);
-        if (pinch.d > 0 && d > 0) this.cam = zoomAt(this.cam, d / pinch.d, mx - r.left, my - r.top, w, h); // 0/0 would NaN the camera
+        if (pinch.d > 0 && d > 0) this.zoomAtStar(d / pinch.d, mx - r.left, my - r.top, true); // 0/0 would NaN the camera
         pinch = { d, mx, my };
         this.draw();
         return;

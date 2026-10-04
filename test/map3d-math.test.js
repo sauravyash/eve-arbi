@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   worldPositions, cameraBasis, focalPx, projectAll, projectPoint,
-  orbit, pan, zoomAt, fitSphere, lerpCamera, clampDistance, PITCH_MAX, MIN_DIST, MAX_DIST,
+  orbit, pan, zoomAt, zoomToward, fitSphere, lerpCamera, clampDistance, PITCH_MAX, MIN_DIST, MAX_DIST,
   pickNearest, placeLabels, regionCentres,
 } from '../public/js/map3d-math.js';
 
@@ -88,6 +88,31 @@ test('zoomAt keeps the point under the cursor fixed', () => {
 test('zoomAt clamps distance', () => {
   assert.equal(zoomAt(CAM, 1e9, W / 2, H / 2, W, H).distance, MIN_DIST);
   assert.equal(zoomAt(CAM, 1e-9, W / 2, H / 2, W, H).distance, clampDistance(MAX_DIST * 10));
+});
+
+test('zoomToward keeps the anchor star fixed on screen and pivots at its depth', () => {
+  const p = [25, -8, 4];
+  const [x0, y0, d0] = projectPoint(p, CAM, W, H);
+  for (const f of [2, 0.5]) {
+    const c = zoomToward(CAM, f, p, W, H);
+    const [x, y, d] = projectPoint(p, c, W, H);
+    near(x, x0); near(y, y0);
+    near(c.distance, d0 / f); near(d, c.distance);
+    assert.equal(c.yaw, CAM.yaw); assert.equal(c.pitch, CAM.pitch);
+  }
+});
+
+test('zoomToward never backs away when zooming in close to the anchor', () => {
+  const { eye, fwd } = cameraBasis(CAM);
+  const p = eye.map((v, k) => v + fwd[k] * 1); // 1 ly ahead, inside MIN_DIST
+  const c = zoomToward(CAM, 2, p, W, H);
+  assert.ok(c.distance <= 1 + 1e-9);
+});
+
+test('zoomToward falls back to a centre zoom for points behind the camera', () => {
+  const { eye, fwd } = cameraBasis(CAM);
+  const p = eye.map((v, k) => v - fwd[k] * 10);
+  assert.deepEqual(zoomToward(CAM, 2, p, W, H), zoomAt(CAM, 2, W / 2, H / 2, W, H));
 });
 
 test('fitSphere frames every point on screen at any angle', () => {

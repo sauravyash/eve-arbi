@@ -84,6 +84,20 @@ export function zoomAt(cam, factor, px, py, w, h) {
   return { ...cam, distance, target: q.map((v, k) => v + (cam.target[k] - v) * keep) };
 }
 
+// Zoom by factor toward world point p, keeping p fixed on screen: the eye slides along the ray from p, and the target
+// moves to p's depth so later orbits and zooms pivot at the anchor. Falls back to zoomAt about the centre if p is
+// behind the camera. Zooming in never pulls the eye back past where it was, even inside MIN_DIST.
+export function zoomToward(cam, factor, p, w, h) {
+  const { eye, fwd } = cameraBasis(cam);
+  const dz = (p[0] - eye[0]) * fwd[0] + (p[1] - eye[1]) * fwd[1] + (p[2] - eye[2]) * fwd[2];
+  if (!(dz > NEAR)) return zoomAt(cam, factor, w / 2, h / 2, w, h);
+  let distance = clampDistance(dz / factor);
+  if (factor > 1) distance = Math.min(distance, dz);
+  const k = distance / dz;
+  const e = p.map((v, i) => v + (eye[i] - v) * k);
+  return { ...cam, distance, target: e.map((v, i) => v + fwd[i] * distance) };
+}
+
 // Target and distance that show every indexed point, with pad as a fraction of the span on each side.
 export function fitSphere(pos, indices, pad, w, h) {
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];

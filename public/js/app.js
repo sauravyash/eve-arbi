@@ -35,7 +35,7 @@ const OLD_DEFAULT_ITEMS = [
 const JUMP_TTL = 24 * 3600_000;
 
 const DEFAULTS = {
-  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, graphItem: 'all', showAll: false,
+  items: [], flag: 'secure', sellMode: 'instant', metric: 'unit', taxPct: DEFAULT_TAX_PCT, taxV: 1, maxJumps: '', graphItem: 'all', showAll: false,
   view: 'map', mapLayout: 'space', mapV: 1, secColors: true,
   scan: { scope: 'hubs', cargo: '', ship: '', budget: '', minProfit: '5m', from: '', to: '', near: '0', maxMargin: '100', rank: 'ppj', q: '', hideShips: false, structures: false },
   trips: { start: 30000142, legs: '3', link: '3', minProfit: '1m', rank: 'perJump', hideShips: false, hideHubs: false, structures: false },
@@ -51,7 +51,7 @@ const hubIds = ['', ...HUBS.map(h => String(h.id))];
 const scanEnds = [...hubIds, 'hubs', 'offhub', 'me'];
 const URL_FIELDS = [
   ['flag', ['secure', 'nonull', 'shortest', 'insecure']], ['sellMode', ['instant', 'relist']], ['metric', ['unit', 'depth']],
-  ['taxPct', v => v >= 0 && v <= 100], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['space', '3d', '2d']], 'secColors',
+  ['taxPct', v => v >= 0 && v <= 100], ['maxJumps', v => v === '' || Number(v) > 0], 'graphItem', 'showAll', ['view', ['map', 'schematic']], ['mapLayout', ['space', '3d', '2d']], 'secColors',
   ['scan.scope', ['hubs', 'all']], 'scan.cargo', ['scan.ship', v => v === '' || Number(v) > 0], 'scan.budget', 'scan.minProfit',
   ['scan.from', scanEnds], ['scan.to', scanEnds], ['scan.near', v => v === '' || Number(v) >= 0], 'scan.maxMargin',
   ['scan.rank', ['ppj', 'profit', 'iskm3', 'margin']], 'scan.q', 'scan.hideShips', 'scan.structures',
@@ -215,6 +215,12 @@ function whMark(...paths) {
   return n ? `<span class="wh-mark" title="Route uses ${n} wormhole shortcut${n > 1 ? 's' : ''}">⤳</span>` : '';
 }
 
+// Max jumps (blank: any): the longest haul or trip listed, counting the flight to the pickup when buying near you.
+function jumpCap() {
+  const n = Number(settings.maxJumps);
+  return settings.maxJumps !== '' && n > 0 ? n : Infinity;
+}
+
 function metricOf(r) {
   return settings.metric === 'depth' && settings.sellMode === 'instant' ? r.depthPerJump : r.iskPerJump;
 }
@@ -232,7 +238,7 @@ function allRoutes() {
       r.stale = stale && !r.overridden;
       r.metric = metricOf(r);
     }
-    return routes;
+    return routes.filter(r => !(r.jumps > jumpCap()));
   });
 }
 
@@ -865,7 +871,7 @@ function scanRows() {
   const r = all ? trip.result : scan.result;
   if (!r) return [];
   const f = settings.scan;
-  const memoKey = [all, r.finishedAt, JSON.stringify(f), settings.taxPct, settings.flag, settings.trips.start, ship.typeId, ship.holds.length,
+  const memoKey = [all, r.finishedAt, JSON.stringify(f), settings.taxPct, settings.flag, settings.maxJumps, settings.trips.start, ship.typeId, ship.holds.length,
     all ? '' : `${Object.keys(jumpCache[settings.flag]?.pairs || {}).length}${JSON.stringify(overrides.jumps)}`, sc.key()].join('|');
   if (scan.memo?.key === memoKey) return scan.memo.rows;
 
@@ -906,6 +912,7 @@ function scanRows() {
       if (jumps == null) continue; // unreachable with this route setting
     }
     const approach = approachFrom ? approachFrom(fs) : null;
+    if (jumps != null && jumps + (approach ?? 0) > jumpCap()) continue;
     // Every haul on a pickup → drop-off pair, whatever its own profit, for Single route, many items.
     const gk = `${fl}>${dl}`;
     let g = groups.get(gk);
@@ -1566,7 +1573,7 @@ function tripDistFrom(sys) {
 function tripList() {
   const r = trip.result, t = settings.trips;
   if (!r || !trip.graph || !trip.catalog) return [];
-  const key = [r.finishedAt, JSON.stringify(t), settings.taxPct, settings.scan.cargo, settings.scan.budget, tripFlag(), sc.key()].join('|');
+  const key = [r.finishedAt, JSON.stringify(t), settings.taxPct, settings.scan.cargo, settings.scan.budget, settings.maxJumps, tripFlag(), sc.key()].join('|');
   if (trip.memo?.key === key) return trip.memo.trips;
   const cached = tripCacheGet(key);
   if (cached) { trip.memo = { key, trips: cached }; return cached; }
@@ -1578,7 +1585,7 @@ function tripList() {
   const trips = planTrips(legs.filter(L => safeEnds(L.fs, L.ds)), {
     start: t.start, distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3, maxVolume, maxCost,
     jumps: { indexOf: travel().indexOf, from: (sys) => jumpsFrom(travel(), sys, tripFlag()) },
-    maxLink: t.link === '' ? 3 : Math.max(0, Number(t.link) || 0), rank: t.rank,
+    maxLink: t.link === '' ? 3 : Math.max(0, Number(t.link) || 0), rank: t.rank, maxJumps: jumpCap(),
   }).map(tr => ({ ...tr, key: tr.legs.map(l => `${l.t}:${l.f}:${l.d}`).join('>') }));
   trip.memo = { key, trips };
   tripCachePut(key, trips);
@@ -1657,7 +1664,7 @@ function tripStopsHtml(tr) {
     const strip = seg && routeStrip(seg, [[0, i ? `Stop ${i}` : 'Start'], [seg.length - 1, `Stop ${i + 1}`]]);
     at = st.systemId;
     const sell = st.sells.map(l => `Sell <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} → <span class="up">+${formatIsk(l.profit)}</span>`);
-    const buy = st.buys.map(l => `Buy <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} for ${formatIsk(l.cost)}${l.x ? ' (sell point uses ranged buy orders)' : ''}`);
+    const buy = st.buys.map(l => `Buy <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} (${cargoM3(l.volume)}) for ${formatIsk(l.cost)}${l.x ? ' (sell point uses ranged buy orders)' : ''}`);
     rows.push(`<li><span class="n">${i + 1}</span>
       <span class="where">${esc(stationName(st.locationId, st.systemId))}<small>${esc(sysName(st.systemId))}</small></span>
       <span class="act">${[...sell, ...buy].join('<br>')}</span>
@@ -1666,14 +1673,16 @@ function tripStopsHtml(tr) {
   return rows.join('');
 }
 
+const cargoM3 = (v) => `${Math.ceil(v || 0).toLocaleString()} m³`;
+
 function tripText(tr) {
   const geo = tripGeometry(tr);
   const lines = [`Start: ${sysName(settings.trips.start)}`];
   geo.stops.forEach((st, i) => {
-    const acts = [...st.sells.map(l => `SELL ${formatIsk(l.units, 1)} ${l.name}`), ...st.buys.map(l => `BUY ${formatIsk(l.units, 1)} ${l.name}`)];
+    const acts = [...st.sells.map(l => `SELL ${formatIsk(l.units, 1)} ${l.name}`), ...st.buys.map(l => `BUY ${formatIsk(l.units, 1)} ${l.name} (${cargoM3(l.volume)})`)];
     lines.push(`${i + 1}. ${stationName(st.locationId, st.systemId)} (${sysName(st.systemId)}) — ${acts.join(', then ')}`);
   });
-  lines.push(`Total: ${formatIsk(tr.profit)} profit over ${tr.jumps} jumps (${formatIsk(tr.perJump)}/jump)`);
+  lines.push(`Total: ${formatIsk(tr.profit)} profit over ${tr.jumps} jumps (${formatIsk(tr.perJump)}/jump) · cargo needed: ${cargoM3(tr.peakVolume)}`);
   lines.push('', 'Systems in order:', ...geo.marks.slice(1).map(m => sysName(m.systemId)).filter((s, i, a) => s !== a[i - 1]));
   return lines.join('\n');
 }
@@ -1699,8 +1708,8 @@ function renderTrips() {
     const age = Math.round((Date.now() - r.finishedAt) / 60_000);
     label.textContent = `${trips.length} routes · universe scan from ${age < 1 ? 'just now' : `${age} min ago`}`;
   }
-  if (!r) body.innerHTML = '<tr class="empty"><td colspan="7">Run a universe scan to plan multi-stop routes.</td></tr>';
-  else if (!trip.graph || !trip.catalog) body.innerHTML = '<tr class="empty"><td colspan="7">Loading map and item data…</td></tr>';
+  if (!r) body.innerHTML = '<tr class="empty"><td colspan="8">Run a universe scan to plan multi-stop routes.</td></tr>';
+  else if (!trip.graph || !trip.catalog) body.innerHTML = '<tr class="empty"><td colspan="8">Loading map and item data…</td></tr>';
   else {
     body.innerHTML = trips.slice(0, 30).map((tr, i) => {
       const route = [settings.trips.start, ...tripStops(tr).map(s => s.systemId)]
@@ -1709,9 +1718,9 @@ function renderTrips() {
       return `<tr data-key="${esc(tr.key)}" class="${tr.key === ui.tripPick ? 'picked' : ''}">
         <td class="l rank">${i + 1}</td>
         <td class="l route">${route}<span class="itm">${items}</span></td>
-        <td>${tr.legs.length}</td><td>${tr.jumps}${sc.inUse() ? whMark(tripGeometry(tr).path) : ''}</td><td>${formatIsk(tr.peakCost)}</td>
+        <td>${tr.legs.length}</td><td>${tr.jumps}${sc.inUse() ? whMark(tripGeometry(tr).path) : ''}</td><td title="Most cargo aboard at once">${cargoM3(tr.peakVolume)}</td><td>${formatIsk(tr.peakCost)}</td>
         <td>${formatIsk(tr.profit)}</td><td class="metric">${formatIsk(tr.perJump)}</td></tr>`;
-    }).join('') || '<tr class="empty"><td colspan="7">No chained routes with these settings — try more empty jumps between hauls or a lower min profit.</td></tr>';
+    }).join('') || '<tr class="empty"><td colspan="8">No chained routes with these settings — try more empty jumps between hauls, a lower min profit or a higher Max jumps.</td></tr>';
   }
   const picked = ui.tripPick && trips.find(t => t.key === ui.tripPick);
   if (ui.tripPick && r && trip.graph && !picked) { ui.tripPick = null; galaxy.setTrip(null); }
@@ -1880,6 +1889,10 @@ bindSetting('flag', 'flag', { after: () => fetchJumps(settings.flag).catch(e => 
 bindSetting('sellMode', 'sellMode', { after: syncMetricAvailability });
 bindSetting('metric', 'metric');
 bindSetting('taxPct', 'taxPct', { parse: v => Math.min(100, Math.max(0, Number(v) || 0)) });
+bindSetting('maxJumps', 'maxJumps', {
+  parse: v => { const n = Math.round(Number(v)); return String(v).trim() !== '' && n > 0 ? String(n) : ''; },
+  after: () => { $('maxJumps').value = settings.maxJumps; },
+});
 bindSetting('graphItem', 'graphItem');
 bindSetting('showAll', 'showAll');
 syncMetricAvailability();
