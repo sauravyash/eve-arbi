@@ -106,13 +106,14 @@ function topK(cap) {
  * @param {number} [o.maxLink=3]     extra jumps allowed to pick up a haul (empty jumps, with an empty hold)
  * @param {number} [o.maxVolume]     cargo m³ aboard at once
  * @param {number} [o.maxCost]       ISK tied up in cargo at once
+ * @param {number} [o.maxJumps]      longest trip, counting the flight from `start`
  * @param {'perJump'|'profit'} [o.rank='perJump']
  * @param {number} [o.maxReuse=2]   listed trips a single haul may appear in
  * @returns {{legs, events, startJumps, jumps, profit, peakCost, peakVolume, perJump}[]} trips with ≥ 2 legs, best first;
  *   events are the stops in flying order: {kind: 'buy'|'sell', leg (index into legs), hop (jumps from the previous event)}
  */
 export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink = 3, rank = 'perJump', maxVolume = Infinity, maxCost = Infinity,
-  beam = 400, perPickup = 80, limit = 60, maxReuse = 2, spread = 4, keep = 16 } = {}) {
+  maxJumps = Infinity, beam = 400, perPickup = 80, limit = 60, maxReuse = 2, spread = 4, keep = 16 } = {}) {
   // Every system a trip can visit gets a small local id; jumps between them are read from one
   // Int16Array row per system (-1: unreachable), built the first time a trip is there.
   const loc = new Map(), sysOf = [];
@@ -264,6 +265,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
         if (hop < 0) continue;
         const rest = tour(D, dropsOf(s.open, D));
         if (!rest) continue; // something aboard could never be sold from there
+        if (s.jumps + hop + rest.jumps > maxJumps) continue;
         heap.push({ s, to: D, hop, H: null, rest, score: scoreOf(gain0, s.jumps + hop + rest.jumps) });
       }
 
@@ -280,7 +282,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
       const bound = s.open.length ? Math.max(...toDrop) + (maxLink >> 1) : s.n === 0 ? Infinity : maxLink;
       for (let q = 0; q < order.length; q++) {
         const p = order[q], sys = pickK[p], a = fromHere[sys];
-        if (a > bound) break;
+        if (a > bound || s.jumps + a > maxJumps) break;
         if (s.open.length) {
           let detour = Infinity;
           for (let m = 0; m < s.open.length; m++) {
@@ -328,6 +330,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
           }
           if (!rest) continue;
           const total = s.jumps + a + rest.jumps;
+          if (total > maxJumps) continue;
           if (scoreOf(gain0 + most, total) <= floor) { took++; continue; }
           let fit = null;
           if (!fits) {

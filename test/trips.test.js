@@ -75,6 +75,17 @@ test('planTrips keeps what is aboard within the hold and budget, buying part of 
   assert.equal(one.peakVolume, 10);
 });
 
+test('planTrips leaves out trips longer than maxJumps', () => {
+  const legs = evaluateLegs(result, { catalog, hideShips: true });
+  // From B, the jump back to the pickup at A counts too.
+  const all = planTrips(legs, { start: 2, distFrom, maxLegs: 3, maxLink: 1, maxReuse: 10 });
+  assert.ok(all.some(t => t.jumps > 4));
+  const short = planTrips(legs, { start: 2, distFrom, maxLegs: 3, maxLink: 1, maxReuse: 10, maxJumps: 4 });
+  assert.ok(short.length > 0);
+  assert.ok(short.every(t => t.jumps <= 4));
+  assert.deepEqual(planTrips(legs, { start: 1, distFrom, maxLegs: 3, maxLink: 1, maxJumps: 3 }), []); // nothing chains in 3
+});
+
 test('planTrips counts the flight from a start away from the first pickup', () => {
   const legs = evaluateLegs(result, { catalog, hideShips: true });
   const [best] = planTrips(legs, { start: 2, distFrom, maxLegs: 2, maxLink: 0 });
