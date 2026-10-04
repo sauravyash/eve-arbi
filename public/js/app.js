@@ -1111,13 +1111,11 @@ function renderScanTable() {
   }
 
   const shown = scan.rows.slice(0, ui.scanLimit);
-  const watched = new Set(settings.items.map(i => i.typeId));
   const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
   const loc = (e, extra = '') => `<div class="loc"><b>${esc(e.name)}</b><small title="${esc(e.station)}">${esc(e.station)}</small>${extra}</div>`;
   const jumpsOf = (j) => `${j} jump${j === 1 ? '' : 's'}`;
   const rank = settings.scan.rank;
   body.innerHTML = shown.map((row, i) => {
-    const w = watched.has(row.typeId);
     const jumpsCell = (row.jumps == null ? '<span class="muted">?</span>'
       : row.approach != null ? `<span title="${jumpsOf(row.approach)} from you to the pickup, then ${jumpsOf(row.jumps)} to the drop-off">${row.approach} + ${row.jumps}</span>`
       : row.jumps) + (row.jumps == null ? '' : routeWhMark(row));
@@ -1126,8 +1124,7 @@ function renderScanTable() {
     return `
     <tr data-i="${i}" class="${i === 0 ? 'top' : ''} ${row.key === ui.scanPick ? 'picked' : ''}">
       <td class="l rank">${i + 1}</td>
-      <td class="l item" title="${esc(row.name)}"><button class="star ${w ? 'on' : ''}" type="button" data-star
-        aria-label="${w ? 'In watchlist' : `Add ${esc(row.name)} to watchlist`}">${w ? '★' : '☆'}</button>${trackButton(row)}${esc(row.name)}${copyButton(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
+      <td class="l item" title="${esc(row.name)}">${trackButton(row)}${esc(row.name)}${copyButton(row.name)}${row.stale ? '<span class="badge stale">OLD</span>' : ''}</td>
       <td class="l">${loc(row.from)}</td>
       <td class="l">${loc(row.to, row.ranged ? '<small class="note">sells into ranged buy orders</small>' : '')}</td>
       <td class="jumps">${jumpsCell}${routeStrip(rowPath(row)) || ''}</td>
@@ -1147,11 +1144,6 @@ function renderScanTable() {
   body.querySelectorAll('tr[data-i]').forEach(tr => tr.addEventListener('click', (e) => {
     const row = shown[Number(tr.dataset.i)];
     if (e.target.closest('[data-track]')) { toggleTracked(row); return; }
-    if (e.target.closest('[data-star]')) {
-      if (!watched.has(row.typeId)) addItem(row.typeId, row.name);
-      render();
-      return;
-    }
     settings.graphItem = 'scan';
     saveSettings();
     ui.selectedHub = row.from.hub?.id ?? null;
@@ -1208,11 +1200,11 @@ function renderLoadDetail(rt) {
   const jumps = rt.jumps == null ? '' : ` · ${rt.approach != null ? `${rt.approach} jumps from you, then ` : ''}${rt.jumps} jump${rt.jumps === 1 ? '' : 's'}`;
   $('loadWhere').textContent = `Buy at ${rt.from.station}, sell at ${rt.to.station}${jumps}. Sell into buy orders; prices are the first and last order filled.`;
   const n = (v) => formatIsk(v);
-  $('loadItems').innerHTML = rt.items.map(e => {
+  $('loadItems').innerHTML = rt.items.map((e, i) => {
     const holds = Object.keys(e.used).filter(p => p !== 'cargo').map(p => holdName[p]).filter(Boolean);
     const range = (a, b) => (a === b ? n(a) : `${n(a)}–${n(b)}`);
     const px = `<span class="nw">${range(e.buy, e.worstBuy)}</span> <span class="nw">→ ${range(e.sell, e.worstSell)}</span>`;
-    return `<tr><td class="l">${esc(e.name)}${copyButton(e.name)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
+    return `<tr><td class="l">${trackButton(loadHaul(rt, e), `data-i="${i}"`)}${esc(e.name)}${copyButton(e.name)}${holds.length ? `<small class="hold">in ${esc(holds.join(', ').toLowerCase())}</small>` : ''}</td>
       <td>${e.units.toLocaleString()}</td><td>${Math.round(e.volume).toLocaleString()}</td><td>${px}</td><td>${n(e.profit)}</td></tr>`;
   }).join('') + `<tr class="total"><td class="l"><b>Total</b></td><td></td><td><b>${Math.round(rt.volume).toLocaleString()}</b></td>
     <td><b>${n(rt.cost)}</b> spent</td><td><b>${n(rt.profit)}</b></td></tr>`;
@@ -1238,6 +1230,12 @@ function bindLoads() {
   $('loadBody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-key]');
     if (tr) selectLoad(routeRows().find(x => x.key === tr.dataset.key));
+  });
+  $('loadItems').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-track]');
+    const rt = btn && routeRows().find(x => x.key === ui.loadPick);
+    const item = rt?.items[Number(btn.dataset.i)];
+    if (item) toggleTracked(loadHaul(rt, item));
   });
   $('loadClear').addEventListener('click', () => selectLoad(null));
   $('loadMore').addEventListener('click', () => { ui.loadLimit += 50; renderLoads(); });
@@ -1288,8 +1286,9 @@ async function startScan() {
 }
 
 // ---------------------------------------------------------------------------
-// Tracked hauls: a Best items row (one item, one pickup → drop-off) re-priced every 10 minutes
-// for an hour from that item's orders alone, so it doesn't need a market scan (tracking.js).
+// Tracked hauls: one item on one pickup → drop-off (a Best items row, a Single route shopping-list
+// item or a Multi-stop purchase) re-priced every 10 minutes for an hour from that item's orders
+// alone, so it doesn't need a market scan (tracking.js).
 // Kept in localStorage; checks run on every Hub arbitrage page, and open tabs share them.
 // ---------------------------------------------------------------------------
 const TRACK_KEY = 'arbi.tracked';
@@ -1304,11 +1303,15 @@ function putTracked(key, fn) {
   saveTracked();
 }
 
-const CLOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
-function trackButton(row) {
+// A Single route shopping-list item or a Multi-stop leg, as a haul toggleTracked can take.
+const loadHaul = (rt, e) => ({ typeId: e.t, name: e.name, vol: e.vol, from: rt.from, to: rt.to });
+const legHaul = (l) => ({ typeId: l.t, name: l.name, vol: trip.catalog?.[l.t]?.[1] || 0, from: scanEnd(l.f, l.fs), to: scanEnd(l.d, l.ds) });
+
+// `attrs`: extra attributes the page's click handler uses to find the haul again.
+function trackButton(row, attrs = '') {
   const on = isTracked(row);
-  return `<button class="track ${on ? 'on' : ''}" type="button" data-track aria-pressed="${on}"
-    title="${on ? 'Tracked: click to stop' : 'Track this haul: re-price it every 10 minutes for an hour'}" aria-label="${on ? 'Stop tracking' : 'Track'} ${esc(row.name)}">${CLOCK}</button>`;
+  return `<button class="star ${on ? 'on' : ''}" type="button" data-track ${attrs} aria-pressed="${on}"
+    title="${on ? 'Tracked: click to stop' : 'Track this haul: re-price it every 10 minutes for an hour'}" aria-label="${on ? 'Stop tracking' : 'Track'} ${esc(row.name)}">${on ? '★' : '☆'}</button>`;
 }
 
 function toggleTracked(row) {
@@ -1325,9 +1328,15 @@ function toggleTracked(row) {
     tracking.list = [newTracked({ typeId: row.typeId, name: row.name, vol: row.vol, from: end(row.from), to: end(row.to) }, Date.now()), ...tracking.list];
   }
   saveTracked();
-  renderScan();
+  renderTrackButtons();
   renderTracked();
   tickTracked();
+}
+
+// Every list that shows track buttons (only the ones on this page render).
+function renderTrackButtons() {
+  renderScan();
+  renderTrips();
 }
 
 function trackedJumps(t) {
@@ -1381,7 +1390,8 @@ function renderTracked() {
   const active = list.filter(t => isActive(t, now)).length;
   $('trackCount').textContent = list.length ? `· ${active} of ${list.length} active` : '';
   if (!list.length) {
-    body.innerHTML = `<tr class="empty"><td colspan="9">Nothing tracked yet. Click ${CLOCK.replace('<svg', '<svg class="inline-icon"')} on a row below to re-price that haul every 10 minutes for an hour.</td></tr>`;
+    const where = { load: "next to an item in a route's shopping list", trips: "next to a purchase in a route's waypoints" }[document.body.dataset.page] || 'on a row below';
+    body.innerHTML = `<tr class="empty"><td colspan="9">Nothing tracked yet. Click ☆ ${where} to re-price that haul every 10 minutes for an hour.</td></tr>`;
     return;
   }
   const n = (v) => (v == null ? '<span class="muted">—</span>' : formatIsk(v));
@@ -1401,7 +1411,8 @@ function renderTracked() {
     } else status = `<span class="muted">Stopped ${t(tr.until)}</span>`;
     if (tr.error) status += `<small class="warn-m" title="${esc(tr.error)}">Last check failed</small>`;
     return `<tr data-key="${esc(tr.key)}" class="${on ? '' : 'expired'}">
-      <td class="l item" title="${esc(tr.name)}">${esc(tr.name)}${copyButton(tr.name)}</td>
+      <td class="l item" title="${esc(tr.name)}"><button class="star on" type="button" data-untrack
+        title="Tracked: click to stop" aria-label="Stop tracking ${esc(tr.name)}">★</button>${esc(tr.name)}${copyButton(tr.name)}</td>
       <td class="l">${loc(tr.from)}</td>
       <td class="l">${loc(tr.to)}</td>
       <td>${jumps ?? '<span class="muted">?</span>'}</td>
@@ -1432,7 +1443,7 @@ function bindTracked() {
       reloadTracked();
       tracking.list = tracking.list.filter(t => t.key !== key);
       saveTracked();
-      renderScan();
+      renderTrackButtons();
       renderTracked();
     } else if (e.target.closest('[data-resub]')) {
       putTracked(key, t => resubscribe(t, Date.now()));
@@ -1440,7 +1451,7 @@ function bindTracked() {
     }
   });
   // Another tab tracked, checked or removed a haul.
-  addEventListener('storage', (e) => { if (e.key === TRACK_KEY) { reloadTracked(); renderScan(); renderTracked(); } });
+  addEventListener('storage', (e) => { if (e.key === TRACK_KEY) { reloadTracked(); renderTrackButtons(); renderTracked(); } });
   // Background tabs' timers are throttled; this is coarse anyway (checks are 10 minutes apart).
   setInterval(tickTracked, 30_000);
   addEventListener('visibilitychange', () => { if (!document.hidden) tickTracked(); });
@@ -1657,7 +1668,7 @@ function tripStopsHtml(tr) {
     const strip = seg && routeStrip(seg, [[0, i ? `Stop ${i}` : 'Start'], [seg.length - 1, `Stop ${i + 1}`]]);
     at = st.systemId;
     const sell = st.sells.map(l => `Sell <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} → <span class="up">+${formatIsk(l.profit)}</span>`);
-    const buy = st.buys.map(l => `Buy <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} for ${formatIsk(l.cost)}${l.x ? ' (sell point uses ranged buy orders)' : ''}`);
+    const buy = st.buys.map(l => `${trackButton(legHaul(l), `data-leg="${tr.legs.indexOf(l)}"`)}Buy <b>${formatIsk(l.units, 1)} ${esc(l.name)}</b>${copyButton(l.name)} for ${formatIsk(l.cost)}${l.x ? ' (sell point uses ranged buy orders)' : ''}`);
     rows.push(`<li><span class="n">${i + 1}</span>
       <span class="where">${esc(stationName(st.locationId, st.systemId))}<small>${esc(sysName(st.systemId))}</small></span>
       <span class="act">${[...sell, ...buy].join('<br>')}</span>
@@ -1749,6 +1760,11 @@ function bindTrips() {
   $('tripBody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-key]');
     if (tr) selectTrip(tripList().find(x => x.key === tr.dataset.key));
+  });
+  $('tripStops').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-track]');
+    const leg = btn && tripList().find(x => x.key === ui.tripPick)?.legs[Number(btn.dataset.leg)];
+    if (leg) toggleTracked(legHaul(leg));
   });
   $('tripClear').addEventListener('click', () => selectTrip(null));
   $('tripCopy').addEventListener('click', async () => {
