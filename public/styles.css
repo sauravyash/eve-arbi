@@ -403,15 +403,11 @@ table.routes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .star:hover, .star.on { color: var(--amber); }
 .warn-m { color: var(--amber); }
 
-/* tracked hauls (Best items) */
-body[data-page=scan] .layout { grid-template-areas: "graph side" "track track" "work work"; }
-@media (max-width: 1000px) { body[data-page=scan] .layout { grid-template-areas: "graph" "side" "track" "work"; } }
+/* tracked hauls (Best items, Single route, Multi-stop) */
+body:is([data-page=scan], [data-page=load], [data-page=trips]) .layout { grid-template-areas: "graph side" "track track" "work work"; }
+@media (max-width: 1000px) { body:is([data-page=scan], [data-page=load], [data-page=trips]) .layout { grid-template-areas: "graph" "side" "track" "work"; } }
 .track-panel { grid-area: track; min-width: 0; }
-.track { display: inline-grid; place-items: center; background: none; border: 0; color: var(--faint); cursor: pointer; padding: 0 6px 0 0; vertical-align: -3px; }
-.track svg, .inline-icon { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.inline-icon { vertical-align: -2px; }
-.track:hover, .track.on { color: var(--teal); }
-.track:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; border-radius: 4px; }
+.star:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; border-radius: 4px; }
 .track-table tbody tr { cursor: default; }
 .track-table tr.expired td { opacity: .7; }
 .track-table tr.expired td.track-status { opacity: 1; }
