@@ -109,11 +109,12 @@ function topK(cap) {
  * @param {number} [o.maxJumps]      longest trip, counting the flight from `start`
  * @param {'perJump'|'profit'} [o.rank='perJump']
  * @param {number} [o.maxReuse=2]   listed trips a single haul may appear in
- * @returns {{legs, events, startJumps, jumps, profit, peakCost, peakVolume, perJump}[]} trips with ≥ 2 legs, best first;
+ * @param {(sys: number) => number} [o.entryFee]  ISK to fly into a system (Zarzakh's toll), paid on each arrival from elsewhere
+ * @returns {{legs, events, startJumps, jumps, profit, toll, peakCost, peakVolume, perJump}[]} trips with ≥ 2 legs, best first;
  *   events are the stops in flying order: {kind: 'buy'|'sell', leg (index into legs), hop (jumps from the previous event)}
  */
 export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink = 3, rank = 'perJump', maxVolume = Infinity, maxCost = Infinity,
-  maxJumps = Infinity, beam = 400, perPickup = 80, limit = 60, maxReuse = 2, spread = 4, keep = 16 } = {}) {
+  maxJumps = Infinity, entryFee = () => 0, beam = 400, perPickup = 80, limit = 60, maxReuse = 2, spread = 4, keep = 16 } = {}) {
   // Every system a trip can visit gets a small local id; jumps between them are read from one
   // Int16Array row per system (-1: unreachable), built the first time a trip is there.
   const loc = new Map(), sysOf = [];
@@ -140,6 +141,10 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
   });
   const pickK = Int32Array.from(byPick.keys());
   const P = pickK.length, K = sysOf.length;
+  // Entry fee per local system; a hop of 0 stays put and pays nothing. `tourFee`: the fees of a selling tour.
+  const fee = Float64Array.from(sysOf, sys => entryFee(sys) || 0);
+  const feeOf = (k, hop) => (hop > 0 ? fee[k] : 0);
+  const tourFee = (rest) => rest.order.reduce((t, k) => t + fee[k], 0);
   const legsAt = [...byPick.values()].map(list => list.sort((a, b) => b.profit - a.profit));
 
   // With `jumps` ({indexOf, from(sys) → Int16Array by graph index}) a row is K array reads;
@@ -180,7 +185,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
   const scoreOf = (gain, jumps) => (perJump ? gain / Math.max(1, jumps) : gain);
 
   // Trip states link back to their parent; `evs` are the buys and sales on arriving at `at`.
-  const root = { at: startK, jumps: 0, bank: 0, pend: 0, vol: 0, cost: 0, peakCost: 0, peakVol: 0, n: 0, open: [], used: [], prev: null, evs: [], hop: 0 };
+  const root = { at: startK, jumps: 0, bank: 0, pend: 0, vol: 0, cost: 0, peakCost: 0, peakVol: 0, n: 0, open: [], used: [], prev: null, evs: [], hop: 0, fees: 0 };
   const found = [];
 
   // Arrive at `to` (hop jumps on), sell what is bound there, then buy H (if any) and sell it
@@ -188,7 +193,8 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
   const build = (s, to, hop, H0, fit) => {
     const H = fit ? { ...H0, profit: fit.profit, cost: fit.cost, volume: fit.volume, fit } : H0;
     const evs = [], open = [];
-    let bank = s.bank, pend = s.pend, vol = s.vol, cost = s.cost;
+    const paid = feeOf(to, hop);
+    let bank = s.bank - paid, pend = s.pend, vol = s.vol, cost = s.cost;
     for (const o of s.open) {
       if (o.dk !== to) { open.push(o); continue; }
       evs.push({ kind: 'sell', H: o });
@@ -202,7 +208,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
       if (H.dk === to) { evs.push({ kind: 'sell', H }); bank += H.profit; }
       else { open.push(H); pend += H.profit; vol += H.volume; cost += H.cost; }
     }
-    return { at: to, jumps: s.jumps + hop, bank, pend, vol, cost, peakCost, peakVol, n, open, used, prev: s, evs, hop };
+    return { at: to, jumps: s.jumps + hop, bank, pend, vol, cost, peakCost, peakVol, n, open, used, prev: s, evs, hop, fees: s.fees + paid };
   };
 
   // Fewest jumps to sell everything bound for `drops` (distinct systems) starting at `from`,
@@ -266,7 +272,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
         const rest = tour(D, dropsOf(s.open, D));
         if (!rest) continue; // something aboard could never be sold from there
         if (s.jumps + hop + rest.jumps > maxJumps) continue;
-        heap.push({ s, to: D, hop, H: null, rest, score: scoreOf(gain0, s.jumps + hop + rest.jumps) });
+        heap.push({ s, to: D, hop, H: null, rest, score: scoreOf(gain0 - feeOf(D, hop) - tourFee(rest), s.jumps + hop + rest.jumps) });
       }
 
       // Buy: a haul whose pickup is (nearly) on the way.
@@ -296,6 +302,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
         for (const o of s.open) if (o.dk === sys) { fV += o.volume; fC += o.cost; }
         const roomV = maxVolume - (s.vol - fV), roomC = maxCost - (s.cost - fC);
         const aboard = dropsOf(s.open, sys), fromSys = row(sys);
+        const fee0 = gain0 - feeOf(sys, a);   // what the trip has made on arriving here
         let far0 = 0;
         for (const D of aboard) far0 = Math.max(far0, fromSys[D] < 0 ? Infinity : fromSys[D]);
         if (far0 === Infinity) continue;
@@ -323,7 +330,7 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
           // Skip the selling tour and re-pricing when even that, over the fewest jumps the sales
           // could take, can't make the beam or this state's finished trips.
           const floor = Math.min(heap.floor(), s.n >= 1 ? mine.floor() : -Infinity);
-          if (scoreOf(gain0 + most, s.jumps + a + Math.max(far0, jl)) <= floor) { took++; continue; }
+          if (scoreOf(fee0 + most, s.jumps + a + Math.max(far0, jl)) <= floor) { took++; continue; }
           let rest = tours.get(H0.dk);
           if (rest === undefined) {
             tours.set(H0.dk, rest = tour(sys, aboard.includes(H0.dk) || H0.dk === sys ? aboard : [...aboard, H0.dk]));
@@ -331,14 +338,15 @@ export function planTrips(legs, { start, distFrom, jumps, maxLegs = 3, maxLink =
           if (!rest) continue;
           const total = s.jumps + a + rest.jumps;
           if (total > maxJumps) continue;
-          if (scoreOf(gain0 + most, total) <= floor) { took++; continue; }
+          const net0 = fee0 - tourFee(rest);
+          if (scoreOf(net0 + most, total) <= floor) { took++; continue; }
           let fit = null;
           if (!fits) {
             fit = H0.L.fit ? H0.L.fit(roomV, roomC) : H0.L.refit?.(roomV, roomC);
             if (!fit) continue;
           }
           took++;
-          const rec = { s, to: sys, hop: a, H: H0, fit, rest, score: scoreOf(gain0 + (fit || H0).profit, total) };
+          const rec = { s, to: sys, hop: a, H: H0, fit, rest, score: scoreOf(net0 + (fit || H0).profit, total) };
           if (s.n >= 1) mine.push(rec);
           heap.push(rec);
         }
@@ -416,7 +424,7 @@ function toTrip(st) {
   // A part load gets its full price summary (first and last prices) now.
   const legs = st.used.map(H => (H.fit ? { ...H.L, ...(H.fit.room ? H.L.refit(...H.fit.room) : H.fit) } : { ...H.L }));
   return {
-    legs, events, startJumps, jumps: st.jumps, profit: st.bank, peakCost: st.peakCost, peakVolume: st.peakVol,
+    legs, events, startJumps, jumps: st.jumps, profit: st.bank, toll: st.fees, peakCost: st.peakCost, peakVolume: st.peakVol,
     perJump: st.bank / Math.max(1, st.jumps),
   };
 }

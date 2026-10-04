@@ -97,7 +97,7 @@ function hotSystems() {
 function routeOpts() {
   const mine = new Set(stops.map(s => s.id));
   const av = new Set([...avoid, ...hotSystems()].filter(id => !mine.has(id)));
-  return { flag: settings.flag, avoid: av, passJSpace: settings.passJ };
+  return { flag: settings.flag, avoid: av, passJSpace: settings.passJ, noZarzakh: settings.ship === 'capital' };
 }
 
 function plan() {
@@ -278,6 +278,7 @@ function renderSummary(p) {
     <p>${p.broken ? `<b class="bad">${plural(p.broken, 'leg')} with no route.</b> ` : ''}
       ${saved ? `<b class="whtext">${what ? what[0].toUpperCase() + what.slice(1) : 'Shortcuts'} save ${plural(saved, 'jump')}</b> (${p.gatesJumps} by stargates only). ` : ''}
       ${s.lowEntries ? `Leaves high-sec ${s.lowEntries === 1 ? 'once' : `${s.lowEntries} times`}. ` : ''}
+      ${s.zarzakh ? `<span title="Taking a stargate into Zarzakh costs a toll that goes by your ship's mass (about 10k ISK for a frigate, more for bigger hulls; pirate-enlisted pilots pay nothing), and locks you to that gate for 6 hours: routes never pass through it, and you leave the way you came in.">Enters Zarzakh${s.zarzakh > 1 ? ` ${s.zarzakh} times` : ''}: entry toll, leave by the same gate.</span> ` : ''}
       ${s.regions.length ? `Through ${esc(s.regions.join(' → '))}.` : ''}
       ${ui.note ? `<span class="note">${esc(ui.note)}</span>` : ''}</p>`;
 }

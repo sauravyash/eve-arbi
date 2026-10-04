@@ -14,7 +14,7 @@
       <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
       <div>
         <h1>Hub Arbitrage</h1>
-        <p class="sub">Jita · Amarr · Dodixie · Rens · Hek — read-only market data</p>
+        <p class="sub">Jita · Amarr · Dodixie · Rens · Hek · Zarzakh — read-only market data</p>
       </div>
     </div>
     <div id="me" class="me" aria-label="EVE character"></div>
@@ -45,7 +45,7 @@
       <a href="best-items.html" aria-current="page" title="Rank every item worth hauling between markets (key 1)">Best items</a>
       <a href="single-route.html" title="Fill one hold with the best mix of items for one trip (key 2)">Single route</a>
       <a href="multi-stop.html" title="Chain hauls across New Eden (key 3)">Multi-stop routes</a>
-      <a href="watchlist-routes.html" title="Your items between the five hubs (key 4)">Watchlist routes</a>
+      <a href="watchlist-routes.html" title="Your items between the trade hubs (key 4)">Watchlist routes</a>
     </div>
     <span class="hint keys">Keys 1–4 switch pages</span>
   </nav>
@@ -76,6 +76,9 @@
     </label>
     <label title="Longest haul or trip to list, counting the flight to the pickup when buying near you. Blank = no limit.">Max jumps
       <input id="maxJumps" type="number" min="1" step="1" inputmode="numeric" placeholder="Any">
+    </label>
+    <label title="ISK to take a stargate into Zarzakh, taken off every haul or trip that goes there. It goes by your ship's mass (about 10k for a frigate); pirate-enlisted pilots pay nothing, so put 0. Blank = 1m.">Zarzakh toll
+      <input id="zarzakhToll" type="text" inputmode="decimal" placeholder="1m" size="6">
     </label>
     <label>Graph item
       <select id="graphItem"></select>
@@ -177,7 +180,7 @@
       </div>
       <div id="scanProgress" class="progress" hidden><i></i></div>
       <div class="scan-filters">
-        <label title="Trade hubs: the five hub stations (hub scan, about a minute). All stations: every NPC station and structure in New Eden (the universe scan, a few minutes, shared with Multi-stop routes).">Markets
+        <label title="Trade hubs: the six hub stations (hub scan, about a minute). All stations: every NPC station and structure in New Eden (the universe scan, a few minutes, shared with Multi-stop routes).">Markets
           <select id="scScope">
             <option value="hubs">Trade hubs</option>
             <option value="all">All stations</option>
