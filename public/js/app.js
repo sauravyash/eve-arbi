@@ -1390,7 +1390,7 @@ function renderTracked() {
   const active = list.filter(t => isActive(t, now)).length;
   $('trackCount').textContent = list.length ? `· ${active} of ${list.length} active` : '';
   if (!list.length) {
-    const where = { load: "next to an item in a route's shopping list", trips: "next to a purchase in a route's waypoints" }[document.body.dataset.page] || 'on a row below';
+    const where = { load: "next to an item in a route's shopping list", trips: 'next to an item in a route below' }[document.body.dataset.page] || 'on a row below';
     body.innerHTML = `<tr class="empty"><td colspan="9">Nothing tracked yet. Click ☆ ${where} to re-price that haul every 10 minutes for an hour.</td></tr>`;
     return;
   }
@@ -1716,7 +1716,7 @@ function renderTrips() {
     body.innerHTML = trips.slice(0, 30).map((tr, i) => {
       const route = [settings.trips.start, ...tripStops(tr).map(s => s.systemId)]
         .filter((s, k, a) => s !== a[k - 1]).map(s => `<span class="sys">${esc(sysName(s))}</span>`).join(' → ');
-      const items = tr.legs.map(l => `<span class="nw">${esc(l.name)}${copyButton(l.name)}</span>`).join(' · ');
+      const items = tr.legs.map((l, k) => `<span class="nw">${trackButton(legHaul(l), `data-leg="${k}"`)}${esc(l.name)}${copyButton(l.name)}</span>`).join(' · ');
       return `<tr data-key="${esc(tr.key)}" class="${tr.key === ui.tripPick ? 'picked' : ''}">
         <td class="l rank">${i + 1}</td>
         <td class="l route">${route}<span class="itm">${items}</span></td>
@@ -1759,7 +1759,11 @@ function bindTrips() {
   $('tripScanBtn').addEventListener('click', tripStartScan);
   $('tripBody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-key]');
-    if (tr) selectTrip(tripList().find(x => x.key === tr.dataset.key));
+    if (!tr) return;
+    const picked = tripList().find(x => x.key === tr.dataset.key);
+    const btn = e.target.closest('[data-track]');
+    if (btn) { const leg = picked?.legs[Number(btn.dataset.leg)]; if (leg) toggleTracked(legHaul(leg)); return; }
+    selectTrip(picked);
   });
   $('tripStops').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-track]');
