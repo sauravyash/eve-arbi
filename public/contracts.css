@@ -27,4 +27,3 @@
 .back small { display: block; color: var(--faint); font-size: 10.5px; }
 .hint.note { border-left: 2px solid var(--line-2); padding-left: 10px; }
 .scan-filters #lpCorp { width: 100%; }
-.scan-filters input[type=checkbox] { width: auto; }
