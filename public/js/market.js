@@ -16,6 +16,7 @@ import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { mountFitButton } from './fit-dialog.js';
 import { mountSectionNav, openSection } from './nav.js';
+import { bindListKeys } from './list-nav.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -1336,6 +1337,7 @@ function bindWatch() {
 
   $('itemSearch').addEventListener('input', onSearch);
   $('itemSearch').addEventListener('focus', onSearch);
+  bindListKeys($('itemSearch'), $('pickerResults'));
   $('itemSearch').addEventListener('keydown', (e) => {
     if (e.key === 'Escape') $('pickerResults').hidden = true;
     if (e.key === 'Enter') $('pickerResults').querySelector('button[data-add]')?.click();

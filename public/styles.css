@@ -253,7 +253,7 @@ label.check input { accent-color: var(--teal); }
   display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--text);
   padding: 7px 10px; font: inherit; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--line);
 }
-.picker-results button:hover, .picker-results button:focus-visible { background: var(--hover); outline: none; }
+.picker-results button:hover, .picker-results button:focus-visible, .picker-results button.active { background: var(--hover); outline: none; }
 .picker-results .path { display: block; color: var(--faint); font-size: 11px; }
 .picker-results .msg { padding: 8px 10px; color: var(--muted); font-size: 12px; }
 .picker-results .grp { color: var(--muted); }
