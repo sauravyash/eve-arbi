@@ -1,4 +1,4 @@
-// Corp buyback maths for the mining page: what a load is worth at Jita 4-4 (buy, sell or the split
+// Corp buyback maths (Contracts › Corp buyback): what a load is worth at Jita 4-4 (buy, sell or the split
 // between them), what the corporation pays at its buyback rate, and the details of the in-game
 // item exchange contract that hands the load over. Pure: no DOM, no fetch.
 
@@ -88,6 +88,36 @@ export function byLocation(items) {
     (out.get(l) || out.set(l, []).get(l)).push(it);
   }
   return out;
+}
+
+/**
+ * Adds items to a buyback list, summing units of the same type at the same place.
+ * @param {{typeId, qty, locationId?}[]} items   the current list (not changed)
+ * @param {{typeId, qty, locationId?}[]} add
+ * @returns {{typeId, qty, locationId?}[]}
+ */
+export function mergeItems(items, add, { replace = false } = {}) {
+  const out = replace ? [] : items.map(it => ({ ...it }));
+  for (const { typeId, qty, locationId = 0 } of add) {
+    const cur = out.find(it => it.typeId === typeId && (it.locationId || 0) === locationId);
+    if (cur) cur.qty += qty; else out.push({ typeId, qty, ...(locationId && { locationId }) });
+  }
+  return out;
+}
+
+/**
+ * Where an asset location is: an NPC station (stations.json), a structure or other place named in
+ * /api/me/assets' `locations`, a solar system (items in space), or unknown. Location 0 is "no place".
+ * @returns {{name: string, systemId: number|null, short: string}}
+ */
+export function placeOf(l, { stations, locations, sysName, isNpcStation }) {
+  if (!l) return { name: 'Your hangar', systemId: null, short: 'Your hangar' };
+  const npc = isNpcStation(l) ? stations?.[l] : null;
+  if (npc) return { name: npc[0], systemId: npc[1], short: npc[0] };
+  const s = locations?.[l];
+  if (s) return { name: s.name, systemId: s.systemId, short: s.name };
+  if (l >= 30_000_000 && l < 33_000_000) return { name: `In space in ${sysName(l)}`, systemId: l, short: sysName(l) };
+  return { name: l > 1e12 ? `Player structure ${l}` : `Location ${l}`, systemId: null, short: `Location ${l}` };
 }
 
 /** "Veldspar\t12345" lines: pastes back into EVE's multibuy and into this page, Janice and others. */

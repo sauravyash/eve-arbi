@@ -12,7 +12,7 @@ import { priceLoad, parsePaste } from './mining-value.js';
 import { shortcutsOn, isJSpace } from './wormholes.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
 import { createMe } from './me.js';
-import { createBuyback } from './mining-buyback.js';
+import { createAssets } from './mining-assets.js';
 import { itemPic, removeButton, copyButton } from './watchlist.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
@@ -48,7 +48,7 @@ const books = {};                                           // typeId → {order
 const locNames = new Map();                                 // structure/station ID → name (from Tycoon)
 const ui = { limit: PAGE, open: null, ver: 0, memo: null, error: null };
 const sc = createShortcuts({ onChange: () => { drawToggle?.(); render(); meCtl?.render(); } });
-let base = null, ctx = null, types = null, stations = null, typeByName = null, meCtl = null, bb = null, drawToggle = null;
+let base = null, ctx = null, types = null, stations = null, typeByName = null, meCtl = null, assets = null, drawToggle = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -378,10 +378,10 @@ function init() {
   meCtl = createMe({
     el: $('me'), returnTo: '/mining.html', systemName: sysName, isk,
     shipInfo: (id) => (types?.[id] ? { name: types[id][0], cargo: types[id][2] === 6 ? types[id][3] ?? null : null } : null),
-    onFollow: followLocation, onStatus: () => { render(); bb?.statusChanged(); },
+    onFollow: followLocation, onStatus: () => { render(); assets?.statusChanged(); },
   });
-  bb = createBuyback({
-    types: () => types, typeByName: () => typeByName, stations: () => stations, sysName, me: () => meCtl,
+  assets = createAssets({
+    types: () => types, stations: () => stations, sysName, me: () => meCtl,
     // "Where to sell" on an asset location: that station's ore becomes the load, priced from there.
     onSell: (items, systemId) => {
       if (systemId && !$('home').disabled) { settings.home = systemId; save(); }
@@ -451,14 +451,14 @@ function init() {
     return fetch('data/stations.json').then(r => (r.ok ? r.json() : {})).catch(() => ({})).then(s => {
       stations = s;
       ctx = buildRangeContext(base, s);
-      ui.memo = null; render(); meCtl.reapply(); bb.render();
+      ui.memo = null; render(); meCtl.reapply(); assets.render();
     });
   }).catch(() => { $('home').placeholder = 'Star map unavailable'; });
   fetch('data/types.json').then(r => r.json()).then(t => {
     types = t;
     typeByName = new Map(Object.entries(t).map(([id, v]) => [v[0].toLowerCase(), Number(id)]));
     fillItemList();
-    ui.memo = null; render(); meCtl.reapply(); bb.typesLoaded();
+    ui.memo = null; render(); meCtl.reapply(); assets.render();
   }).catch(() => {});
   render();
   refresh();
