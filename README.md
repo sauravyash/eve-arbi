@@ -19,7 +19,7 @@ view's query string.
 |---|---|
 | Hub arbitrage | `best-items.html`, `single-route.html`, `multi-stop.html`, `watchlist-routes.html` |
 | Market watch | `universe-scan.html`, `my-orders.html`, `watchlist.html`, `regional-demand.html` |
-| Contracts | `item-contracts.html`, `courier.html`, `lp-stores.html` |
+| Contracts | `item-contracts.html`, `courier.html`, `lp-stores.html`, `corp-buyback.html` |
 | Mining | `mining.html` |
 | Route planner | `route-planner.html` |
 
@@ -103,7 +103,7 @@ EVE requires every app to be registered, so there's a one-time setup:
      `esi-markets.read_character_orders.v1`, `esi-markets.read_corporation_orders.v1`,
      `esi-markets.structure_markets.v1`, `esi-assets.read_assets.v1`,
      `esi-industry.read_character_mining.v1`, `esi-universe.read_structures.v1` (the last three for
-     the mining page's buyback suggestions and "sell what you own"). `publicData` doesn't hurt but isn't used.
+     the corp buyback's suggestions and the mining page's "Ore you own"). `publicData` doesn't hurt but isn't used.
 2. Copy `sso.config.example.json` to `sso.config.json` and put its **Client ID** in it, then restart the server:
    ```json
    { "clientId": "your-client-id" }
@@ -395,6 +395,12 @@ apply to all three pages (*Item contracts*, *Courier*, *LP stores*), and follow 
   are Fuzzwork station aggregates at the selling hub (Jita when *Best hub* is selected); the
   daily volume column (ESI history, last 7 days in the hub's region) shows whether the market
   can absorb what you redeem. LP-store blueprints are copies and are left unpriced.
+- **Corp buyback** (`corp-buyback.html`, `public/js/buyback-calc.js`): paste a load (Ctrl+V anywhere on
+  the page) and see what it's worth at Jita 4-4 buy, sell or split (Fuzzwork) and what your
+  corporation pays at its buyback rate, next to a copy of the game's *Create Contract* window filled in
+  with the values to type. Signed in, it suggests what you own and mined, and addresses the contract
+  to your corporation. The mining page's *Ore you own* sends a station's ore here with *Buyback*.
+  It doesn't use the settings bar.
 - **Not available:** ESI has no public data for agent missions or the in-game *Opportunities*
   window (Corporation projects, Freelance jobs), so those can't be scanned.
 
@@ -416,6 +422,8 @@ A fourth page that answers "where should I sell this?" for ore, moon ore, ice, g
   ISK per jump (jumps + 1) or distance. Filter it with *Max jumps* and *Min % of load sold*.
 - **Best place per item:** where each item sells best within your limits and anywhere you can reach.
   *Split by item* adds these up, in case a few stops beat one.
+- **Ore you own** (signed in): the ore, ice and gas in your assets by station. *Where to sell* loads a
+  station's ore into *Your load*; *Buyback* opens it in Contracts › *Corp buyback*.
 
 ### Wormholes
 

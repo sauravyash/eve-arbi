@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitPrice, appraise, brokerFee, eveDate, contractIsk, receiveAmount, byLocation, itemsText, contractItems,
-  summaryText, harvestable, minedTypes } from '../public/js/buyback.js';
+  summaryText, harvestable, minedTypes, mergeItems, placeOf } from '../public/js/buyback.js';
 import { rootAssets } from '../sso.js';
 import { parsePaste } from '../public/js/mining-value.js';
 
@@ -111,4 +111,22 @@ test('parsePaste reads EVE rich-text copies with <t> and <right> markup', () => 
   const r = parsePaste(text, (n) => ids[n.toLowerCase()] ?? null);
   assert.deepEqual(r.items, [{ typeId: 46678, qty: 866 }, { typeId: 1230, qty: 1000 }]);
   assert.deepEqual(r.unknown, []);
+});
+
+test('mergeItems sums the same type at the same place and leaves the input alone', () => {
+  const cur = [{ typeId: 1, qty: 10 }, { typeId: 1, qty: 5, locationId: 60003760 }];
+  const out = mergeItems(cur, [{ typeId: 1, qty: 2 }, { typeId: 1, qty: 3, locationId: 60003760 }, { typeId: 2, qty: 1, locationId: 7 }]);
+  assert.deepEqual(out, [{ typeId: 1, qty: 12 }, { typeId: 1, qty: 8, locationId: 60003760 }, { typeId: 2, qty: 1, locationId: 7 }]);
+  assert.equal(cur[0].qty, 10);
+  assert.deepEqual(mergeItems(cur, [{ typeId: 3, qty: 4 }], { replace: true }), [{ typeId: 3, qty: 4 }]);
+});
+
+test('placeOf names stations, structures, systems and unknown places', () => {
+  const o = { stations: { 60003760: ['Jita IV - Moon 4', 30000142] }, locations: { 1000000000001: { name: 'Keepstar', systemId: 30000144 } },
+    sysName: (id) => (id === 30000142 ? 'Jita' : `S${id}`), isNpcStation: (l) => l >= 60_000_000 && l < 64_000_000 };
+  assert.equal(placeOf(0, o).name, 'Your hangar');
+  assert.deepEqual(placeOf(60003760, o), { name: 'Jita IV - Moon 4', systemId: 30000142, short: 'Jita IV - Moon 4' });
+  assert.equal(placeOf(1000000000001, o).systemId, 30000144);
+  assert.equal(placeOf(30000142, o).name, 'In space in Jita');
+  assert.equal(placeOf(2000000000000, o).name, 'Player structure 2000000000000');
 });

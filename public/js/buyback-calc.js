@@ -1,10 +1,9 @@
-// Mining page, top half: the corp buyback calculator (buyback.js maths, Jita 4-4 prices from
-// Fuzzwork), a copy of the game's Create Contract window filled in for it, and "what you own",
-// which lists the ore, ice and gas in your assets by station for either the buyback or the
-// where-to-sell tables below (mining.js).
+// Contracts › Corp buyback: the buyback calculator (buyback.js maths, Jita 4-4 prices from
+// Fuzzwork) and a copy of the game's Create Contract window filled in for it.
 //
 // Signed in, the buyback suggests what you mined (mining ledger) and what you own (assets), and
-// the contract is addressed to your corporation unless you type another name.
+// the contract is addressed to your corporation unless you type another name. The mining page's
+// "Ore you own" panel hands items over through the same stored list (addToBuyback).
 
 import { formatIsk } from './arbitrage.js';
 import { parseFuzzwork, isNpcStation } from './market-merge.js';
@@ -12,15 +11,17 @@ import { parsePaste } from './mining-value.js';
 import { itemPic, copyButton } from './watchlist.js';
 import {
   BASES, EXPIRATIONS, appraise, brokerFee, eveDate, contractIsk, receiveAmount, byLocation, itemsText, contractItems,
-  summaryText, harvestable, minedTypes,
+  summaryText, harvestable, minedTypes, mergeItems, placeOf,
 } from './buyback.js';
 
 const JITA_STATION = 60003760;
-const PRICE_TTL = 10 * 60_000;
 const DAY = 86_400_000;
 const SCOPE = { assets: 'esi-assets.read_assets.v1', mining: 'esi-industry.read_character_mining.v1' };
 const KIND_LABEL = { ore: 'Ore', moon: 'Moon ore', ice: 'Ice', gas: 'Gas', mineral: 'Mineral' };
 const AVAIL = { public: 'Public', private: 'Private', corp: 'My Corporation' };
+// Storage keys kept from when the buyback lived on the mining page, so saved lists carry over.
+const KEY = { settings: 'mining.buyback.settings', items: 'mining.buyback.items' };
+export const BUYBACK_PAGE = 'corp-buyback.html';
 
 const LS = {
   get(k, fallback) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
@@ -42,6 +43,14 @@ function ago(ms) {
   return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
 }
 
+const storedItems = () => LS.get(KEY.items, []).filter(it => it?.typeId > 0 && it.qty > 0);  // [{typeId, qty, locationId?}]
+
+/** Adds items to the stored buyback list from another page (honours "Pasting replaces the list"). */
+export function addToBuyback(list) {
+  const replace = !!LS.get(KEY.settings, {}).replace;
+  LS.set(KEY.items, mergeItems(storedItems(), list, { replace }));
+}
+
 /**
  * @param {object} o
  * @param {() => object|null} o.types          types.json, once loaded
@@ -49,14 +58,13 @@ function ago(ms) {
  * @param {() => object|null} o.stations       stations.json, once loaded
  * @param {(id: number) => string} o.sysName
  * @param {() => object|null} o.me             createMe() controller
- * @param {(items: {typeId, qty}[], systemId: number|null) => void} o.onSell   price a load in the tables below
  */
-export function createBuyback({ types, typeByName, stations, sysName, me, onSell }) {
+export function createBuyback({ types, typeByName, stations, sysName, me }) {
   const DEFAULTS = { basis: 'split', rate: 85, corp: 'Eagle Wing Industries', availability: 'private', expiry: 28, desc: '', replace: false };
-  const settings = { ...DEFAULTS, ...LS.get('mining.buyback.settings', {}) };
-  const saveSettings = () => LS.set('mining.buyback.settings', settings);
-  let items = LS.get('mining.buyback.items', []).filter(it => it?.typeId > 0 && it.qty > 0);  // [{typeId, qty, locationId?}]
-  const saveItems = () => LS.set('mining.buyback.items', items);
+  const settings = { ...DEFAULTS, ...LS.get(KEY.settings, {}) };
+  const saveSettings = () => LS.set(KEY.settings, settings);
+  let items = storedItems();
+  const saveItems = () => LS.set(KEY.items, items);
   const prices = {};            // typeId → {buy, sell} | null (no orders)
   const priced = { at: 0, loading: false, error: null };
   const acct = { corp: null, ledger: null, assets: null, loading: { assets: false, mining: false }, errors: {}, forChar: null };
@@ -128,11 +136,7 @@ export function createBuyback({ types, typeByName, stations, sysName, me, onSell
   // Editing
   // -------------------------------------------------------------------------
   function add(list, { replace = false } = {}) {
-    if (replace) items = [];
-    for (const { typeId, qty, locationId = 0 } of list) {
-      const cur = items.find(it => it.typeId === typeId && (it.locationId || 0) === locationId);
-      if (cur) cur.qty += qty; else items.push({ typeId, qty, ...(locationId && { locationId }) });
-    }
+    items = mergeItems(items, list, { replace });
     saveItems(); ui.loc = null;
     render(); fetchPrices();
   }
@@ -160,15 +164,7 @@ export function createBuyback({ types, typeByName, stations, sysName, me, onSell
   // -------------------------------------------------------------------------
   // Places
   // -------------------------------------------------------------------------
-  function place(l) {
-    if (!l) return { name: 'Your hangar', system: null, short: 'Your hangar' };
-    const npc = isNpcStation(l) ? stations()?.[l] : null;
-    if (npc) return { name: npc[0], systemId: npc[1], short: npc[0] };
-    const s = acct.assets?.locations?.[l];
-    if (s) return { name: s.name, systemId: s.systemId, short: s.name };
-    if (l >= 30_000_000 && l < 33_000_000) return { name: `In space in ${sysName(l)}`, systemId: l, short: sysName(l) };
-    return { name: l > 1e12 ? `Player structure ${l}` : `Location ${l}`, systemId: null, short: `Location ${l}` };
-  }
+  const place = (l) => placeOf(l, { stations: stations(), locations: acct.assets?.locations, sysName, isNpcStation });
 
   // -------------------------------------------------------------------------
   // Rendering
@@ -329,44 +325,12 @@ export function createBuyback({ types, typeByName, stations, sysName, me, onSell
     $('cwWindow').classList.toggle('empty', !sel.length);
   }
 
-  function renderAssets() {
-    const el = $('asBody');
-    const s = status();
-    $('asRefresh').hidden = !s?.loggedIn;
-    const head = $('asCount');
-    if (!s?.loggedIn) {
-      head.textContent = '';
-      el.innerHTML = `<p class="hint">${s?.configured ? 'Log in with EVE (top right) to list the ore, ice and gas in your hangars, ships and containers.' : 'EVE login is not set up on this server.'}</p>`;
-      return;
-    }
-    if (acct.errors.assets === 'needs-scope') { el.innerHTML = '<p class="hint">Sign out and in again to allow reading your assets (esi-assets.read_assets.v1).</p>'; return; }
-    if (acct.errors.assets) { el.innerHTML = `<p class="hint warn">Couldn't read your assets: ${esc(acct.errors.assets)}</p>`; return; }
-    if (!acct.assets) { el.innerHTML = '<p class="hint">Loading your assets…</p>'; return; }
-    const groups = byLocation(harvestable(acct.assets.items, types()));
-    const rows = [...groups].map(([l, list]) => {
-      const vol = list.reduce((s, it) => s + it.qty * volOf(it.typeId), 0);
-      return { l, list: list.sort((a, b) => b.qty * volOf(b.typeId) - a.qty * volOf(a.typeId)), vol, where: place(l) };
-    }).sort((a, b) => b.vol - a.vol);
-    head.textContent = rows.length ? `· ${rows.length} location${rows.length > 1 ? 's' : ''}` : '';
-    el.innerHTML = rows.length ? `<div class="table-wrap"><table class="routes mn-table as-table">
-      <thead><tr><th class="l">Where</th><th class="l">What</th><th>m³</th><th></th></tr></thead>
-      <tbody>${rows.map(r => `<tr class="static">
-        <td class="l"><span class="place"><b title="${esc(r.where.name)}">${esc(r.where.name)}</b>${r.where.systemId ? `<small>${esc(sysName(r.where.systemId))}</small>` : ''}</span></td>
-        <td class="l as-what">${r.list.slice(0, 6).map(it => `<span class="as-it" title="${esc(name(it.typeId))}">${itemPic(it.typeId, name(it.typeId), 20)}${num(it.qty)}</span>`).join('')}${r.list.length > 6 ? `<small class="muted">+${r.list.length - 6} more</small>` : ''}</td>
-        <td>${num(r.vol)}</td>
-        <td class="as-act"><button class="btn small" type="button" data-sell="${r.l}" title="Rank the stations that buy these, starting from this one">Where to sell</button>
-          <button class="btn small ghost" type="button" data-bb="${r.l}" title="Add these to the buyback calculator">Buyback</button></td>
-      </tr>`).join('')}</tbody></table></div>` : '<p class="hint">No ore, ice, gas or minerals in your assets.</p>';
-    el._rows = rows;
-  }
-
   function render() {
     if (!$('bbBody')) return;
     const a = appraise(withVol(items), prices, { basis: settings.basis, rate: rate() });
     renderCalc(a);
     renderSuggest();
     renderContract();
-    renderAssets();
   }
 
   // -------------------------------------------------------------------------
@@ -448,14 +412,11 @@ export function createBuyback({ types, typeByName, stations, sysName, me, onSell
       else if (t.id === 'cwCorp' || t.id === 'cwDesc') { settings[t.id === 'cwCorp' ? 'corp' : 'desc'] = t.value; saveSettings(); render(); }
     });
 
-    $('asRefresh').addEventListener('click', () => loadAccount('assets'));
-    $('asBody').addEventListener('click', (e) => {
-      const rows = $('asBody')._rows || [];
-      const sell = e.target.closest('[data-sell]'), bb = e.target.closest('[data-bb]');
-      const r = rows.find(x => String(x.l) === (sell || bb)?.dataset[sell ? 'sell' : 'bb']);
-      if (!r) return;
-      if (sell) onSell(r.list.map(it => ({ typeId: it.typeId, qty: it.qty })), r.where.systemId || null);
-      else { add(r.list.map(it => ({ typeId: it.typeId, qty: it.qty, locationId: r.l })), { replace: settings.replace }); $('buyback').scrollIntoView({ behavior: 'smooth' }); }
+    // Items sent from the mining page's "Ore you own" while this page is open in another tab.
+    window.addEventListener('storage', (e) => {
+      if (e.key !== KEY.items) return;
+      items = storedItems(); ui.loc = null;
+      render(); fetchPrices();
     });
 
     render();
