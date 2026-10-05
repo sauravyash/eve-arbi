@@ -14,6 +14,7 @@ import { shipHolds, capacityFor } from './holds.js';
 import { packRoute, multibuyText } from './manifest.js';
 import { mountFitButton } from './fit-dialog.js';
 import { mountSectionNav } from './nav.js';
+import { bindListKeys } from './list-nav.js';
 import {
   MAX_TRACKED, trackKey, newTracked, isActive, nextCheckAt, isDue, checksLeft, resubscribe, withCheck, quoteTracked, cleanTracked,
   STATUS_TEXT, goneCheck, lastGood,
@@ -2047,6 +2048,7 @@ $('ovClear').addEventListener('click', () => {
 const search = $('itemSearch');
 let debounce;
 search.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(onSearch, 150); });
+bindListKeys(search, $('pickerResults'));
 search.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); lookupExact(); }
   if (e.key === 'Escape') { search.value = ''; pickerShow([]); }
