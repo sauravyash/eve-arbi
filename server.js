@@ -363,6 +363,7 @@ async function ssoApi(req, res, u) {
       if (u.pathname === '/api/me/orders') return json(200, await sso.orders());
       if (u.pathname === '/api/me/assets') return json(200, await sso.assets());
       if (u.pathname === '/api/me/mining') return json(200, await sso.mining());
+      if (u.pathname === '/api/me/clones') return json(200, await sso.clones());
       if (u.pathname === '/api/me/corporation') return json(200, await sso.corporation());
       const st = u.pathname.match(/^\/api\/me\/structure\/(\d+)$/);
       if (st) {

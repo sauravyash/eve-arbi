@@ -3,6 +3,9 @@
 // Wormhole shortcuts panel at the bottom (wormhole-panel.js) manages those shortcuts for every page.
 // The maths lives in route-plan.js; this file is state, DOM and the map.
 //
+// Signed in with the clones scope, the Jump clones panel lists your jump clones, the ships parked
+// at each (clones.js) and the jumps the route flies from there, and offers the best one as the start.
+//
 // Kept in this browser (localStorage, routes.*): settings, the stack, systems to avoid and saved
 // routes. The stack, avoid list and route settings are mirrored in the query string, so a link
 // carries the whole route.
@@ -16,6 +19,7 @@ import { mountWormholePanel } from './wormhole-panel.js';
 import { createMe } from './me.js';
 import { formatIsk } from './arbitrage.js';
 import { readUrl, writeUrl } from './url-state.js';
+import { clonePlaces, rankClones, bestClone, cloneCooldownLeft, CLONE_COOLDOWN_H } from './clones.js';
 import {
   FLAGS, FLAG_LABEL, planRoute, findPath, jumpMatrix, optimizeOrder, orderCost, usableLinks, linkShipSize, linkExpiry,
   routeSummary, parseWaypointText, chatLinks, encodeStops, decodeStops, formatDuration, UNREACHABLE,
@@ -32,7 +36,7 @@ const LS = {
 const MAX_STOPS = 40;
 const DEFAULTS = {
   flag: 'secure', ship: '', minLeft: '0', hotKills: '', secPerJump: 45, passJ: true, roundTrip: false, keepEnd: false,
-  mapLayout: 'space', secColors: true, mode: 'add', onlyNotable: false,
+  mapLayout: 'space', secColors: true, mode: 'add', onlyNotable: false, cloneNeedShip: true,
 };
 const settings = { ...DEFAULTS, ...migrateMapLayout(LS.get('routes.settings', {})) };
 const URL_FIELDS = [
@@ -63,7 +67,8 @@ function save() {
   history.replaceState(history.state, '', `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`);
 }
 
-const ui = { bridgeFrom: null, kills: null, traffic: null, liveAt: 0, liveError: null, note: '', fitOnce: true, dragFrom: -1 };
+const CLONES_SCOPE = 'esi-clones.read_clones.v1';
+const ui = { clones: null, bridgeFrom: null, kills: null, traffic: null, liveAt: 0, liveError: null, note: '', fitOnce: true, dragFrom: -1 };
 const sc = createShortcuts({ onChange: () => { drawToggle?.(); syncScout(); renderWh?.(); render(); } });
 let base = null, systems = null, drawToggle = null, renderWh = null, meCtl = null, memo = null;
 
@@ -109,6 +114,23 @@ function plan() {
   // What the same stack costs without any shortcut, to show what the wormholes save.
   const gates = g.shortcuts?.size ? planRoute(base, flown, opts) : null;
   return { ...r, g, opts, gatesJumps: gates && !gates.broken ? gates.jumps : null };
+}
+
+// The route flown from each jump clone instead of your start: same waypoints, same settings.
+function cloneOptions(p) {
+  const c = ui.clones;
+  if (!c?.places?.length) return null;
+  const g = p?.g, rest = stops.slice(1);
+  const jumpsFrom = (id) => {
+    if (!g || !rest.length) return null;
+    const flown = [{ id }, ...rest, ...(settings.roundTrip ? [{ id }] : [])];
+    const r = planRoute(g, flown, p.opts);
+    return r.broken ? null : r.jumps;
+  };
+  const ranked = rankClones(c.places, jumpsFrom, { size: settings.ship, needShip: settings.cloneNeedShip });
+  const current = p && rest.length && !p.broken ? p.jumps : null;
+  const best = rest.length ? bestClone(ranked.filter(r => r.place.systemId !== stops[0]?.id), current) : null;
+  return { ranked, best, current };
 }
 
 // ---------------------------------------------------------------------------
@@ -248,7 +270,15 @@ function renderStack(p) {
   }).join('');
 }
 
-function renderSummary(p) {
+function cloneHint(cl) {
+  const b = cl?.best;
+  if (!b) return '';
+  const ship = b.ships[0];
+  return `<span class="clonetext">Jump-cloning to <b>${esc(sysName(b.place.systemId))}</b>${ship ? ` (your ${esc(ship.name)} is there)` : ''} flies
+    ${plural(b.jumps, 'jump')}${cl.current != null ? `, ${b.saved} fewer` : ''}. <button type="button" class="link" data-clone-start="${b.place.systemId}">Start there</button></span> `;
+}
+
+function renderSummary(p, cl) {
   const box = $('summary');
   if (!p || stops.length < 2) {
     box.innerHTML = (stops.length === 1 ? `Starting in <b>${esc(sysName(stops[0].id))}</b>. Add a destination.` : '')
@@ -280,6 +310,7 @@ function renderSummary(p) {
       ${s.lowEntries ? `Leaves high-sec ${s.lowEntries === 1 ? 'once' : `${s.lowEntries} times`}. ` : ''}
       ${s.zarzakh ? `<span title="Taking a stargate into Zarzakh costs a toll that goes by your ship's mass (about 10k ISK for a frigate, more for bigger hulls; pirate-enlisted pilots pay nothing), and locks you to that gate for 6 hours: routes never pass through it, and you leave the way you came in.">Enters Zarzakh${s.zarzakh > 1 ? ` ${s.zarzakh} times` : ''}: entry toll, leave by the same gate.</span> ` : ''}
       ${s.regions.length ? `Through ${esc(s.regions.join(' → '))}.` : ''}
+      ${cloneHint(cl)}
       ${ui.note ? `<span class="note">${esc(ui.note)}</span>` : ''}</p>`;
 }
 
@@ -391,6 +422,83 @@ function renderSaved() {
     </li>`).join('') : '<li class="empty">None yet.</li>';
 }
 
+// ---------------------------------------------------------------------------
+// Jump clones (signed in): where they are, the ships parked there, the route from each
+// ---------------------------------------------------------------------------
+let staticData = null;
+const loadStatic = () => (staticData ||= Promise.all(['data/types.json', 'data/stations.json'].map(u =>
+  fetch(u).then(r => (r.ok ? r.json() : {})).catch(() => ({})))).then(([types, stations]) => ({ types, stations })));
+
+async function loadClones() {
+  const st = meCtl?.status;
+  if (!st?.loggedIn) { ui.clones = null; return render(); }
+  if (!st.scopes?.includes(CLONES_SCOPE)) { ui.clones = { error: `To see your jump clones, sign out and sign in again to allow ${CLONES_SCOPE}.` }; return render(); }
+  ui.clones = { ...ui.clones, loading: true };
+  render();
+  try {
+    const r = await fetch('/api/me/clones');
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    const { types, stations } = await loadStatic();
+    const places = clonePlaces(data, types, stations);
+    sc.resolveNames(places.map(pl => pl.systemId).filter(Boolean));
+    ui.clones = { data, types, places, at: Date.now() };
+  } catch (e) { ui.clones = { error: e.message }; }
+  render();
+}
+
+function renderClones(cl) {
+  const c = ui.clones, list = $('cloneList');
+  $('cloneNeedShip').closest('label').hidden = !c?.places;
+  if (!c) {
+    $('cloneCount').textContent = '';
+    $('cloneInfo').textContent = 'Sign in with EVE (top right) to see your jump clones and the ships parked at each.';
+    list.innerHTML = '';
+    return;
+  }
+  if (c.loading && !c.places) { $('cloneInfo').textContent = 'Loading your clones…'; return; }
+  if (c.error) { $('cloneInfo').textContent = c.error; list.innerHTML = ''; return; }
+  const jumps = c.places.filter(pl => pl.kind === 'jump');
+  $('cloneCount').textContent = `· ${jumps.length}`;
+  const left = cloneCooldownLeft(c.data.lastJumpAt);
+  $('cloneInfo').innerHTML = [
+    left ? `<span class="warn" title="${CLONE_COOLDOWN_H} h after your last clone jump, 1 h less per level of Infomorph Synchronizing">Next clone jump in up to ${esc(formatDuration(left / 1000))}</span>`
+      : '<span class="ok">Clone jump ready</span>',
+    c.data.shipsError ? `Ships unknown: ${esc(c.data.shipsError)}` : '',
+    stops.length < 2 ? 'Add a destination to compare starts.' : cl?.current != null ? `From ${esc(sysName(stops[0].id))}: ${plural(cl.current, 'jump')}.` : '',
+  ].filter(Boolean).join(' · ');
+  const byPlace = new Map((cl?.ranked || []).map(r => [r.place, r]));
+  const rows = [...(cl?.ranked.map(r => r.place) || jumps), ...c.places.filter(pl => pl.kind === 'home')];
+  const implantNames = (ids) => ids.map(id => c.types?.[id]?.[0] || `Type ${id}`).join('\n');
+  list.innerHTML = rows.length ? rows.map((pl) => {
+    const r = byPlace.get(pl);
+    const here = pl.systemId != null && pl.systemId === stops[0]?.id;
+    const best = cl?.best?.place === pl;
+    const usable = new Set((r?.ships || []).map(s => s.typeId));
+    const ships = pl.ships.length
+      ? pl.ships.map(s => `<span class="ship${!settings.ship || usable.has(s.typeId) ? '' : ' off'}" title="${esc(`${s.name}: ${s.size} ship, ${Math.round(s.cargo).toLocaleString('en-US')} m³ base hold`)}">${s.count > 1 ? `${s.count}× ` : ''}${esc(s.name)}</span>`).join('')
+      : `<span class="muted">${c.data.ships ? 'No assembled ships' : 'Ships unknown'}</span>`;
+    const delta = r?.jumps != null && cl.current != null ? r.jumps - cl.current : null;
+    const jumpText = pl.kind === 'home' ? '<span class="muted" title="Your medical clone: you wake up here when your pod dies">Medical clone</span>'
+      : pl.systemId == null ? '<span class="muted">Unknown system</span>'
+        : r?.jumps == null ? (stops.length < 2 ? '' : '<span class="bad">No route</span>')
+          : `<b>${plural(r.jumps, 'jump')}</b>${delta ? ` <span class="${delta < 0 ? 'ok' : 'muted'}">${delta > 0 ? '+' : '−'}${Math.abs(delta)}</span>` : ''}`;
+    return `<li class="${best ? 'best' : ''}${r && !r.usable ? ' dim' : ''}">
+      <span class="where"><b>${pl.systemId ? esc(sysName(pl.systemId)) : '?'}</b> ${pl.systemId && base ? secTag(base, pl.systemId) : ''}
+        <small title="${esc(pl.locationName)}">${esc(pl.locationName)}</small></span>
+      <span class="jumps">${jumpText}</span>
+      <span class="ships">${ships}</span>
+      <span class="meta">${pl.name ? `<i>${esc(pl.name)}</i> · ` : ''}${pl.implants.length ? `<span title="${esc(implantNames(pl.implants))}">${plural(pl.implants.length, 'implant')}</span>` : 'No implants'}</span>
+      ${pl.systemId && !here ? `<button type="button" class="btn small ghost" data-clone-start="${pl.systemId}" title="Start the route in ${esc(sysName(pl.systemId))}">Start here</button>`
+        : here ? '<span class="here">Your start</span>' : ''}
+    </li>`;
+  }).join('') : '<li class="empty">No jump clones.</li>';
+  if (settings.ship && settings.cloneNeedShip && jumps.length && !cl?.ranked.some(r => r.usable)) {
+    const sizeName = $('ship').selectedOptions[0]?.textContent.toLowerCase();
+    list.insertAdjacentHTML('beforeend', `<li class="empty">No clone has a ${esc(sizeName)} ship waiting.</li>`);
+  }
+}
+
 function renderMap(p, fit) {
   if (!base) return;
   const path = p?.path?.length > 1 ? p.path : stops.map(s => s.id);
@@ -408,8 +516,10 @@ function renderMap(p, fit) {
 function render({ fit = false } = {}) {
   for (const b of document.querySelectorAll('[data-mode]')) b.setAttribute('aria-checked', String(b.dataset.mode === settings.mode));
   const p = plan();
+  const cl = cloneOptions(p);
   renderStack(p);
-  renderSummary(p);
+  renderSummary(p, cl);
+  renderClones(cl);
   renderTable(p);
   renderAvoid();
   renderSaved();
@@ -505,6 +615,16 @@ function bind() {
   bindSetting('roundTrip', 'roundTrip');
   bindSetting('keepEnd', 'keepEnd');
   bindSetting('onlyNotable', 'onlyNotable');
+  bindSetting('cloneNeedShip', 'cloneNeedShip');
+  // "Start here" on a clone, in the panel or the route summary.
+  document.addEventListener('click', (e) => {
+    const id = Number(e.target.closest('[data-clone-start]')?.dataset.cloneStart);
+    if (!id) return;
+    setStart(id);
+    ui.note = `Starting from your jump clone in ${sysName(id)}.`;
+    render({ fit: true });
+  });
+  $('cloneRefresh').addEventListener('click', loadClones);
   bindSetting('secColors', 'secColors', { after: () => galaxy.setSecurityColors(settings.secColors) });
   bindSetting('mapLayout', 'mapLayout', { after: () => galaxy.setLayout(settings.mapLayout).then(() => renderMap(plan(), true)) });
   $('scout').addEventListener('change', (e) => sc.update({ scout: e.target.checked }));
@@ -675,7 +795,7 @@ function init() {
   galaxy.setSecurityColors(settings.secColors);
   galaxy.setLayout(settings.mapLayout);
   meCtl = createMe({
-    el: $('me'), returnTo: '/route-planner.html', systemName: sysName, isk: (v) => formatIsk(v), onStatus: () => renderWh(),
+    el: $('me'), returnTo: '/route-planner.html', systemName: sysName, isk: (v) => formatIsk(v), onStatus: () => { renderWh(); loadClones(); },
     // Following your location makes your system the start of the stack.
     onFollow: (loc) => { if (loc?.systemId && base) setStart(loc.systemId); },
   });
