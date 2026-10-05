@@ -2,7 +2,7 @@ import { HUBS, DEFAULT_TAX_PCT, ZARZAKH_TOLL, barredFromZarzakh, pairKey, extrac
 import { scanClient, tabNote, showProgress } from './scan-client.js';
 import { GalaxyMap, secColor, secLabel } from './map.js';
 import { createMapSwitch, loadThree, migrateMapLayout } from './map-switch.js';
-import { buildGraph, inHighSec, outOfNullSec, jumpsFrom, pathBetween, systemInfo, ZARZAKH, passesZarzakh } from './galaxy.js';
+import { buildGraph, inHighSec, outOfNullSec, jumpsFrom, pathBetween, systemInfo, ZARZAKH, passesZarzakh, zarzakhGates, pathOut } from './galaxy.js';
 import { createShortcuts, mountToggle } from './shortcuts.js';
 import { shortcutsOn, isJSpace } from './wormholes.js';
 import { isNpcStation } from './market-merge.js';
@@ -1676,7 +1676,7 @@ function tripList() {
     minProfit: parseAmount(t.minProfit) ?? 0, hideShips: t.hideShips, hideHubs: t.hideHubs, structures: t.structures, isNpcStation,
   });
   const trips = planTrips(legs.filter(L => safeEnds(L.fs, L.ds) && !(barred && (L.fs === ZARZAKH || L.ds === ZARZAKH))), {
-    start: t.start, entryFee: (sys) => (sys === ZARZAKH ? toll : 0), distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3, maxVolume, maxCost,
+    start: t.start, entryFee: (sys) => (sys === ZARZAKH ? toll : 0), lockIn: { sys: ZARZAKH, gates: zarzakhGates(travel()) }, distFrom: tripDistFrom, maxLegs: Number(t.legs) || 3, maxVolume, maxCost,
     jumps: { indexOf: travel().indexOf, from: (sys) => jumpsFrom(travel(), sys, tripFlag()) },
     maxLink: t.link === '' ? 3 : Math.max(0, Number(t.link) || 0), rank: t.rank, maxJumps: jumpCap(),
   }).map(tr => ({ ...tr, key: tr.legs.map(l => `${l.t}:${l.f}:${l.d}`).join('>') }));
@@ -1715,16 +1715,29 @@ function tripMarks(path, marks) {
   });
 }
 
+// Gate paths from stop to stop (null: no way), leaving Zarzakh by the gate each visit came in through.
+function tripSegments(stops) {
+  const segs = [];
+  let at = settings.trips.start, via = null;
+  for (const st of stops) {
+    const seg = pathOut(travel(), at, st.systemId, tripFlag(), via);
+    segs.push(seg);
+    if (st.systemId !== at) via = st.systemId === ZARZAKH && seg?.length > 1 ? seg[seg.length - 2] : null;
+    at = st.systemId;
+  }
+  return segs;
+}
+
 // Full gate path: start → first pickup → … → last drop-off, plus the numbered waypoints.
 function tripGeometry(tr) {
   const stops = tripStops(tr);
   const path = [];
   let at = settings.trips.start;
-  for (const st of stops) {
-    const seg = pathBetween(travel(), at, st.systemId, tripFlag()) || [at, st.systemId];
+  tripSegments(stops).forEach((s, i) => {
+    const seg = s || [at, stops[i].systemId];
     path.push(...(path.length ? seg.slice(1) : seg));
-    at = st.systemId;
-  }
+    at = stops[i].systemId;
+  });
   const names = (list) => list.map(l => l.name).join(', ');
   const label = (st) => [st.sells.length && `Sell ${names(st.sells)}`, st.buys.length && `${st.sells.length ? 'buy' : 'Buy'} ${names(st.buys)}`]
     .filter(Boolean).join(', ');
@@ -1758,12 +1771,12 @@ function routeStar(tr) {
 }
 
 function tripStopsHtml(tr) {
-  const geo = tripGeometry(tr);
+  const geo = tripGeometry(tr), segs = tripSegments(geo.stops);
   let at = settings.trips.start;
   const rows = [`<li><span class="n start">0</span><span class="where">${esc(sysName(at))}<small>start</small></span></li>`];
   geo.stops.forEach((st, i) => {
-    const hop = tripDistFrom(at)(st.systemId);
-    const seg = hop ? pathBetween(travel(), at, st.systemId, tripFlag()) : null;
+    const hop = segs[i] ? segs[i].length - 1 : null;
+    const seg = hop ? segs[i] : null;
     const strip = seg && routeStrip(seg, [[0, i ? `Stop ${i}` : 'Start'], [seg.length - 1, `Stop ${i + 1}`]]);
     at = st.systemId;
     const gone = (l) => goneHaul(l.t, l.f, l.d, trip.result?.finishedAt);

@@ -210,8 +210,8 @@ Zarzakh (Yasna Zakh) is a trade hub with its own travel rules, and every route i
 (`public/js/galaxy.js` `ZARZAKH`):
 
 - **Gate lock.** Taking a stargate in locks you to that gate for six hours, so routes may start or end
-  in Zarzakh but never pass through it. In the route planner a waypoint there is left by the gate you
-  arrived through. ESI's `/route` doesn't know this, so hub pairs with Zarzakh (and any ESI path that
+  in Zarzakh but never pass through it. In the route planner and in multi-stop trips, a stop there is left
+  by the gate you arrived through. ESI's `/route` doesn't know this, so hub pairs with Zarzakh (and any ESI path that
   would cross it) are worked out from the local map.
 - **Security.** It's null-sec on paper but sits off two low-sec gates (Turnur, Alsavoinon) and has no
   bubbles, so *High + low-sec* routes may end there. On *Safest*, its hub routes take the fewest jumps

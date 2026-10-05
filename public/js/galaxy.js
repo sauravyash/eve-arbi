@@ -152,6 +152,21 @@ export function pathBetween(g, a, b, flag = 'shortest') {
   return path.reverse().map(i => g.id[i]);
 }
 
+// Zarzakh's gates: the systems next to it, in the order pathBetween tries them (so a path into
+// Zarzakh comes in through the nearest, the first of them on a tie).
+export function zarzakhGates(g) {
+  const z = g.noTransit;
+  return z == null || z < 0 ? [] : Array.from(g.adj.subarray(g.start[z], g.start[z + 1]), i => g.id[i]);
+}
+
+// Gate-by-gate a → b, where a path out of Zarzakh after coming in from gate system `via` goes back
+// out through it (the gate lock). `via` null: no lock (you started there).
+export function pathOut(g, a, b, flag = 'shortest', via = null) {
+  if (a !== ZARZAKH || via == null || a === b) return pathBetween(g, a, b, flag);
+  const rest = pathBetween(g, via, b, flag);
+  return rest && [a, ...rest];
+}
+
 // Whether a system is known to the graph and high-sec (wormhole systems added by withLinks are -1).
 export function inHighSec(g, systemId) {
   const i = g.indexOf.get(systemId);

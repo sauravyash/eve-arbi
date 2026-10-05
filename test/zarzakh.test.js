@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGraph, jumpsBetween, pathBetween, ZARZAKH, zarzakhEntries, passesZarzakh } from '../public/js/galaxy.js';
+import { buildGraph, jumpsBetween, jumpsFrom, pathBetween, ZARZAKH, zarzakhEntries, passesZarzakh, zarzakhGates, pathOut } from '../public/js/galaxy.js';
 import { findPath, planRoute, routeSummary } from '../public/js/route-plan.js';
 import { computeRoutes, barredFromZarzakh } from '../public/js/arbitrage.js';
 import { evaluateLegs, planTrips } from '../public/js/trips.js';
@@ -79,4 +79,39 @@ test('trips pay the toll on each arrival in Zarzakh', () => {
   const [tr] = planTrips(legs, { start: 1, distFrom, entryFee: (s) => (s === Z ? 400 : 0), maxReuse: 10 });
   assert.equal(tr.toll, 400);
   assert.equal(tr.profit, 1000 + 2000 - 400);
+});
+
+test('pathOut leaves Zarzakh by the gate it came in through', () => {
+  const g = universe();
+  assert.deepEqual(zarzakhGates(g), [2, 3]);
+  assert.deepEqual(pathOut(g, Z, 3, 'shortest', 2), [Z, 2, 5, 6, 3]);
+  assert.deepEqual(pathOut(g, Z, 3), [Z, 3]);   // started there: any gate
+});
+
+// Multi-stop trips over the real graph rows, with Zarzakh's gate lock.
+function plan(candidates, extra = {}) {
+  const g = universe();
+  const types = Object.fromEntries(candidates.map(c => [c.t, [`T${c.t}`, 1]]));
+  const legs = evaluateLegs({ candidates, types });
+  return planTrips(legs, {
+    start: 1, maxReuse: 10,
+    jumps: { indexOf: g.indexOf, from: (sys) => jumpsFrom(g, sys, 'shortest') },
+    lockIn: { sys: Z, gates: zarzakhGates(g) }, ...extra,
+  });
+}
+const cand = (t, fs, ds, buy, sell) => ({ t, f: fs * 10, fs, d: ds * 10, ds, s: [[10, buy, sell]] });
+
+test('trips leave Zarzakh by the gate they came in through', () => {
+  // Sell at Zarzakh (in from 2), then haul from Zarzakh to 3: back out by 2 and the long way round.
+  const [tr] = plan([cand(1, 1, Z, 100, 200), cand(2, Z, 3, 100, 300)]);
+  assert.equal(tr.jumps, 2 + 4);
+  assert.deepEqual(tr.events.map(e => e.hop), [0, 2, 0, 4]);
+});
+
+test('a selling tour through Zarzakh counts the way back out', () => {
+  // Both bought at 1, one for Zarzakh and one for 3: 1 → 3 → Zarzakh (5 jumps) beats
+  // 1 → Zarzakh → back out by 2 → 3 (2 + 4).
+  const [tr] = plan([cand(1, 1, Z, 100, 200), cand(2, 1, 3, 100, 300)]);
+  assert.equal(tr.jumps, 5);
+  assert.deepEqual(tr.events.filter(e => e.kind === 'sell').map(e => tr.legs[e.leg].ds), [3, Z]);
 });
