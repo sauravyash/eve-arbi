@@ -1,6 +1,8 @@
 // Regional demand page: for one item, the regions that buy it steadily but have little of it listed
 // (demand.js), from 90 days of ESI history kept on the server (/api/demand, demand-store.js) and
-// EVE Tycoon's live orders. Click a region for its chart and stations.
+// EVE Tycoon's live orders. Click a region for its chart and stations. Below that, the faction
+// warfare systems being fought over near home (fw.js): the item's market around each, and which FW
+// staples the warzones are short of.
 
 import { HUBS, DEFAULT_TAX_PCT, formatIsk } from './arbitrage.js';
 import { normalizeTycoonOrder, isNpcStation, stationQuotes } from './market-merge.js';
@@ -13,6 +15,7 @@ import { itemPic, copyButton } from './watchlist.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { mountSectionNav } from './nav.js';
+import { hotspots, nearestOf, localMarket, stapleRow, factionName, FW_STAPLES, STAPLE_RANKS } from './fw.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -29,12 +32,14 @@ const HUB_REGIONS = new Set(HUBS.map(h => h.regionId));
 const DEFAULTS = {
   type: 0, region: 0, refHub: JITA.id, home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, broker: 3,
   rank: 'isk', minDaily: '1', minActive: '', maxDays: '', skipHubs: true, structures: true,
+  fwMax: '20', fwRadius: 3, fwShow: 8, fwSort: 'heat', fwRank: 'isk',
 };
 const settings = { ...DEFAULTS, ...LS.get('demand.settings', {}) };
 const URL_FIELDS = [
   ['type', v => v > 0], ['region', v => v >= 0], ['refHub', HUBS.map(h => h.id)], ['home', v => v > 0], ['flag', ['secure', 'shortest']],
   ['tax', v => v >= 0 && v <= 100], ['broker', v => v >= 0 && v <= 100], ['rank', ['isk', 'shortage', 'score']],
   'minDaily', 'minActive', 'maxDays', 'skipHubs', 'structures',
+  'fwMax', ['fwRadius', v => v >= 0 && v <= 15], ['fwShow', [8, 15, 30]], ['fwSort', ['heat', 'jumps']], ['fwRank', ['isk', 'shortage', 'margin']],
 ];
 readUrl(settings, DEFAULTS, URL_FIELDS);
 writeUrl(settings, DEFAULTS, URL_FIELDS);
@@ -43,7 +48,12 @@ const save = () => { LS.set('demand.settings', settings); writeUrl(settings, DEF
 // Per item: history {regionId: rows}, Tycoon orders, and how each load went.
 const items = {};   // typeId → {history, at, pending, orders, ordersAt, loading, error}
 const locNames = new Map();
-const ui = { limit: PAGE, ver: 0, memo: null };
+const ui = { limit: PAGE, ver: 0, memo: null, fwMemo: null };
+// Faction warfare: ESI's warzone systems and last-hour kills; the staples scan's items (history for
+// the warzone regions only, so kept apart from `items`).
+const fw = { systems: null, kills: null, at: 0, error: null };
+const staples = {};   // typeId → {history, at, pending, orders, ordersAt, error}
+const scan = { running: false, done: 0, regions: null };
 let base = null, types = null, stations = null, typeNames = null, meCtl = null;
 let drawToggle = () => {};
 const sc = createShortcuts({ onChange: () => { drawToggle(); ui.ver++; render(); } });
@@ -81,10 +91,11 @@ function secSpan(id) {
 // ---------------------------------------------------------------------------
 // History: the server fetches what's stale (a few regions at a time on Cloudflare); ask again until
 // nothing is pending, or it stops making progress.
-async function loadHistory(it, typeId) {
+async function loadHistory(it, typeId, regions) {
   let last = Infinity;
+  const q = regions?.length ? `?regions=${regions.join(',')}` : '';
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const res = await fetch(`/api/demand/${typeId}`);
+    const res = await fetch(`/api/demand/${typeId}${q}`);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(res.status === 404 && body.error === 'Unknown item' ? 'ESI has no market for this item' : body.error || `HTTP ${res.status}`);
     it.history = body.regions || {};
@@ -124,9 +135,50 @@ async function refresh() {
   render();
 }
 
+async function loadFw() {
+  try {
+    const [systems, kills] = await Promise.all(['fw/systems/', 'universe/system_kills/'].map(async (p) => {
+      const r = await fetch(`/api/esi/${p}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }));
+    Object.assign(fw, { systems, kills, at: Date.now(), error: null });
+  } catch (e) { fw.error = `warzones unavailable (${e.message})`; }
+  ui.ver++; render();
+}
+
+// History and orders for every FW staple, three at a time, history for the hotspots' regions only.
+async function scanStaples() {
+  const v = computeFw(compute());
+  if (scan.running || !v?.spots.length) return;
+  const regions = [...v.regions];
+  Object.assign(scan, { running: true, done: 0, regions: new Set(regions) });
+  render();
+  let next = 0;
+  await Promise.all(Array.from({ length: 3 }, async () => {
+    while (next < FW_STAPLES.length) {
+      const { typeId } = FW_STAPLES[next++];
+      const it = staples[typeId] ||= {};
+      const errs = (await Promise.allSettled([loadOrders(it, typeId), loadHistory(it, typeId, regions)]))
+        .filter(r => r.status === 'rejected').map(r => r.reason.message);
+      it.error = errs.join(' · ') || null;
+      scan.done++; ui.ver++; render();
+    }
+  }));
+  scan.running = false;
+  ui.ver++; render();
+}
+
 // ---------------------------------------------------------------------------
 // Analysis
 // ---------------------------------------------------------------------------
+// The buy hub station's lowest sell order.
+function hubCost(orders, hub) {
+  let cost = null;
+  for (const o of orders) if (!o.isBuyOrder && o.locationId === hub.stationId && (cost == null || o.price < cost)) cost = o.price;
+  return cost;
+}
+
 function compute() {
   const typeId = settings.type, it = items[typeId];
   if (!it?.history || !it.orders) return null;
@@ -136,8 +188,7 @@ function compute() {
   if (ui.memo?.key === key) return ui.memo.value;
 
   const hub = refHub();
-  const asks = it.orders.filter(o => !o.isBuyOrder && o.locationId === hub.stationId);
-  const cost = asks.length ? Math.min(...asks.map(o => o.price)) : null;
+  const cost = hubCost(it.orders, hub);
   const supply = regionSupply(it.orders, { structures: settings.structures, isNpc: isNpcStation });
   const all = analyse({ history: it.history, supply, cost,
     taxRate: (Number(settings.tax) || 0) / 100, brokerRate: (Number(settings.broker) || 0) / 100 });
@@ -163,6 +214,60 @@ function compute() {
   const traded = all.filter(r => r.daily > 0).length;
   const value = { rows, all, cost, hub, d, g, traded, end: lastDay(it.history) };
   ui.memo = { key, value };
+  return value;
+}
+
+// Hotspots near home with the selected item's market around each, and the scanned staples ranked.
+function computeFw(v) {
+  const g = base && sc.travelGraph();
+  if (!fw.systems || !g) return null;
+  const key = [ui.ver, fw.at, v ? ui.memo?.key : '', settings.home, settings.flag, settings.fwMax, settings.fwRadius, settings.fwShow,
+    settings.fwSort, settings.fwRank, settings.refHub, settings.tax, settings.broker, settings.structures, sc.key()].join('|');
+  if (ui.fwMemo?.key === key) return ui.fwMemo.value;
+
+  // The warzones are low-sec: a high-sec only route setting still flies low-sec here.
+  const d = g.indexOf.has(settings.home) ? jumpsFrom(g, settings.home, settings.flag === 'secure' ? 'nonull' : settings.flag) : null;
+  const at = (dist) => (sys) => { const i = g.indexOf.get(sys); return dist && i != null && dist[i] >= 0 ? dist[i] : null; };
+  const fromHome = at(d);
+  const max = parseAmount(settings.fwMax) ?? Infinity;
+  const radius = Math.max(0, Math.min(15, Math.round(Number(settings.fwRadius) || 0)));
+  const taxRate = (Number(settings.tax) || 0) / 100, brokerRate = (Number(settings.broker) || 0) / 100;
+  const opts = { structures: settings.structures, isNpc: isNpcStation };
+
+  const all = hotspots(fw.systems, fw.kills)
+    .map(h => ({ ...h, jumps: fromHome(h.systemId), regionId: base.regionId[base.indexOf.get(h.systemId)] }))
+    .filter(h => max === Infinity || (h.jumps != null && h.jumps <= max));
+  if (settings.fwSort === 'jumps') all.sort((a, b) => (a.jumps ?? 1e9) - (b.jumps ?? 1e9) || b.heat - a.heat);
+  const spots = all.slice(0, Number(settings.fwShow) || 8);
+  const dists = spots.map(h => jumpsFrom(g, h.systemId, 'shortest'));
+
+  // The selected item around each hotspot.
+  const it = items[settings.type];
+  if (v && it?.orders) {
+    spots.forEach((h, k) => {
+      const region = v.all.find(r => r.regionId === h.regionId);
+      const local = localMarket(it.orders, at(dists[k]), radius, opts);
+      const sellAt = local.ask ?? region?.price ?? null;
+      h.item = { region, local, margin: sellAt != null && v.cost != null ? sellAt * (1 - taxRate - brokerRate) - v.cost : null };
+    });
+  }
+
+  // Staples: the warzone regions' demand against what's listed near any hotspot.
+  const regions = new Set(spots.map(h => h.regionId));
+  const near = at(nearestOf(dists, g.n));
+  const hub = refHub();
+  const rows = [];
+  for (const { typeId, group } of FW_STAPLES) {
+    const s = staples[typeId];
+    if (!s?.history || !s.orders) continue;
+    const cost = hubCost(s.orders, hub);
+    const regionRows = analyse({ history: s.history, supply: regionSupply(s.orders, opts), cost, taxRate, brokerRate });
+    rows.push({ typeId, group, ...stapleRow({ rows: regionRows, regions, local: localMarket(s.orders, near, radius, opts), cost, taxRate, brokerRate }) });
+  }
+  rows.sort(STAPLE_RANKS[settings.fwRank] || STAPLE_RANKS.isk);
+  const stale = !!scan.regions && [...regions].some(r => !scan.regions.has(r));
+  const value = { spots, total: all.length, regions, radius, rows, stale };
+  ui.fwMemo = { key, value };
   return value;
 }
 
@@ -288,12 +393,79 @@ function renderDetail(v) {
   }).join('') || '<tr class="empty"><td colspan="6" class="l muted">No orders for this item in the region right now: nobody is selling it.</td></tr>';
 }
 
+const away = (j) => `<small>${j} jump${j === 1 ? '' : 's'} away</small>`;
+
+function renderFw(v) {
+  const f = computeFw(v);
+  const status = $('fwStatus');
+  status.textContent = [
+    fw.error || (fw.at ? `warzones ${ago(fw.at)}` : 'loading warzones…'),
+    scan.running ? `scanning staples ${scan.done}/${FW_STAPLES.length}…` : '',
+  ].filter(Boolean).join(' · ');
+  status.classList.toggle('warn', !!fw.error);
+  $('fwScanBtn').disabled = scan.running || !f?.spots.length;
+  $('fwScanBtn').classList.toggle('loading', scan.running);
+  $('fwCount').textContent = f ? `· ${f.spots.length} of ${f.total}` : '';
+
+  const body = $('fwBody');
+  if (!f) {
+    body.innerHTML = `<tr class="empty"><td colspan="12" class="l muted">${fw.error ? esc(fw.error) : !base ? 'Loading star map…' : 'Loading warzones…'}</td></tr>`;
+  } else if (!f.spots.length) {
+    body.innerHTML = '<tr class="empty"><td colspan="12" class="l muted">No warzone system within your max jumps. Raise it or clear it.</td></tr>';
+  } else {
+    const hasItem = !!settings.type;
+    body.innerHTML = f.spots.map((h, i) => {
+      const name = sysName(h.systemId), m = h.item, kills = h.ships + h.pods;
+      return `<tr data-r="${h.regionId}" class="${hasItem && settings.region === h.regionId ? 'open' : ''}">
+        <td class="l">${i + 1}</td>
+        <td class="l"><span class="place"><b>${esc(name)}</b> ${secSpan(h.systemId)}${copyButton(name)}<small>${esc(regionName(h.regionId))}</small></span></td>
+        <td class="l fw-fight"><b>${esc(factionName(h.occupier, true))}</b><small>${h.occupier !== h.owner ? `taken from ${esc(factionName(h.owner, true))}` : 'holding'}</small></td>
+        <td class="${h.status === 'vulnerable' ? 'up' : ''}">${pct(h.contest)}<small>${esc(h.status || '—')}</small></td>
+        <td>${kills || '—'}${kills ? `<small>${h.ships} ship${h.ships === 1 ? '' : 's'} · ${h.pods} pod${h.pods === 1 ? '' : 's'}</small>` : ''}</td>
+        <td class="metric">${num(h.heat)}</td>
+        <td>${h.jumps ?? '<span class="muted" title="Not reachable with this route setting">?</span>'}</td>
+        ${!m ? `<td colspan="5" class="l muted">${!hasItem ? (i === 0 ? 'Pick an item above to see its market here' : '') : i === 0 ? 'Loading…' : ''}</td>` : `
+        <td>${m.region ? num(m.region.daily) : '—'}</td>
+        <td class="${!m.local.units ? 'up' : ''}">${num(m.local.units)}<small>${m.local.orders} order${m.local.orders === 1 ? '' : 's'}</small></td>
+        <td>${isk(m.local.ask)}${m.local.ask != null ? away(m.local.askJumps) : ''}</td>
+        <td>${isk(m.local.bid)}${m.local.bid != null ? away(m.local.bidJumps) : ''}</td>
+        <td class="metric ${m.margin > 0 ? 'up' : m.margin < 0 ? 'down' : ''}">${isk(m.margin)}</td>`}
+      </tr>`;
+    }).join('');
+  }
+
+  const sbody = $('fwStapleBody');
+  $('fwStapleCount').textContent = f?.rows.length
+    ? `· ${f.rows.length} items, stock within ${f.radius} jump${f.radius === 1 ? '' : 's'}${f.stale ? ' · the hotspots changed since the scan: scan again' : ''}` : '';
+  if (!f?.rows.length) {
+    sbody.innerHTML = `<tr class="empty"><td colspan="9" class="l muted">${scan.running ? 'Scanning…'
+      : `Scan ${FW_STAPLES.length} FW staples (navy frigates, small ammo, small-gang modules, paste and cap boosters) against the hotspots above.`}</td></tr>`;
+    return;
+  }
+  sbody.innerHTML = f.rows.map(r => {
+    const name = typeName(r.typeId), err = staples[r.typeId]?.error;
+    const flip = r.flip != null && r.flip > 0;
+    return `<tr data-t="${r.typeId}">
+      <td class="l"><span class="fw-item">${itemPic(r.typeId, name, 32)}<span><b>${esc(name)}</b>${copyButton(name)}<small>${esc(r.group)}${err ? ` · ${esc(err)}` : ''}</small></span></span></td>
+      <td>${num(r.daily)}</td>
+      <td class="${!r.stock && r.daily ? 'up' : ''}">${num(r.stock)}</td>
+      <td class="${r.daysOfStock < 3 ? 'up' : ''}">${Number.isFinite(r.daysOfStock) ? num(r.daysOfStock) : '∞'}</td>
+      <td>${isk(r.cost)}</td>
+      <td>${isk(r.ask ?? r.price)}${r.ask == null && r.price != null ? '<small>no local ask</small>' : r.markup != null ? `<small>${r.markup > 0 ? '+' : ''}${pct(r.markup)}</small>` : ''}</td>
+      <td class="${r.margin > 0 ? 'up' : r.margin < 0 ? 'down' : ''}">${isk(r.margin)}</td>
+      <td class="metric">${r.iskDay ? isk(r.iskDay) : '—'}</td>
+      <td class="${flip ? 'up' : ''}">${isk(r.bid)}${flip ? `<small title="Selling straight into the bid beats the hub cost after sales tax">flip +${isk(r.flip)}</small>` : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
 function render() {
   const v = compute();
   renderStatus();
   renderKpis(v);
   renderRanking(v);
   renderDetail(v);
+  renderFw(v);
   const home = $('home');
   if (base && document.activeElement !== home) home.value = sysName(settings.home);
   const item = $('item');
@@ -357,6 +529,11 @@ function init() {
   bindSetting('maxDays', 'maxDays', { event: 'input' });
   bindSetting('skipHubs', 'skipHubs', { prop: 'checked' });
   bindSetting('structures', 'structures', { prop: 'checked' });
+  bindSetting('fwMax', 'fwMax', { event: 'input' });
+  bindSetting('fwRadius', 'fwRadius', { parse: Number, event: 'input' });
+  bindSetting('fwShow', 'fwShow', { parse: Number });
+  bindSetting('fwSort', 'fwSort');
+  bindSetting('fwRank', 'fwRank');
 
   $('home').addEventListener('change', async () => {
     const input = $('home');
@@ -386,9 +563,25 @@ function init() {
     save(); render();
     if (settings.region) $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+  $('fwBody').addEventListener('click', (e) => {
+    if (e.target.closest('a, button')) return;
+    const tr = e.target.closest('tr[data-r]');
+    if (!tr || !settings.type) return;
+    settings.region = Number(tr.dataset.r);
+    save(); render();
+    $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  $('fwStapleBody').addEventListener('click', (e) => {
+    if (e.target.closest('a, button')) return;
+    const tr = e.target.closest('tr[data-t]');
+    if (!tr) return;
+    pickItem(Number(tr.dataset.t));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  $('fwScanBtn').addEventListener('click', () => scanStaples());
   $('closeDetail').addEventListener('click', () => { settings.region = 0; save(); render(); });
   $('moreBtn').addEventListener('click', () => { ui.limit += PAGE; render(); });
-  $('refreshBtn').addEventListener('click', () => refresh());
+  $('refreshBtn').addEventListener('click', () => { refresh(); loadFw(); });
 
   fetch('data/universe.json').then(r => r.json()).then(u => {
     base = buildGraph(u);
@@ -404,6 +597,7 @@ function init() {
   }).catch(() => {});
   render();
   refresh();
+  loadFw();
 }
 
 init();
