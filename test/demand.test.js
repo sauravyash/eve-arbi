@@ -77,6 +77,26 @@ test('demand store shares one refresh between concurrent requests', async () => 
   assert.equal(h.calls.length, 3);
 });
 
+test('demand store: a region subset fetches (and counts as pending) only those, after the probe', async () => {
+  const h = harness({ maxFetch: 1 });
+  const a = await h.store.get(34, [10000043]);
+  assert.deepEqual(h.calls, [10000002], 'a new item probes first');
+  assert.equal(a.pending, 1);
+  const b = await h.store.get(34, [10000043]);
+  assert.deepEqual(h.calls, [10000002, 10000043]);
+  assert.equal(b.pending, 0);
+  assert.deepEqual(Object.keys(b.regions).sort(), ['10000002', '10000043']);
+  await h.store.get(34, [10000043]);
+  assert.equal(h.calls.length, 2, 'nothing stale in the subset');
+});
+
+test('demand store: overlapping calls for one item run in turn and keep both results', async () => {
+  const h = harness();
+  await Promise.all([h.store.get(34, [10000043]), h.store.get(34, [10000032])]);
+  assert.deepEqual(Object.keys(h.saved.get(34).regions).sort(), ['10000002', '10000032', '10000043']);
+  assert.equal(h.calls.length, 3);
+});
+
 // --- analysis ---------------------------------------------------------------------------
 
 test('dailySeries fills missing days with zero volume', () => {

@@ -20,7 +20,7 @@ import { createSso } from '../sso.js';
 import { compactItems } from '../public/js/contract-value.js';
 import { cleanItems } from '../public/js/watchlist.js';
 import { wandererConnections } from '../wanderer.js';
-import { createDemandStore } from '../public/js/demand-store.js';
+import { createDemandStore, parseRegions } from '../public/js/demand-store.js';
 
 const UPSTREAMS = {
   tycoon: { base: 'https://evetycoon.com/api/', maxConcurrent: 3 },
@@ -319,7 +319,7 @@ async function demand(request, env, typeId) {
     maxFetch: DEMAND_FETCH,
   });
   try {
-    return json(200, await store.get(typeId));
+    return json(200, await store.get(typeId, parseRegions(new URL(request.url).searchParams.get('regions'))));
   } catch (e) {
     return json(e.status || 502, { error: String(e.message || e) });
   }

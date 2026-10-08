@@ -7,6 +7,8 @@
 //   regionIds() → [regionId…]
 // Only the server ever calls ESI and writes, so what's stored is always CCP's data.
 //
+// The page may pass ?regions= to refresh only some regions (the Faction warfare panel's warzones).
+//
 // Stored entry: {v: 1, typeId, regions: {regionId: {at, rows: [[date, average, volume, orders]…]}}}
 
 export const KEEP_DAYS = 90;
@@ -39,6 +41,12 @@ export function staleRegions(entry, regionIds, now) {
   return regionIds.filter(id => !(entry?.regions?.[id]?.at >= cut));
 }
 
+/** `?regions=` on /api/demand/{typeId}: comma-separated region IDs (at most 100), or undefined for all. */
+export function parseRegions(param) {
+  const ids = String(param ?? '').split(',').filter(Boolean).slice(0, 100).map(Number).filter(n => Number.isInteger(n) && n > 0);
+  return ids.length ? ids : undefined;
+}
+
 const blank = (typeId) => ({ v: VERSION, typeId, regions: {} });
 
 /** The page's view of an entry: rows per region, when each was fetched, and how many still need fetching. */
@@ -57,16 +65,19 @@ export function createDemandStore({ fetchHistory, load, save, regionIds, maxFetc
   probeRegion = 10000002, now = Date.now }) {
   const inflight = new Map();
 
-  async function refresh(typeId) {
+  async function refresh(typeId, only) {
     const t = now();
-    const ids = await regionIds();
+    const all = await regionIds();
+    const ids = only ? all.filter(id => only.has(id)) : all;
     const stored = await Promise.resolve(load(typeId)).catch(() => undefined);
     const entry = stored?.v === VERSION ? stored : blank(typeId);
     const stale = staleRegions(entry, ids, t);
     if (!stale.length) return view(entry);
 
-    // The probe goes first so an unknown type costs one ESI error, not one per region.
-    const order = stale.includes(probeRegion) ? [probeRegion, ...stale.filter(id => id !== probeRegion)] : stale;
+    // The probe goes first so an unknown type costs one ESI error, not one per region (for a new
+    // item it's fetched even when outside `only`).
+    const probe = stale.includes(probeRegion) || (!stored && all.includes(probeRegion));
+    const order = probe ? [probeRegion, ...stale.filter(id => id !== probeRegion)] : stale;
     const todo = order.slice(0, maxFetch);
     let changed = false;
     // A failed call leaves the region stale, so it's still pending and the page asks again.
@@ -91,13 +102,27 @@ export function createDemandStore({ fetchHistory, load, save, regionIds, maxFetc
     return view(entry, staleRegions(entry, ids, t).length);
   }
 
+  // Calls for one item run one after another, since each loads, adds to and saves the same entry;
+  // identical calls share one run.
+  const queue = new Map();
   return {
-    /** Refreshes what's stale (up to maxFetch regions) and returns the item's history. */
-    get(typeId) {
-      let p = inflight.get(typeId);
+    /**
+     * Refreshes what's stale (up to maxFetch regions) and returns the item's history.
+     * @param {number[]} [regions] only refresh these (and count only them as pending); every region
+     *   already stored still comes back
+     */
+    get(typeId, regions) {
+      const only = regions?.length ? new Set(regions) : null;
+      const key = only ? `${typeId}:${[...only].sort().join(',')}` : String(typeId);
+      let p = inflight.get(key);
       if (!p) {
-        p = refresh(typeId).finally(() => inflight.delete(typeId));
-        inflight.set(typeId, p);
+        p = (queue.get(typeId) || Promise.resolve()).then(() => refresh(typeId, only)).finally(() => {
+          inflight.delete(key);
+          if (queue.get(typeId) === done) queue.delete(typeId);
+        });
+        const done = p.catch(() => {});
+        queue.set(typeId, done);
+        inflight.set(key, p);
       }
       return p;
     },

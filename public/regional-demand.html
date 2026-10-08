@@ -144,6 +144,85 @@
         </table>
       </div>
     </section>
+
+    <section class="panel fw-panel" id="fw" aria-labelledby="fwTitle">
+      <div class="table-head">
+        <h2 id="fwTitle">Faction warfare hotspots <span id="fwCount" class="count"></span></h2>
+        <span id="fwStatus" class="scan-status" role="status" aria-live="polite"></span>
+      </div>
+      <div class="scan-filters">
+        <label title="Only warzone systems within this many jumps of your home system. High-sec only routes count high- and low-sec here, since the warzones are low-sec">Max jumps from home
+          <input id="fwMax" type="text" inputmode="numeric" placeholder="No limit"></label>
+        <label title="Orders within this many jumps of a hotspot count as its local market">Market radius
+          <input id="fwRadius" type="number" min="0" max="15" step="1" inputmode="numeric"></label>
+        <label>Show
+          <select id="fwShow">
+            <option value="8">8 hottest</option>
+            <option value="15">15 hottest</option>
+            <option value="30">30 hottest</option>
+          </select>
+        </label>
+        <label>Sort by
+          <select id="fwSort">
+            <option value="heat">Heat</option>
+            <option value="jumps">Nearest first</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="routes mn-table rd-table fw-table">
+          <thead><tr>
+            <th class="l">#</th><th class="l">System</th>
+            <th class="l" title="Occupier, and who's fighting to take it back">Fight</th>
+            <th title="Victory points toward the threshold; a vulnerable system can be captured now">Contested</th>
+            <th title="Ships and pods destroyed in the system in the last hour (ESI)">Kills/h</th>
+            <th title="Heat = kills/h + 20 × contested + 10 if vulnerable">Heat</th>
+            <th>Jumps</th>
+            <th title="The selected item: median units traded per day in the hotspot's region, last 30 days">Region vol</th>
+            <th title="The selected item: units in sell orders within the market radius">Stock nearby</th>
+            <th title="The selected item: cheapest sell order within the market radius, and how far from the hotspot">Lowest ask</th>
+            <th title="The selected item: best buy order within the market radius">Best bid</th>
+            <th title="Listing just under the lowest local ask (or at the region's price when none), after tax and broker fee, minus the buy hub's cost">Margin</th>
+          </tr></thead>
+          <tbody id="fwBody"></tbody>
+        </table>
+      </div>
+
+      <div class="table-head fw-stock-head">
+        <h3>What to stock near them <span id="fwStapleCount" class="count"></span></h3>
+        <label class="inline">Rank by
+          <select id="fwRank">
+            <option value="isk">ISK/day if you supplied it</option>
+            <option value="shortage">Shortage (fewest days of stock)</option>
+            <option value="margin">Margin per unit</option>
+          </select>
+        </label>
+        <button id="fwScanBtn" class="btn small" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+          Scan FW staples
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table class="routes mn-table rd-table fw-table">
+          <thead><tr>
+            <th class="l">Item</th>
+            <th title="Median units traded per day, added up over the regions the hotspots above are in">Warzone vol</th>
+            <th title="Units in sell orders within the market radius of any hotspot above">Stock nearby</th>
+            <th title="Stock nearby ÷ warzone daily volume">Days of stock</th>
+            <th title="Lowest sell order at the buy hub">Hub cost</th>
+            <th title="Cheapest sell order near the hotspots (the warzones' average price when there's none)">Sells at</th>
+            <th title="Sells at, after tax and broker fee, minus hub cost">Margin</th>
+            <th title="Warzone daily volume × margin: an upper bound, what you'd make supplying all of it">ISK/day</th>
+            <th title="Best buy order near the hotspots. Highlighted when selling straight into it beats the hub cost after tax">Best bid</th>
+          </tr></thead>
+          <tbody id="fwStapleBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">Hotspots are ESI's warzone systems (refreshed every half hour) and its kills for the last hour. Demand is per region, so
+        a warzone region's volume includes trade away from the fighting; stock nearby only counts orders within the market radius.
+        The staples scan fetches history for the warzone regions above only. Click a hotspot to open its region below the ranking,
+        or a staple to look it up.</p>
+    </section>
   </main>
 
   <script type="module" src="js/regional-demand.js"></script>

@@ -16,7 +16,7 @@ import { createSso } from './sso.js';
 import { cleanItems } from './public/js/watchlist.js';
 import { wandererConnections } from './wanderer.js';
 import { loadCache, saveCache, saveCacheSync } from './proxy-store.js';
-import { createDemandStore } from './public/js/demand-store.js';
+import { createDemandStore, parseRegions } from './public/js/demand-store.js';
 
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -245,10 +245,10 @@ const demandStore = createDemandStore({
   },
 });
 
-async function demandApi(req, res, typeId) {
+async function demandApi(req, res, typeId, params) {
   if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
   try {
-    const body = Buffer.from(JSON.stringify(await demandStore.get(typeId)));
+    const body = Buffer.from(JSON.stringify(await demandStore.get(typeId, parseRegions(params.get('regions')))));
     const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
     send(res, 200, gz ? gzipSync(body) : body, { 'Content-Type': 'application/json', ...(gz && { 'Content-Encoding': 'gzip' }) });
   } catch (e) {
@@ -403,7 +403,7 @@ http.createServer(async (req, res) => {
         send(res, r.status, r.body, { 'Content-Type': 'application/json' });
       }
     }
-    else if (demandMatch) await demandApi(req, res, Number(demandMatch[1]));
+    else if (demandMatch) await demandApi(req, res, Number(demandMatch[1]), u.searchParams);
     else if (scanMatch) await scanApi(req, res, scanMatch[2] || '', u.searchParams, scanners[scanMatch[1]]);
     else if (m) await proxy(req, res, m[1], m[2] + u.search);
     else await serveStatic(req, res, u.pathname);
