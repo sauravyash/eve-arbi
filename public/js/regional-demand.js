@@ -2,7 +2,8 @@
 // (demand.js), from 90 days of ESI history kept on the server (/api/demand, demand-store.js) and
 // EVE Tycoon's live orders. Click a region for its chart and stations. Below that, the faction
 // warfare systems being fought over near home (fw.js): the item's market around each, which FW
-// staples to bring to each, and which the warzones as a whole are short of.
+// staples to bring to each, which the warzones as a whole are short of, and a supply run that buys
+// them and drops them off (fw-supply.js), with universe-scan hauls that sell near the hotspots.
 
 import { HUBS, DEFAULT_TAX_PCT, formatIsk } from './arbitrage.js';
 import { normalizeTycoonOrder, isNpcStation, stationQuotes } from './market-merge.js';
@@ -15,6 +16,9 @@ import { itemPic, copyButton } from './watchlist.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { mountSectionNav } from './nav.js';
+import { hotspotNeeds, planPurchases, supplyRoute, marketStation } from './fw-supply.js';
+import { evaluateLegs } from './trips.js';
+import { scanClient } from './scan-client.js';
 import { hotspots, nearestOf, localMarket, stapleRow, recommend, sellPrice, factionName, FW_STAPLES, STAPLE_RANKS } from './fw.js';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +38,7 @@ const DEFAULTS = {
   type: 0, region: 0, refHub: JITA.id, home: JITA.id, flag: 'secure', tax: DEFAULT_TAX_PCT, broker: 3,
   rank: 'isk', minDaily: '1', minActive: '', maxDays: '', skipHubs: true, structures: true,
   fwMax: '20', fwRadius: 3, fwShow: 8, fwSort: 'heat', fwRank: 'isk',
+  fwCargo: '10000', fwBudget: '1b', fwDays: 7, fwSrcJumps: '10', fwStops: 3, fwPerJump: '50k', fwPick: [],
 };
 const settings = { ...DEFAULTS, ...LS.get('demand.settings', {}) };
 const URL_FIELDS = [
@@ -41,6 +46,7 @@ const URL_FIELDS = [
   ['tax', v => v >= 0 && v <= 100], ['broker', v => v >= 0 && v <= 100], ['rank', ['isk', 'shortage', 'score']],
   'minDaily', 'minActive', 'maxDays', 'skipHubs', 'structures',
   'fwMax', ['fwRadius', v => v >= 0 && v <= 15], ['fwShow', [8, 15, 30]], ['fwSort', ['heat', 'jumps']], ['fwRank', ['isk', 'shortage', 'margin']],
+  'fwCargo', 'fwBudget', ['fwDays', v => v >= 1 && v <= 30], 'fwSrcJumps', ['fwStops', [1, 2, 3, 4, 5, 6]], 'fwPerJump',
 ];
 readUrl(settings, DEFAULTS, URL_FIELDS);
 writeUrl(settings, DEFAULTS, URL_FIELDS);
@@ -55,6 +61,9 @@ const ui = { limit: PAGE, ver: 0, memo: null, fwMemo: null };
 const fw = { systems: null, kills: null, at: 0, error: null };
 const staples = {};   // typeId → {history, at, pending, orders, ordersAt, error}
 const scan = { running: false, done: 0, regions: null };
+// The last universe scan's result, for hauls that sell near the hotspots (loaded once, never started from here).
+const uscan = { loading: false, result: null, error: null, tried: false };
+const PLAN_SPOTS = 3;     // hotspots the supply run covers when none are ticked
 let base = null, types = null, stations = null, typeNames = null, meCtl = null;
 let drawToggle = () => {};
 const sc = createShortcuts({ onChange: () => { drawToggle(); ui.ver++; render(); } });
@@ -80,6 +89,10 @@ function ago(ms) {
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
+}
+function placeName(locationId, systemId) {
+  const npc = isNpcStation(locationId);
+  return (npc ? stations?.[locationId]?.[0] : null) || locNames.get(locationId) || (npc ? `Station ${locationId}` : `Structure in ${sysName(systemId)}`);
 }
 function secSpan(id) {
   const i = base?.indexOf.get(id);
@@ -156,18 +169,21 @@ async function scanStaples() {
   Object.assign(scan, { running: true, done: 0, regions: new Set(regions) });
   render();
   let next = 0;
-  await Promise.all(Array.from({ length: 3 }, async () => {
-    while (next < FW_STAPLES.length) {
-      const { typeId } = FW_STAPLES[next++];
-      const it = staples[typeId] ||= {};
-      const errs = (await Promise.allSettled([loadOrders(it, typeId), loadHistory(it, typeId, regions)]))
-        .filter(r => r.status === 'rejected').map(r => r.reason.message);
-      it.error = errs.join(' · ') || null;
-      scan.done++; ui.ver++; render();
-    }
-  }));
-  scan.running = false;
-  ui.ver++; render();
+  try {
+    await Promise.all(Array.from({ length: 3 }, async () => {
+      while (next < FW_STAPLES.length) {
+        const { typeId } = FW_STAPLES[next++];
+        const it = staples[typeId] ||= {};
+        const errs = (await Promise.allSettled([loadOrders(it, typeId), loadHistory(it, typeId, regions)]))
+          .filter(r => r.status === 'rejected').map(r => r.reason.message);
+        it.error = errs.join(' · ') || null;
+        scan.done++; ui.ver++; render();
+      }
+    }));
+  } finally {
+    scan.running = false;
+    ui.ver++; render();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,8 +292,76 @@ function computeFw(v) {
     });
   }
   const stale = !!scan.regions && [...regions].some(r => !scan.regions.has(r));
-  const value = { spots, total: all.length, regions, radius, rows, stale };
+  const value = { spots, total: all.length, regions, radius, rows, stale, cands, g, at, fromHome, dists, opts, taxRate, brokerRate,
+    flag: settings.flag === 'secure' ? 'nonull' : settings.flag };
   ui.fwMemo = { key, value };
+  return value;
+}
+
+// The supply run for the ticked hotspots (or the hottest few), and universe-scan hauls near them.
+function computePlan(f) {
+  if (!f?.cands.length) return null;
+  const key = [ui.fwMemo?.key, settings.fwPick.join(','), settings.fwCargo, settings.fwBudget, settings.fwDays, settings.fwSrcJumps,
+    settings.fwStops, settings.fwPerJump, !!uscan.result, !!types].join('|');
+  if (ui.planMemo?.key === key) return ui.planMemo.value;
+  const { g, at, fromHome, opts, radius, flag } = f;
+  const picked = f.spots.filter(h => settings.fwPick.includes(h.systemId));
+  const chosen = picked.length ? picked : f.spots.slice(0, PLAN_SPOTS);
+  const targets = chosen.map(h => { const dist = f.dists[f.spots.indexOf(h)]; return { ...h, dist, jumps: at(dist) }; });
+  const maxVolume = parseAmount(settings.fwCargo) ?? Infinity, maxCost = parseAmount(settings.fwBudget) ?? Infinity;
+  const srcMax = parseAmount(settings.fwSrcJumps) ?? Infinity;
+  const hub = refHub();
+  const feeRate = f.taxRate + f.brokerRate;
+  const unitVolume = (t) => types?.[t]?.[1] || 0;
+
+  // Sell orders you could buy from: near enough to home, or at the buy hub.
+  const canBuyAt = (o) => o.locationId === hub.stationId || (fromHome(o.systemId) ?? Infinity) <= srcMax;
+  const asks = new Map();
+  for (const c of f.cands) {
+    asks.set(c.typeId, c.orders.filter(o => !o.isBuyOrder && !o.ghost && (opts.structures || isNpcStation(o.locationId)) && canBuyAt(o))
+      .map(o => ({ locationId: o.locationId, systemId: o.systemId, price: o.price, volume: o.volumeRemain })));
+  }
+  const needs = hotspotNeeds(f.cands, targets.map(h => ({ regionId: h.regionId, jumps: h.jumps })),
+    { radius, days: Number(settings.fwDays) || 7, market: opts });
+  const jumps = (a, b) => { const i = g.indexOf.get(b); const d = jumpsFrom(g, a, flag); return i != null && d[i] >= 0 ? d[i] : null; };
+  const buy = planPurchases(needs, asks, { unitVolume, feeRate, maxVolume, maxCost, maxStops: Number(settings.fwStops) || 3,
+    start: settings.home, jumps, iskPerJump: parseAmount(settings.fwPerJump) ?? 0 });
+
+  // Where each hotspot's share goes: its busiest market.
+  const allOrders = f.cands.flatMap(c => c.orders);
+  const drops = targets.map((h, spot) => {
+    const lines = buy.stops.flatMap(st => st.lines.filter(l => l.spot === spot));
+    if (!lines.length) return null;
+    const m = marketStation(allOrders, h.jumps, radius, opts);
+    const byType = new Map();
+    for (const l of lines) {
+      const x = byType.get(l.typeId);
+      if (x) { x.units += l.units; x.profit += l.profit; } else byType.set(l.typeId, { typeId: l.typeId, units: l.units, sellAt: l.sellAt, profit: l.profit });
+    }
+    const items = [...byType.values()].sort((a, b) => b.profit - a.profit);
+    return { spot: h, locationId: m?.locationId ?? null, systemId: m?.systemId ?? h.systemId, items,
+      units: items.reduce((a, x) => a + x.units, 0), volume: items.reduce((a, x) => a + x.units * unitVolume(x.typeId), 0),
+      revenue: items.reduce((a, x) => a + x.units * x.sellAt * (1 - feeRate), 0), profit: items.reduce((a, x) => a + x.profit, 0) };
+  }).filter(Boolean);
+  const route = supplyRoute(settings.home, buy.stops.map(x => x.systemId), drops.map(x => x.systemId), jumps);
+
+  // Universe-scan hauls whose buy order is near a hotspot being supplied, picked up within reach of home.
+  let hauls = null;
+  if (uscan.result) {
+    const near = at(nearestOf(targets.map(h => h.dist), g.n));
+    const onRoute = new Set(route.order.map(x => x.systemId));
+    hauls = evaluateLegs(uscan.result, { catalog: types || {}, taxRate: f.taxRate, maxVolume, maxCost, structures: opts.structures, isNpcStation })
+      .filter(l => (near(l.ds) ?? Infinity) <= radius && (fromHome(l.fs) ?? Infinity) <= srcMax)
+      .map(l => ({ ...l, onRoute: onRoute.has(l.fs), from: fromHome(l.fs),
+        spot: targets.reduce((best, h) => { const d = h.jumps(l.ds); return d != null && (!best || d < best.d) ? { h, d } : best; }, null) }))
+      .sort((a, b) => b.profit - a.profit)
+      // The best one per item and pickup system: the rest are the same load from the station next door,
+      // or into a neighbouring buy order.
+      .filter((l, k, list) => list.findIndex(x => x.t === l.t && x.fs === l.fs) === k)
+      .slice(0, 10);
+  }
+  const value = { targets, picked: picked.length > 0, buy, drops, route, hauls, maxVolume, maxCost, flag };
+  ui.planMemo = { key, value };
   return value;
 }
 
@@ -390,7 +474,7 @@ function renderDetail(v) {
   const jumps = (sys) => { const i = v.g?.indexOf.get(sys); return v.d && i != null && v.d[i] >= 0 ? v.d[i] : null; };
   $('stationsBody').innerHTML = quotes.map(q => {
     const npc = isNpcStation(q.locationId);
-    const name = (npc ? stations?.[q.locationId]?.[0] : null) || locNames.get(q.locationId) || (npc ? `Station ${q.locationId}` : `Structure in ${sysName(q.systemId)}`);
+    const name = placeName(q.locationId, q.systemId);
     const j = jumps(q.systemId);
     return `<tr class="static">
       <td class="l"><span class="place"><b title="${esc(name)}">${esc(name)}</b>${npc ? '' : '<span class="badge ov">structure</span>'}<small>${esc(sysName(q.systemId))} ${secSpan(q.systemId)}</small></span></td>
@@ -446,7 +530,7 @@ function renderFw(v) {
     body.innerHTML = f.spots.map((h, i) => {
       const name = sysName(h.systemId), m = h.item, kills = h.ships + h.pods;
       return `<tr data-r="${h.regionId}" class="${hasItem && settings.region === h.regionId ? 'open' : ''}">
-        <td class="l">${i + 1}</td>
+        <td class="l"><label class="fw-pick" title="Supply this hotspot in the supply run"><input type="checkbox" data-pick="${h.systemId}"${settings.fwPick.includes(h.systemId) ? ' checked' : ''}> ${i + 1}</label></td>
         <td class="l"><span class="place"><b>${esc(name)}</b> ${secSpan(h.systemId)}${copyButton(name)}<small>${esc(regionName(h.regionId))}</small></span></td>
         <td class="l fw-fight"><b>${esc(factionName(h.occupier, true))}</b><small>${h.occupier !== h.owner ? `taken from ${esc(factionName(h.owner, true))}` : 'holding'}</small></td>
         <td class="${h.status === 'vulnerable' ? 'up' : ''}">${pct(h.contest)}<small>${esc(h.status || '—')}</small></td>
@@ -488,6 +572,95 @@ function renderFw(v) {
   }).join('');
 }
 
+const place = (locationId, systemId) => `<span class="place"><b>${esc(locationId ? placeName(locationId, systemId) : sysName(systemId))}</b><small>${esc(sysName(systemId))} ${secSpan(systemId)}</small></span>`;
+const itemList = (list) => list.map(x => `<span class="fw-line">${esc(typeName(x.typeId))} <b>×${num(x.units)}</b> <small>@ ${isk(x.price ?? x.sellAt)}</small></span>`).join('');
+
+// A buy stop's lines (one per item and hotspot) as one per item, at the average price.
+function byItem(lines) {
+  const m = new Map();
+  for (const l of lines) {
+    const x = m.get(l.typeId);
+    if (x) { x.price = (x.price * x.units + l.price * l.units) / (x.units + l.units); x.units += l.units; }
+    else m.set(l.typeId, { typeId: l.typeId, units: l.units, price: l.price });
+  }
+  return [...m.values()];
+}
+
+function renderPlan(f) {
+  const plan = computePlan(f);
+  const kpis = $('fwPlanKpis'), body = $('fwPlanBody'), link = $('fwPlanRoute');
+  if (f?.cands.length && !uscan.tried) loadUscan();
+  if (!plan) {
+    kpis.innerHTML = '';
+    $('fwPlanCount').textContent = '';
+    body.innerHTML = '<tr class="empty"><td colspan="8" class="l muted">Recommend items (scan the FW staples) above to plan a supply run.</td></tr>';
+    link.hidden = true;
+    renderHauls(null);
+    return;
+  }
+  const names = plan.targets.map(h => sysName(h.systemId)).join(', ');
+  $('fwPlanCount').textContent = `· ${plan.picked ? '' : `the ${plan.targets.length} hottest (tick hotspots to choose): `}${names}`;
+  const { buy, drops, route } = plan;
+  const kpi = (label, value, sub) => `<div class="kpi"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
+  if (!buy.stops.length) {
+    kpis.innerHTML = '';
+    body.innerHTML = `<tr class="empty"><td colspan="8" class="l muted">Nothing to buy at a profit within ${settings.fwSrcJumps || 'any number of'} jumps of home for these hotspots${buy.short.length ? '' : ': their markets are stocked for the days you asked'}. Try more buy jumps, a lower ISK per jump, more days of demand or other hotspots.</td></tr>`;
+    link.hidden = true;
+    renderHauls(plan);
+    return;
+  }
+  kpis.innerHTML = [
+    kpi('Profit', isk(buy.profit), 'if it all sells at these prices'),
+    kpi('Spend', isk(buy.cost), Number.isFinite(plan.maxCost) ? `of ${isk(plan.maxCost)} budget` : 'no budget set'),
+    kpi('Cargo', `${num(buy.volume)} m³`, Number.isFinite(plan.maxVolume) ? `of ${num(plan.maxVolume)} m³` : 'no limit set'),
+    kpi('Jumps', route.unreachable ? '?' : String(route.jumps), route.unreachable ? 'a stop is unreachable with this route setting' : `${buy.stops.length} buy · ${drops.length} drop-off${drops.length === 1 ? '' : 's'}`),
+    kpi('Per jump', route.unreachable || !route.jumps ? '—' : isk(buy.profit / route.jumps), buy.short.length ? `${buy.short.length} need${buy.short.length === 1 ? '' : 's'} left unfilled` : 'every need filled'),
+  ].join('');
+  const rows = [`<tr class="static"><td class="l">0</td><td class="l">${place(null, settings.home)}<small class="muted">start</small></td><td>—</td><td class="l muted" colspan="5">Home</td></tr>`];
+  route.order.forEach((x, k) => {
+    if (x.kind === 'buy') {
+      const st = buy.stops[x.index];
+      rows.push(`<tr class="static"><td class="l">${k + 1}</td><td class="l"><span class="badge ov">buy</span> ${place(st.locationId, st.systemId)}</td>
+        <td>${x.hop >= 1e6 ? '?' : x.hop}</td><td class="l fw-lines">${itemList(byItem(st.lines))}</td>
+        <td>${num(st.lines.reduce((a, l) => a + l.units, 0))}</td><td>${num(st.volume)}</td><td>${isk(st.cost)}</td><td class="metric">${isk(st.profit)}</td></tr>`);
+    } else {
+      const dr = drops[x.index];
+      rows.push(`<tr class="static"><td class="l">${k + 1}</td><td class="l"><span class="badge stale">sell</span> ${place(dr.locationId, dr.systemId)}<small class="muted">for ${esc(sysName(dr.spot.systemId))}</small></td>
+        <td>${x.hop >= 1e6 ? '?' : x.hop}</td><td class="l fw-lines">${itemList(dr.items)}</td>
+        <td>${num(dr.units)}</td><td>${num(dr.volume)}</td><td>${isk(dr.revenue)}</td><td class="metric">${isk(dr.profit)}</td></tr>`);
+    }
+  });
+  body.innerHTML = rows.join('');
+  const wp = [settings.home, ...route.order.map(x => x.systemId)].filter((id, k, a) => k === 0 || id !== a[k - 1]);
+  link.href = `route-planner.html?flag=${plan.flag}&wp=${wp.join(',')}`;
+  link.hidden = route.unreachable;
+  renderHauls(plan);
+}
+
+function renderHauls(plan) {
+  const body = $('fwHaulBody');
+  $('fwHaulCount').textContent = plan?.hauls?.length ? `· ${plan.hauls.length}` : '';
+  const msg = (t) => { body.innerHTML = `<tr class="empty"><td colspan="6" class="l muted">${t}</td></tr>`; };
+  if (!plan) return msg('Plan a supply run first.');
+  if (uscan.loading) return msg('Loading your last universe scan…');
+  if (uscan.error) return msg(`Couldn't load the universe scan: ${esc(uscan.error)}`);
+  if (!uscan.result) return msg('No universe scan yet. Run one on <a href="universe-scan.html">Universe scan</a>, then come back.');
+  if (!plan.hauls.length) return msg(`No universe-scan haul sells near these hotspots from within ${settings.fwSrcJumps || 'any number of'} jumps of home.`);
+  body.innerHTML = plan.hauls.map(l => `<tr class="static">
+    <td class="l"><span class="fw-item">${itemPic(l.t, l.name, 32)}<span><b>${esc(l.name)}</b>${copyButton(l.name)}<small>${isk(l.buy)} → ${isk(l.sell)}</small></span></span></td>
+    <td class="l">${place(l.f, l.fs)}<small class="${l.onRoute ? 'up' : 'muted'}">${l.onRoute ? 'on your route' : `${l.from} jump${l.from === 1 ? '' : 's'} from home`}</small></td>
+    <td class="l">${place(l.d, l.ds)}${l.spot ? `<small class="muted">${l.spot.d} jump${l.spot.d === 1 ? '' : 's'} from ${esc(sysName(l.spot.h.systemId))}</small>` : ''}</td>
+    <td>${num(l.units)}</td><td>${num(l.volume)}</td><td class="metric">${isk(l.profit)}</td>
+  </tr>`).join('');
+}
+
+async function loadUscan() {
+  uscan.tried = true; uscan.loading = true;
+  try { uscan.result = await scanClient('uscan').result(); } catch (e) { uscan.error = e.message; }
+  uscan.loading = false;
+  ui.planMemo = null; render();
+}
+
 function render() {
   const v = compute();
   renderStatus();
@@ -495,6 +668,7 @@ function render() {
   renderRanking(v);
   renderDetail(v);
   renderFw(v);
+  renderPlan(computeFw(v));
   const home = $('home');
   if (base && document.activeElement !== home) home.value = sysName(settings.home);
   const item = $('item');
@@ -563,6 +737,12 @@ function init() {
   bindSetting('fwShow', 'fwShow', { parse: Number });
   bindSetting('fwSort', 'fwSort');
   bindSetting('fwRank', 'fwRank');
+  bindSetting('fwCargo', 'fwCargo', { event: 'input' });
+  bindSetting('fwBudget', 'fwBudget', { event: 'input' });
+  bindSetting('fwDays', 'fwDays', { parse: Number, event: 'input' });
+  bindSetting('fwSrcJumps', 'fwSrcJumps', { event: 'input' });
+  bindSetting('fwStops', 'fwStops', { parse: Number });
+  bindSetting('fwPerJump', 'fwPerJump', { event: 'input' });
 
   $('home').addEventListener('change', async () => {
     const input = $('home');
@@ -592,7 +772,15 @@ function init() {
     save(); render();
     if (settings.region) $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+  $('fwBody').addEventListener('change', (e) => {
+    const box = e.target.closest('input[data-pick]');
+    if (!box) return;
+    const id = Number(box.dataset.pick);
+    settings.fwPick = box.checked ? [...new Set([...settings.fwPick, id])] : settings.fwPick.filter(x => x !== id);
+    save(); render();
+  });
   $('fwBody').addEventListener('click', (e) => {
+    if (e.target.closest('label.fw-pick')) return;
     if (e.target.closest('button[data-fw-scan]')) { scanStaples(); return; }
     const rec = e.target.closest('button[data-t]');
     if (rec) { pickItem(Number(rec.dataset.t)); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
