@@ -24,3 +24,11 @@
 .fw-fight b { font-weight: 600; font-family: system-ui, sans-serif; font-size: 12.5px; }
 .fw-item { display: flex; align-items: center; gap: 8px; }
 .fw-item b { font-weight: 600; font-family: system-ui, sans-serif; font-size: 12.5px; }
+.fw-table tr.fw-recs td { padding-top: 0; border-top: 0; }
+.fw-recs td > * { vertical-align: middle; }
+.fw-recs-label { font: 600 10.5px system-ui, sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-right: 8px; }
+.fw-rec { display: inline-flex; align-items: center; gap: 6px; margin: 2px 6px 2px 0; padding: 3px 8px 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-2); color: var(--text); cursor: pointer; text-align: left; font: inherit; }
+.fw-rec:hover, .fw-rec:focus-visible { border-color: var(--teal); }
+.fw-rec img { border-radius: 4px; }
+.fw-rec b { display: block; font: 600 12px system-ui, sans-serif; }
+.fw-rec small { display: block; font: 10.5px var(--mono); color: var(--teal); margin: 0; }

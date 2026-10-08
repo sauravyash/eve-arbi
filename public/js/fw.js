@@ -76,6 +76,13 @@ export function localMarket(orders, jumps, radius, { structures = true, isNpc = 
 }
 
 /**
+ * What you'd sell for: just under the cheapest local ask, but no more than the item trades for in
+ * the region (one overpriced order nearby isn't a price anyone pays); the region's price when
+ * nothing is listed nearby.
+ */
+export const sellPrice = (ask, price) => (ask == null ? price ?? null : price == null ? ask : Math.min(ask, price));
+
+/**
  * One FW staple across the warzone regions: their demand (analyse() rows), stock near the
  * hotspots, and what importing from the hub would earn.
  * @param {object} o
@@ -92,12 +99,11 @@ export function stapleRow({ rows, regions, local, cost, taxRate = 0, brokerRate 
     if (r.price != null) value += r.daily * r.price;
   }
   const price = daily > 0 ? value / daily : null;
-  // You'd list just under the cheapest local ask; with none, at the warzones' average price.
-  const sellAt = local.ask ?? price;
+  const sellAt = sellPrice(local.ask, price);
   const margin = sellAt != null && cost != null ? sellAt * (1 - taxRate - brokerRate) - cost : null;
   const flip = local.bid != null && cost != null ? local.bid * (1 - taxRate) - cost : null;
   return {
-    daily, price, margin, flip, cost, iskDay: margin > 0 ? daily * margin : 0,
+    daily, price, sellAt, margin, flip, cost, iskDay: margin > 0 ? daily * margin : 0,
     stock: local.units, ask: local.ask, bid: local.bid,
     daysOfStock: daily > 0 ? local.units / daily : Infinity,
     markup: sellAt != null && cost ? sellAt / cost - 1 : null,
@@ -109,3 +115,25 @@ export const STAPLE_RANKS = {
   shortage: (a, b) => a.daysOfStock - b.daysOfStock || b.daily - a.daily,
   margin: (a, b) => (b.margin ?? -Infinity) - (a.margin ?? -Infinity),
 };
+
+const SHORTAGE_DAYS = 7;   // days of local stock at which a recommendation's score halves
+
+/**
+ * The staples worth bringing to one hotspot: its region's demand against the stock within `radius`
+ * jumps of it, priced like stapleRow(). Only ones that sell at a profit; best first.
+ * @param {{typeId, group, rows, orders, cost}[]} candidates  per staple: analyse() rows, orders, hub cost
+ * @param {object} o
+ * @param {number} o.regionId  the hotspot's region
+ * @param {(systemId) => number|null} o.jumps  jumps from the hotspot
+ * @returns {object[]} stapleRow() fields plus typeId, group and score (ISK/day, discounted by local stock)
+ */
+export function recommend(candidates, { regionId, jumps, radius, taxRate = 0, brokerRate = 0, market = {}, limit = 3 }) {
+  const regions = new Set([regionId]);
+  const out = [];
+  for (const c of candidates) {
+    const r = stapleRow({ rows: c.rows, regions, local: localMarket(c.orders, jumps, radius, market), cost: c.cost, taxRate, brokerRate });
+    if (!(r.daily > 0 && r.margin > 0)) continue;
+    out.push({ typeId: c.typeId, group: c.group, ...r, score: r.iskDay / (1 + r.daysOfStock / SHORTAGE_DAYS) });
+  }
+  return out.sort((a, b) => b.score - a.score || b.iskDay - a.iskDay).slice(0, limit);
+}
