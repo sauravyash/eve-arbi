@@ -182,7 +182,7 @@
             <th title="The selected item: units in sell orders within the market radius">Stock nearby</th>
             <th title="The selected item: cheapest sell order within the market radius, and how far from the hotspot">Lowest ask</th>
             <th title="The selected item: best buy order within the market radius">Best bid</th>
-            <th title="Listing just under the lowest local ask (or at the region's price when none), after tax and broker fee, minus the buy hub's cost">Margin</th>
+            <th title="Listing just under the lowest local ask, capped at what it trades for in the region (the region's price when nothing is listed nearby), after tax and broker fee, minus the buy hub's cost">Margin</th>
           </tr></thead>
           <tbody id="fwBody"></tbody>
         </table>
@@ -210,7 +210,7 @@
             <th title="Units in sell orders within the market radius of any hotspot above">Stock nearby</th>
             <th title="Stock nearby ÷ warzone daily volume">Days of stock</th>
             <th title="Lowest sell order at the buy hub">Hub cost</th>
-            <th title="Cheapest sell order near the hotspots (the warzones' average price when there's none)">Sells at</th>
+            <th title="Cheapest sell order near the hotspots, capped at what it trades for in the warzones (their average price when nothing is listed nearby)">Sells at</th>
             <th title="Sells at, after tax and broker fee, minus hub cost">Margin</th>
             <th title="Warzone daily volume × margin: an upper bound, what you'd make supplying all of it">ISK/day</th>
             <th title="Best buy order near the hotspots. Highlighted when selling straight into it beats the hub cost after tax">Best bid</th>

@@ -1,8 +1,8 @@
 // Regional demand page: for one item, the regions that buy it steadily but have little of it listed
 // (demand.js), from 90 days of ESI history kept on the server (/api/demand, demand-store.js) and
 // EVE Tycoon's live orders. Click a region for its chart and stations. Below that, the faction
-// warfare systems being fought over near home (fw.js): the item's market around each, and which FW
-// staples the warzones are short of.
+// warfare systems being fought over near home (fw.js): the item's market around each, which FW
+// staples to bring to each, and which the warzones as a whole are short of.
 
 import { HUBS, DEFAULT_TAX_PCT, formatIsk } from './arbitrage.js';
 import { normalizeTycoonOrder, isNpcStation, stationQuotes } from './market-merge.js';
@@ -15,7 +15,7 @@ import { itemPic, copyButton } from './watchlist.js';
 import { secColor, secLabel } from './map.js';
 import { readUrl, writeUrl } from './url-state.js';
 import { mountSectionNav } from './nav.js';
-import { hotspots, nearestOf, localMarket, stapleRow, factionName, FW_STAPLES, STAPLE_RANKS } from './fw.js';
+import { hotspots, nearestOf, localMarket, stapleRow, recommend, sellPrice, factionName, FW_STAPLES, STAPLE_RANKS } from './fw.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -26,6 +26,7 @@ const LS = {
 };
 const JITA = HUBS[0];
 const PAGE = 25;
+const RECS = 3;          // staples recommended per FW hotspot
 const MAX_ROUNDS = 12;   // /api/demand calls per item while the server reports pending regions
 const HUB_REGIONS = new Set(HUBS.map(h => h.regionId));
 
@@ -247,7 +248,7 @@ function computeFw(v) {
     spots.forEach((h, k) => {
       const region = v.all.find(r => r.regionId === h.regionId);
       const local = localMarket(it.orders, at(dists[k]), radius, opts);
-      const sellAt = local.ask ?? region?.price ?? null;
+      const sellAt = sellPrice(local.ask, region?.price ?? null);
       h.item = { region, local, margin: sellAt != null && v.cost != null ? sellAt * (1 - taxRate - brokerRate) - v.cost : null };
     });
   }
@@ -256,15 +257,24 @@ function computeFw(v) {
   const regions = new Set(spots.map(h => h.regionId));
   const near = at(nearestOf(dists, g.n));
   const hub = refHub();
-  const rows = [];
+  const rows = [], cands = [];
   for (const { typeId, group } of FW_STAPLES) {
     const s = staples[typeId];
     if (!s?.history || !s.orders) continue;
     const cost = hubCost(s.orders, hub);
     const regionRows = analyse({ history: s.history, supply: regionSupply(s.orders, opts), cost, taxRate, brokerRate });
     rows.push({ typeId, group, ...stapleRow({ rows: regionRows, regions, local: localMarket(s.orders, near, radius, opts), cost, taxRate, brokerRate }) });
+    cands.push({ typeId, group, rows: regionRows, orders: s.orders, cost });
   }
   rows.sort(STAPLE_RANKS[settings.fwRank] || STAPLE_RANKS.isk);
+  // What to bring to each hotspot: null when the last scan didn't cover its region.
+  if (cands.length) {
+    spots.forEach((h, k) => {
+      h.recs = scan.regions?.has(h.regionId)
+        ? recommend(cands, { regionId: h.regionId, jumps: at(dists[k]), radius, taxRate, brokerRate, market: opts, limit: RECS })
+        : null;
+    });
+  }
   const stale = !!scan.regions && [...regions].some(r => !scan.regions.has(r));
   const value = { spots, total: all.length, regions, radius, rows, stale };
   ui.fwMemo = { key, value };
@@ -395,6 +405,25 @@ function renderDetail(v) {
 
 const away = (j) => `<small>${j} jump${j === 1 ? '' : 's'} away</small>`;
 
+// The line under a hotspot: the staples to bring there, or how to get them.
+function recsRow(h, i, f) {
+  const row = (html) => `<tr class="static fw-recs"><td></td><td colspan="11" class="l">${html}</td></tr>`;
+  if (!f.rows.length) {
+    if (i) return '';
+    return row(scan.running ? `<span class="muted">Finding what to bring to each hotspot · ${scan.done}/${FW_STAPLES.length} staples…</span>`
+      : `<button class="btn small" type="button" data-fw-scan>Recommend items</button> <span class="muted">Scans ${FW_STAPLES.length} FW staples for what each hotspot is short of</span>`);
+  }
+  if (!h.recs) return row('<span class="muted">Not covered by the last staples scan.</span> <button class="btn small ghost" type="button" data-fw-scan>Scan again</button>');
+  if (!h.recs.length) return row(`<span class="muted">No staple sells at a profit within ${f.radius} jump${f.radius === 1 ? '' : 's'} of here.</span>`);
+  return row(`<span class="fw-recs-label">Bring</span>${h.recs.map(r => {
+    const name = typeName(r.typeId);
+    const days = Number.isFinite(r.daysOfStock) ? `${num(r.daysOfStock)}d of stock` : 'none listed';
+    return `<button class="fw-rec" type="button" data-t="${r.typeId}" title="${esc(name)} (${esc(r.group)}): ${num(r.daily)}/day in ${esc(regionName(h.regionId))}, ${num(r.stock)} listed within ${f.radius} jumps. Sells at ${isk(r.sellAt)}${r.ask == null ? ' (region price, nothing listed nearby)' : r.sellAt < r.ask ? ` (region price; cheapest ask nearby is ${isk(r.ask)})` : ''}, hub cost ${isk(r.cost)}. Up to ${isk(r.iskDay)}/day. Click to look it up.">`
+      + `<img src="https://images.evetech.net/types/${r.typeId}/icon?size=32" alt="" width="24" height="24" loading="lazy">`
+      + `<span><b>${esc(name)}</b><small>+${isk(r.margin)}/u · ${num(r.daily)}/day · ${days}</small></span></button>`;
+  }).join('')}`);
+}
+
 function renderFw(v) {
   const f = computeFw(v);
   const status = $('fwStatus');
@@ -430,7 +459,7 @@ function renderFw(v) {
         <td>${isk(m.local.ask)}${m.local.ask != null ? away(m.local.askJumps) : ''}</td>
         <td>${isk(m.local.bid)}${m.local.bid != null ? away(m.local.bidJumps) : ''}</td>
         <td class="metric ${m.margin > 0 ? 'up' : m.margin < 0 ? 'down' : ''}">${isk(m.margin)}</td>`}
-      </tr>`;
+      </tr>${recsRow(h, i, f)}`;
     }).join('');
   }
 
@@ -451,7 +480,7 @@ function renderFw(v) {
       <td class="${!r.stock && r.daily ? 'up' : ''}">${num(r.stock)}</td>
       <td class="${r.daysOfStock < 3 ? 'up' : ''}">${Number.isFinite(r.daysOfStock) ? num(r.daysOfStock) : '∞'}</td>
       <td>${isk(r.cost)}</td>
-      <td>${isk(r.ask ?? r.price)}${r.ask == null && r.price != null ? '<small>no local ask</small>' : r.markup != null ? `<small>${r.markup > 0 ? '+' : ''}${pct(r.markup)}</small>` : ''}</td>
+      <td>${isk(r.sellAt)}${r.ask == null && r.price != null ? '<small>no local ask</small>' : r.sellAt < r.ask ? `<small title="The cheapest ask nearby, ${isk(r.ask)}, is above what it trades for">region price</small>` : r.markup != null ? `<small>${r.markup > 0 ? '+' : ''}${pct(r.markup)}</small>` : ''}</td>
       <td class="${r.margin > 0 ? 'up' : r.margin < 0 ? 'down' : ''}">${isk(r.margin)}</td>
       <td class="metric">${r.iskDay ? isk(r.iskDay) : '—'}</td>
       <td class="${flip ? 'up' : ''}">${isk(r.bid)}${flip ? `<small title="Selling straight into the bid beats the hub cost after sales tax">flip +${isk(r.flip)}</small>` : ''}</td>
@@ -564,6 +593,9 @@ function init() {
     if (settings.region) $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   $('fwBody').addEventListener('click', (e) => {
+    if (e.target.closest('button[data-fw-scan]')) { scanStaples(); return; }
+    const rec = e.target.closest('button[data-t]');
+    if (rec) { pickItem(Number(rec.dataset.t)); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     if (e.target.closest('a, button')) return;
     const tr = e.target.closest('tr[data-r]');
     if (!tr || !settings.type) return;
