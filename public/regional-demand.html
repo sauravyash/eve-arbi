@@ -218,10 +218,56 @@
           <tbody id="fwStapleBody"></tbody>
         </table>
       </div>
+
+      <div class="table-head fw-stock-head">
+        <h3>Supply run <span id="fwPlanCount" class="count"></span></h3>
+        <a id="fwPlanRoute" class="btn small ghost" href="route-planner.html" hidden>Open in route planner</a>
+      </div>
+      <div class="scan-filters">
+        <label title="What your hold carries, m³ (e.g. 60k for a deep space transport)">Cargo m³
+          <input id="fwCargo" type="text" inputmode="decimal" placeholder="No limit"></label>
+        <label title="ISK to spend on stock (e.g. 500m, 1.5b)">Budget
+          <input id="fwBudget" type="text" placeholder="No limit"></label>
+        <label title="Bring enough that local stock covers this many days of the region's demand">Days of demand
+          <input id="fwDays" type="number" min="1" max="30" step="1" inputmode="numeric"></label>
+        <label title="Buy only at stations within this many jumps of home. The buy hub always counts">Buy within jumps
+          <input id="fwSrcJumps" type="text" inputmode="numeric" placeholder="No limit"></label>
+        <label title="Most stations to buy at">Buy stops
+          <select id="fwStops"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
+        <label title="What a jump of detour is worth to you: a buy stop is only added when it earns more than its detour (from the nearest place already on the way) costs at this rate">ISK per jump
+          <input id="fwPerJump" type="text" placeholder="0"></label>
+      </div>
+      <div class="kpis" id="fwPlanKpis"></div>
+      <div class="table-wrap">
+        <table class="routes mn-table rd-table fw-table fw-plan">
+          <thead><tr>
+            <th class="l">#</th><th class="l">Stop</th><th title="Jumps from the previous stop">Jumps</th><th class="l">Items</th>
+            <th>Units</th><th>m³</th>
+            <th title="Buy stops: ISK spent. Drop-offs: what it sells for after tax and broker fee">ISK</th>
+            <th title="Sale after tax and broker fee, minus what you paid">Profit</th>
+          </tr></thead>
+          <tbody id="fwPlanBody"></tbody>
+        </table>
+      </div>
+
+      <div class="table-head fw-stock-head">
+        <h3>Universe-scan hauls near the hotspots <span id="fwHaulCount" class="count"></span></h3>
+      </div>
+      <div class="table-wrap">
+        <table class="routes mn-table rd-table fw-table">
+          <thead><tr>
+            <th class="l">Item</th><th class="l">Buy at</th><th class="l" title="A buy order within the market radius of a hotspot you're supplying">Sell into</th>
+            <th>Units</th><th>m³</th><th title="Instant sale into the buy order after sales tax, minus cost, within your cargo and budget">Profit</th>
+          </tr></thead>
+          <tbody id="fwHaulBody"></tbody>
+        </table>
+      </div>
       <p class="hint">Hotspots are ESI's warzone systems (refreshed every half hour) and its kills for the last hour. Demand is per region, so
         a warzone region's volume includes trade away from the fighting; stock nearby only counts orders within the market radius.
         The staples scan fetches history for the warzone regions above only. Click a hotspot to open its region below the ranking,
-        or a staple to look it up.</p>
+        or a staple to look it up. The supply run supplies the hotspots you tick (the 3 hottest when none are), buying where the
+        staples' orders are cheapest within reach and selling at each hotspot's busiest market. Its profit assumes everything
+        sells at those prices. The hauls are from your last universe scan.</p>
     </section>
   </main>
 

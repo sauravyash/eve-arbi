@@ -32,3 +32,9 @@
 .fw-rec img { border-radius: 4px; }
 .fw-rec b { display: block; font: 600 12px system-ui, sans-serif; }
 .fw-rec small { display: block; font: 10.5px var(--mono); color: var(--teal); margin: 0; }
+.fw-pick { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.fw-plan td.fw-lines { white-space: normal; min-width: 220px; }
+.fw-line { display: inline-block; margin: 0 10px 2px 0; font-family: system-ui, sans-serif; font-size: 12px; }
+.fw-line small { display: inline; color: var(--faint); }
+.fw-plan .place small.muted, .fw-table td.l > small { display: block; }
+#fwPlanKpis { margin: 4px 0 10px; }
