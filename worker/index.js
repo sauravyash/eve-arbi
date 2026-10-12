@@ -30,8 +30,11 @@ const UPSTREAMS = {
   adam4eve: { base: 'https://api.adam4eve.eu/v1/', maxConcurrent: 1, minInterval: 5_200, minTtl: 10 * 60_000 },
   evepraisal: { base: 'https://evepraisal.itworks.cc/', maxConcurrent: 2, minTtl: 5 * 60_000 },
   zkill: { base: 'https://zkillboard.com/api/', maxConcurrent: 1, minInterval: 1_000, minTtl: 3600_000 },
-  mokaam: { base: 'https://mokaam.dk/API/market/', maxConcurrent: 1, minInterval: 1_000, minTtl: 3600_000 },
+  // downFor: after a connection failure or 5xx gateway error, answer from the cache (or fail fast)
+  // for this long instead of making every request wait out another timeout.
+  mokaam: { base: 'https://mokaam.dk/API/market/', maxConcurrent: 1, minInterval: 1_000, minTtl: 3600_000, downFor: 10 * 60_000 },
 };
+const DOWN_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530]);
 const POST_ALLOW = [/^esi\/universe\/ids\/$/, /^esi\/universe\/names\/$/];
 const MIN_TTL = 60_000, DEFAULT_TTL = 5 * 60_000;
 const MEM_BYTES = 24 * 1024 * 1024;   // per-isolate cache budget (isolates have 128 MB)
@@ -79,7 +82,7 @@ export default {
 const mem = new Map();      // target URL → entry
 let memBytes = 0;
 const inflight = new Map();
-const gates = Object.fromEntries(Object.keys(UPSTREAMS).map(k => [k, { active: 0, queue: [], blockedUntil: 0, lastStart: 0 }]));
+const gates = Object.fromEntries(Object.keys(UPSTREAMS).map(k => [k, { active: 0, queue: [], blockedUntil: 0, lastStart: 0, downUntil: 0 }]));
 
 async function withGate(name, fn) {
   const g = gates[name];
@@ -156,11 +159,19 @@ async function proxy(request, env, ctx, name, rest) {
   const edge = await fromEdgeCache(cacheKey);
   if (edge && edge.expires > now) { remember(target, edge); return respond(edge, 'HIT'); }
   hit ||= edge;
+  const { downFor } = UPSTREAMS[name], g = gates[name];
+  if (g.downUntil > now) {
+    if (hit) return respond(hit, 'STALE');
+    return json(503, { error: `${name} is unreachable; retrying after ${new Date(g.downUntil).toISOString()}` },
+      { 'Retry-After': String(Math.ceil((g.downUntil - now) / 1000)) });
+  }
+  const markDown = () => { if (downFor) g.downUntil = Date.now() + downFor; };
 
   let p = inflight.get(target);
   if (!p) {
     p = withGate(name, async () => {
-      const r = await fetch(target, { headers });
+      const r = await fetch(target, { headers }).catch(e => { markDown(); throw e; });
+      if (DOWN_STATUS.has(r.status)) markDown();
       if (r.status === 429 || r.status === 420) gates[name].blockedUntil = Date.now() + (Number(r.headers.get('retry-after')) || 30) * 1000;
       const ttl = ttlFrom(r.headers, UPSTREAMS[name].minTtl);
       return {
