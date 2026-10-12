@@ -43,8 +43,11 @@ const UPSTREAMS = {
   adam4eve: { base: 'https://api.adam4eve.eu/v1/', maxConcurrent: 1, minInterval: 5_200, minTtl: 10 * 60_000 },
   evepraisal: { base: 'https://evepraisal.itworks.cc/', maxConcurrent: 2, minTtl: 5 * 60_000 },
   zkill: { base: 'https://zkillboard.com/api/', maxConcurrent: 1, minInterval: 1_000, minTtl: 3600_000 },
-  mokaam: { base: 'https://mokaam.dk/API/market/', maxConcurrent: 1, minInterval: 1_000, minTtl: 3600_000 },
+  // downFor: after a connection failure or 5xx gateway error, answer from the cache (or fail fast)
+  // for this long instead of making every request wait out another timeout.
+  mokaam: { base: 'https://mokaam.dk/API/market/', maxConcurrent: 1, minInterval: 1_000, minTtl: 3600_000, downFor: 10 * 60_000 },
 };
+const DOWN_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530]);
 // The only non-GET calls allowed: ESI name ↔ ID resolution (public, unauthenticated).
 const POST_ALLOW = [/^esi\/universe\/ids\/$/, /^esi\/universe\/names\/$/];
 
@@ -72,7 +75,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
 }
 
 // --- per-upstream concurrency gate with Retry-After backoff -----------------
-const gates = Object.fromEntries(Object.keys(UPSTREAMS).map(k => [k, { active: 0, queue: [], blockedUntil: 0, lastStart: 0 }]));
+const gates = Object.fromEntries(Object.keys(UPSTREAMS).map(k => [k, { active: 0, queue: [], blockedUntil: 0, lastStart: 0, downUntil: 0 }]));
 
 async function withGate(name, fn) {
   const g = gates[name];
@@ -95,13 +98,24 @@ function ttlFrom(headers, minTtl = MIN_TTL) {
   return Math.max(minTtl, exp - date); // use upstream clock delta to avoid local skew
 }
 
+function markDown(name, why) {
+  const { downFor } = UPSTREAMS[name];
+  if (!downFor) return;
+  gates[name].downUntil = Date.now() + downFor;
+  console.warn(`[${name}] unreachable (${why}), not retrying for ${downFor / 60_000} min`);
+}
+
 async function fetchUpstream(name, url, init = {}) {
   return withGate(name, async () => {
-    const res = await fetch(url, {
-      ...init,
-      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', ...init.headers },
-      signal: AbortSignal.timeout(30_000),
-    });
+    let res;
+    try {
+      res = await fetch(url, {
+        ...init,
+        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', ...init.headers },
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (e) { markDown(name, e.cause?.code || e.message); throw e; }
+    if (DOWN_STATUS.has(res.status)) markDown(name, `HTTP ${res.status}`);
     if (res.status === 429 || res.status === 420) {
       const ra = Number(res.headers.get('retry-after')) || 30;
       gates[name].blockedUntil = Date.now() + ra * 1000;
@@ -135,6 +149,12 @@ async function proxy(req, res, name, rest) {
 
   const hit = cache.get(url);
   if (hit && hit.expires > Date.now()) return sendCached(res, hit, 'HIT');
+  const downUntil = gates[name].downUntil;
+  if (downUntil > Date.now()) {
+    if (hit) return sendCached(res, hit, 'STALE');
+    return send(res, 503, JSON.stringify({ error: `${name} is unreachable; retrying after ${new Date(downUntil).toISOString()}` }),
+      { 'Content-Type': 'application/json', 'Retry-After': String(Math.ceil((downUntil - Date.now()) / 1000)) });
+  }
 
   let p = inflight.get(url);
   if (!p) {
