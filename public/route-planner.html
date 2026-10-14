@@ -159,6 +159,19 @@
         </div>
       </section>
 
+      <section class="panel" id="clones" aria-labelledby="cloneTitle">
+        <div class="table-head">
+          <h2 id="cloneTitle">Jump clones <span id="cloneCount" class="count"></span></h2>
+          <button id="cloneRefresh" class="btn small ghost" type="button" title="Reload your clones and the ships parked at each">Reload</button>
+        </div>
+        <p id="cloneInfo" class="hint rp-clone-info"></p>
+        <ul id="cloneList" class="rp-clones"></ul>
+        <label class="inline check" title="Only suggest clones where a ship of the Ship size above is parked (any ship when Ship size is Any)" hidden>
+          <input id="cloneNeedShip" type="checkbox"> Only clones with a ship to fly</label>
+        <p class="hint">Each clone shows the jumps your waypoints take when you start there instead, and the assembled ships in
+          its hangar. ESI caches clones for 2 minutes and assets for an hour, so a ship you just moved may not show yet.</p>
+      </section>
+
       <section class="panel" aria-labelledby="avoidTitle">
         <h2 id="avoidTitle">Avoiding <span id="avoidCount" class="count"></span></h2>
         <ul id="avoidList" class="rp-chips"></ul>

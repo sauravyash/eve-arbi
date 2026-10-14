@@ -176,3 +176,45 @@ test('structure market follows X-Pages and filters by type', async () => {
   assert.match(calls.at(-1).url, /markets\/structures\/1035466617946\/\?page=2$/);
   assert.deepEqual((await sso.structureMarket(1035466617946, [35])).map(o => o.order_id), [2]);
 });
+
+test('clones: jump clones, medical clone, structures named, and the assembled ships in each hangar', async () => {
+  const sso = await signedIn(SCOPES, (u) => {
+    if (u.endsWith('/characters/90000001/clones/')) {
+      return { body: {
+        home_location: { location_id: 60003760, location_type: 'station' },
+        jump_clones: [
+          { jump_clone_id: 7, location_id: 60008494, location_type: 'station', implants: [9941], name: 'Hauler' },
+          { jump_clone_id: 8, location_id: 1035466617946, location_type: 'structure', implants: [] },
+        ],
+        last_clone_jump_date: '2026-10-05T12:00:00Z',
+      } };
+    }
+    if (u.includes('/universe/structures/1035466617946/')) return { body: { name: 'Fort Knocks', solar_system_id: 30000144 } };
+    if (u.includes('/characters/90000001/assets/')) {
+      return { body: [
+        { item_id: 1, type_id: 648, location_id: 60008494, location_flag: 'Hangar', is_singleton: true, quantity: 1 },
+        { item_id: 2, type_id: 648, location_id: 60008494, location_flag: 'Hangar', is_singleton: false, quantity: 3 }, // packaged
+        { item_id: 3, type_id: 587, location_id: 1035466617946, location_flag: 'Hangar', is_singleton: true, quantity: 1 },
+        { item_id: 4, type_id: 34, location_id: 1, location_flag: 'Cargo', is_singleton: false, quantity: 10 },   // inside a ship
+        { item_id: 5, type_id: 638, location_id: 60000001, location_flag: 'Hangar', is_singleton: true, quantity: 1 }, // no clone there
+      ] };
+    }
+    return { status: 404, body: {} };
+  });
+  const c = await sso.clones();
+  assert.deepEqual(c.home, { locationId: 60003760, locationType: 'station' });
+  assert.deepEqual(c.jumpClones.map(j => [j.cloneId, j.locationType, j.name, j.implants]),
+    [[7, 'station', 'Hauler', [9941]], [8, 'structure', null, []]]);
+  assert.deepEqual(c.locations, { 1035466617946: { name: 'Fort Knocks', systemId: 30000144 } });
+  assert.deepEqual(c.ships, [{ itemId: 1, typeId: 648, locationId: 60008494 }, { itemId: 3, typeId: 587, locationId: 1035466617946 }]);
+  assert.equal(c.lastJumpAt, Date.parse('2026-10-05T12:00:00Z'));
+});
+
+test('clones without the assets scope still list the clones and say why ships are missing', async () => {
+  const sso = await signedIn(SCOPES.filter(s => !s.startsWith('esi-assets')), (u) =>
+    (u.endsWith('/clones/') ? { body: { jump_clones: [{ jump_clone_id: 1, location_id: 60008494, location_type: 'station' }] } } : { status: 404, body: {} }));
+  const c = await sso.clones();
+  assert.equal(c.jumpClones.length, 1);
+  assert.equal(c.ships, null);
+  assert.match(c.shipsError, /esi-assets\.read_assets/);
+});

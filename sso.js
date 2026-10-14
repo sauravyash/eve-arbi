@@ -1,6 +1,6 @@
 // EVE Online SSO (OAuth 2 authorization code + PKCE) for one local user, plus the signed-in ESI
 // calls the dashboards use: location, online status, current ship, wallet balance, your market
-// orders (character and corporation) and structure markets.
+// orders (character and corporation), structure markets and your jump clones.
 //
 // - Scopes: SCOPES below, or "scopes" in sso.config.json. They must all be enabled on the app
 //   registered at https://developers.eveonline.com. A feature whose scope wasn't granted
@@ -27,6 +27,7 @@ export const SCOPES = [
   'esi-assets.read_assets.v1',
   'esi-industry.read_character_mining.v1',
   'esi-universe.read_structures.v1',
+  'esi-clones.read_clones.v1',
 ];
 const PENDING_TTL = 10 * 60_000;
 const MIN_TTL = 5_000;      // never ask ESI more often than this for the same thing
@@ -44,10 +45,22 @@ const NEED = {
   assets: ['esi-assets.read_assets.v1', 'your assets'],
   mining: ['esi-industry.read_character_mining.v1', 'your mining ledger'],
   structureInfo: ['esi-universe.read_structures.v1', 'player structure names'],
+  clones: ['esi-clones.read_clones.v1', 'your jump clones'],
 };
 
 const isStation = (id) => id >= 60_000_000 && id < 64_000_000;
 const isSystem = (id) => id >= 30_000_000 && id < 33_000_000;
+
+/**
+ * Assembled ships parked in the hangar at any of `locationIds` (packaged ones can't be flown).
+ * Other assembled items come along too; the page keeps the ships (types.json category).
+ * @returns {{itemId, typeId, locationId}[]}
+ */
+export function hangarShips(assets, locationIds) {
+  const at = new Set(locationIds);
+  return (assets || []).filter(a => a.is_singleton && a.location_flag === 'Hangar' && at.has(a.location_id))
+    .map(a => ({ itemId: a.item_id, typeId: a.type_id, locationId: a.location_id }));
+}
 
 /**
  * ESI assets → one entry per type and top-level location: items inside ships and containers
@@ -301,6 +314,40 @@ export function createSso({ clientId, callbackUrl, tokenFile, store = fileStore(
         }));
       }
       return { items, locations };
+    },
+
+    // Your jump clones and medical clone: where each sits, its implants, and the assembled ships in
+    // the hangar there when the assets scope allows it. Structures are placed and named like
+    // assets(); stations are left to the page (stations.json).
+    async clones() {
+      const id = session?.characterId;
+      const b = await esi('clones', `characters/${id}/clones/`);
+      const kind = (l) => (isStation(l) ? 'station' : 'structure');
+      const home = b.home_location ? { locationId: b.home_location.location_id, locationType: kind(b.home_location.location_id) } : null;
+      const jumpClones = (b.jump_clones || []).map(c => ({
+        cloneId: c.jump_clone_id, name: c.name || null, locationId: c.location_id,
+        locationType: kind(c.location_id), implants: c.implants || [],
+      }));
+      const places = [...new Set([...jumpClones.map(c => c.locationId), ...(home ? [home.locationId] : [])])];
+      const locations = {};
+      if (session.scopes.includes(NEED.structureInfo[0])) {
+        await Promise.all(places.filter(l => !isStation(l)).map(async (s) => {
+          try {
+            const r = await esi('structureInfo', `universe/structures/${s}/`, { ttl: 3600_000 });
+            locations[s] = { name: r.name, systemId: r.solar_system_id };
+          } catch { /* no docking access: stays unnamed */ }
+        }));
+      }
+      let ships = null, shipsError = null;
+      if (!session.scopes.includes(NEED.assets[0])) shipsError = scopeError('assets').message;
+      else {
+        try { ships = hangarShips(await esi('assets', `characters/${id}/assets/`, { paged: true }), places); }
+        catch (e) { shipsError = e.message; }
+      }
+      return {
+        home, jumpClones, locations, ships, shipsError,
+        lastJumpAt: b.last_clone_jump_date ? Date.parse(b.last_clone_jump_date) : null,
+      };
     },
 
     // Your personal mining ledger (last 30 days): what you mined, where and when.

@@ -102,8 +102,9 @@ EVE requires every app to be registered, so there's a one-time setup:
      `esi-location.read_ship_type.v1`, `esi-wallet.read_character_wallet.v1`,
      `esi-markets.read_character_orders.v1`, `esi-markets.read_corporation_orders.v1`,
      `esi-markets.structure_markets.v1`, `esi-assets.read_assets.v1`,
-     `esi-industry.read_character_mining.v1`, `esi-universe.read_structures.v1` (the last three for
-     the corp buyback's suggestions and the mining page's "Ore you own"). `publicData` doesn't hurt but isn't used.
+     `esi-industry.read_character_mining.v1`, `esi-universe.read_structures.v1` (those three for
+     the corp buyback's suggestions and the mining page's "Ore you own"), `esi-clones.read_clones.v1`
+     (the route planner's *Jump clones*). `publicData` doesn't hurt but isn't used.
 2. Copy `sso.config.example.json` to `sso.config.json` and put its **Client ID** in it, then restart the server:
    ```json
    { "clientId": "your-client-id" }
@@ -511,6 +512,13 @@ location* on (sign-in menu), that's your character's system.
   Bridges never expire, take any ship but capitals, and have their own *Jump bridges* switch: they count
   in jump totals on every page even with wormholes off. Pairs farther apart than an Ansiblex's 5 ly are
   flagged, since they're probably a typo. They also show in the *Wormhole shortcuts* panel.
+- **Jump clones** (signed in): the panel lists your jump clones (station or structure, implants) with the
+  assembled ships parked in each one's hangar (from your assets, so it needs that scope too), and the jumps
+  your waypoints take when you start from each clone instead. The clone that saves the most jumps and has a
+  ship to fly is marked and offered in the route summary; *Start here* makes its system the start. With a
+  *Ship size* set, only ships of that size count (sizes from each ship's packaged volume); untick *Only
+  clones with a ship to fly* to compare every clone. The medical clone is listed but never suggested. The
+  cooldown shown assumes 24 h: ESI doesn't say your Infomorph Synchronizing level, which takes 1 h off per level.
 - **Danger**: every system on the route shows ESI's ship and pod kills and jumps in the last hour.
   *Avoid kills/h ≥* avoids systems at least that hot (never your own waypoints). When a leg can't keep
   to its preference or avoid list, it relaxes them and marks the leg ⚠.
@@ -519,7 +527,7 @@ location* on (sign-in menu), that's your character's system.
   or share a link: the stack, avoid list and settings are in the URL. Saved routes and the avoid list are
   kept in this browser.
 
-The maths is in `public/js/route-plan.js` (tested in `test/route-plan.test.js`).
+The maths is in `public/js/route-plan.js` and `public/js/clones.js` (tested in `test/route-plan.test.js` and `test/clones.test.js`).
 
 ## Hosting on Cloudflare
 
