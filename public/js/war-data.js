@@ -227,10 +227,12 @@ export const efficiency = (killed, lost) => (killed + lost > 0 ? killed / (kille
  * The regions worth asking zKillboard about: most player ship kills in the last hour first.
  * @param {object[]} kills  ESI /universe/system_kills/
  * @param {(systemId) => number|null} regionOf  region id of a system
+ * @param {(systemId) => boolean} include  only these systems' kills count (say, null-sec only)
  */
-export function hotRegions(kills, regionOf, limit = 6) {
+export function hotRegions(kills, regionOf, limit = 6, include = () => true) {
   const by = new Map();
   for (const r of kills || []) {
+    if (!include(r.system_id)) continue;
     const reg = regionOf(r.system_id);
     if (reg == null) continue;
     by.set(reg, (by.get(reg) || 0) + (r.ship_kills || 0) + (r.pod_kills || 0) / 2);

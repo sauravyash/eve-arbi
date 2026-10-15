@@ -534,9 +534,11 @@ The maths is in `public/js/route-plan.js` and `public/js/clones.js` (tested in `
 
 A star map of who holds space and who is fighting over it, from public data only.
 
-- **Colour by → Sovereignty & FW occupancy** paints each null-sec system in its sov holder's colour
-  (ESI `/sovereignty/map/`) and each low-sec warzone system in its occupying faction's (`/fw/systems/`,
-  faint while contested). One colour per alliance, the same on every visit.
+- **Colour by → Sovereignty, FW & NPC-null control** paints each null-sec system in its sov holder's
+  colour (ESI `/sovereignty/map/`) and each low-sec warzone system in its occupying faction's
+  (`/fw/systems/`, faint while contested). NPC null-sec (Curse, Venal, Stain…) has no sov to claim,
+  so its systems take the colour of the side dominating them (below), drawn faint. One colour per
+  alliance, the same on every visit.
 - **Colour by → Dominance** paints every system, sov or not, by the side scoring most of the player
   kills there on zKillboard: a side *holds* a system with at least 2 kills and half of all kills
   scored there, and *leads* it (drawn faint) when it's contested. *System dominance* ranks the sides
@@ -552,8 +554,10 @@ A star map of who holds space and who is fighting over it, from public data only
   loads its own killmails for the window and shows its enemies and ISK efficiency. Click a system for
   its holder, structures, vulnerability window, campaign and who dominates it, and to load its kills.
 
-zKillboard is asked about the regions with the most player kills in the last hour (*Regions to scan*,
-one request each, up to 200 killmails), plus anything you click. Its killmails carry the attackers and
+**Space** (null-sec by default; low and null; or everywhere) picks which systems' fights count, for
+the conflicts, dominance and the region scan. zKillboard is asked about the regions with the most
+player kills in the last hour in that space (*Regions to scan*, one request each, up to 200
+killmails), plus anything you click; killmails outside the space are kept but not counted. Its killmails carry the attackers and
 victim, so no per-killmail ESI calls are needed; answers are cached for an hour. Coverage grows with
 more regions and the 24-hour window, but a quiet system with no kills has no dominance to show.
 

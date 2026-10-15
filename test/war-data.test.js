@@ -117,6 +117,8 @@ test('hotRegions: most player kills first, NPC-only regions left out', () => {
   ], (id) => region[id] ?? null, 5);
   assert.deepEqual(r.map(x => x.regionId), [20, 10]);
   assert.equal(r[1].heat, 4);
+  const nullOnly = hotRegions([{ system_id: 1, ship_kills: 2 }, { system_id: 3, ship_kills: 9 }], (id) => region[id] ?? null, 5, (id) => id === 1);
+  assert.deepEqual(nullOnly.map(x => x.regionId), [10], 'only included systems count');
 });
 
 test('idsToName: holders, defenders and fighters, once each', () => {

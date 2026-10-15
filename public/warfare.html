@@ -42,10 +42,17 @@
   </header>
 
   <section class="controls" aria-label="Settings">
-    <label title="Sovereignty: the alliance holding each null-sec system, and the faction occupying each warzone system. Dominance: the alliance or corporation scoring most of the kills in a system on zKillboard, wherever it is; faint where it's contested.">Colour by
+    <label title="Sovereignty: the alliance holding each null-sec system, the faction occupying each warzone system, and in NPC null-sec (no sov to claim) the side dominating it, drawn faint. Dominance: the alliance or corporation scoring most of the kills in a system on zKillboard, wherever it is; faint where it's contested.">Colour by
       <select id="colorBy">
-        <option value="sov">Sovereignty &amp; FW occupancy</option>
+        <option value="sov">Sovereignty, FW &amp; NPC-null control</option>
         <option value="dom">Dominance (who's killing there)</option>
+      </select>
+    </label>
+    <label title="Which space the fights, dominance and region scan cover. The sov and warzone colours always show.">Space
+      <select id="space">
+        <option value="null">Null-sec</option>
+        <option value="lownull">Low &amp; null-sec</option>
+        <option value="all">Everywhere (incl. high-sec, J-space)</option>
       </select>
     </label>
     <label title="How far back zKillboard fights go">Fights from the last
@@ -55,7 +62,7 @@
         <option value="86400">24 hours</option>
       </select>
     </label>
-    <label title="zKillboard is asked about the regions with the most player kills in the last hour (ESI). Each region is one request, at most 200 killmails.">Regions to scan
+    <label title="zKillboard is asked about the regions with the most player kills in the last hour (ESI), counting only the Space you picked. Each region is one request, at most 200 killmails.">Regions to scan
       <select id="regions">
         <option value="3">Top 3</option>
         <option value="6">Top 6</option>

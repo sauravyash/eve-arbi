@@ -13,7 +13,7 @@
 
 import { WarMap } from './war-map.js';
 import { secColor, secLabel, isLightTheme } from './map.js';
-import { buildGraph, systemInfo } from './galaxy.js';
+import { buildGraph, systemInfo, isNullSec, isHighSec } from './galaxy.js';
 import { createMe } from './me.js';
 import { formatIsk } from './arbitrage.js';
 import { readUrl, writeUrl } from './url-state.js';
@@ -35,10 +35,10 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* quota or disabled */ } },
 };
 const DEFAULTS = {
-  colorBy: 'sov', window: 10800, regions: 6, mapLayout: '3d',
+  colorBy: 'sov', space: 'null', window: 10800, regions: 6, mapLayout: '3d',
   lOwner: true, lKills: true, lCampaigns: true, lFights: true, mutual: false, alliOnly: false,
 };
-const URL_FIELDS = [['colorBy', ['sov', 'dom']], ['window', [3600, 10800, 86400]], ['regions', [3, 6, 10, 16]]];
+const URL_FIELDS = [['colorBy', ['sov', 'dom']], ['space', ['null', 'lownull', 'all']], ['window', [3600, 10800, 86400]], ['regions', [3, 6, 10, 16]]];
 const settings = { ...DEFAULTS, ...LS.get('war.settings', {}) };
 readUrl(settings, DEFAULTS, URL_FIELDS);
 const save = () => { LS.set('war.settings', settings); writeUrl(settings, DEFAULTS, URL_FIELDS); };
@@ -50,6 +50,14 @@ const asked = new Set();       // zKillboard paths already loaded (per window)
 const names = new Map();       // id → name
 const ui = { coreAt: null, coreError: null, fightsBusy: 0, fightsDone: 0, fightsTodo: 0, fightsError: null, picked: null, focus: null };
 let d = null;   // derived: compute()
+
+// Whether a system is in the Space picked: null-sec, low and null, or anywhere (J-space too).
+function inSpace(sid) {
+  if (settings.space === 'all') return true;
+  const info = graph && systemInfo(graph, sid);
+  if (!info) return false;   // J-space and anything else off the star map
+  return settings.space === 'null' ? isNullSec(info.sec) : !isHighSec(info.sec);
+}
 
 // ---------------------------------------------------------------------------
 // Fetching
@@ -89,7 +97,7 @@ async function loadZkill(path) {
 // The hottest regions, one at a time (zKillboard takes about one request a second).
 async function loadFights() {
   if (!graph) return;
-  const regions = hotRegions(raw.kills, (sid) => systemInfo(graph, sid)?.regionId ?? null, settings.regions);
+  const regions = hotRegions(raw.kills, (sid) => systemInfo(graph, sid)?.regionId ?? null, settings.regions, inSpace);
   ui.fightsTodo = regions.length; ui.fightsDone = 0; ui.fightsError = null; ui.fightsBusy++;
   render();
   for (const { regionId } of regions) {
@@ -138,7 +146,7 @@ async function resolveNames() {
 // ---------------------------------------------------------------------------
 function compute() {
   const cutoff = Date.now() - settings.window * 1000;
-  const recent = [...killmails.values()].filter(km => Date.parse(km.killmail_time) >= cutoff);
+  const recent = [...killmails.values()].filter(km => Date.parse(km.killmail_time) >= cutoff && inSpace(km.solar_system_id));
   const sov = sovIndex(raw.sov);
   const f = fights(recent);
   const dom = dominance(f.systems);
@@ -184,6 +192,9 @@ function owner(sid) {
   if (s?.alliance) return { key: `a:${s.alliance}`, color: colorOf(`a:${s.alliance}`), strength: 1 };
   const fw = d.fw.get(sid);
   if (fw) return { key: `f:${fw.occupier}`, color: colorOf(`f:${fw.occupier}`), strength: fw.status === 'uncontested' ? 1 : 0.4 };
+  // NPC null-sec has no sov to claim: whoever dominates it holds it in practice, drawn faint.
+  const x = d.dom.get(sid);
+  if (s?.faction && x && !x.contested && isNullSec(systemInfo(graph, sid)?.sec ?? 1)) return { key: x.side, color: colorOf(x.side), strength: 0.3 };
   return null;
 }
 
@@ -246,7 +257,7 @@ function render() {
   renderConflicts();
   renderDetail();
   $('legendOwner').textContent = settings.colorBy === 'dom'
-    ? 'Dominant side (faint where contested)' : 'Sov holder or FW occupier (faint where contested)';
+    ? 'Dominant side (faint where contested)' : 'Sov holder or FW occupier; faint: contested, or NPC null-sec held by kills';
   map.setWar({
     owner, kills: d.kills, campaigns: d.campBySys, fights: d.fights.systems, focus: ui.focus?.systems || null, picked: ui.picked,
     layers: { owner: settings.lOwner, kills: settings.lKills, campaigns: settings.lCampaigns, fights: settings.lFights },
@@ -372,7 +383,7 @@ function systemDetail(sid) {
   const hhmm = (t) => new Date(t).toISOString().slice(11, 16);
   const facts = [];
   if (sov?.alliance) facts.push(`<span>Sov ${sideHtml(`a:${sov.alliance}`)}</span>`);
-  else if (sov?.faction && !fw) facts.push(`<span>NPC space: <b>${esc(idName(sov.faction))}</b></span>`);
+  else if (sov?.faction && !fw) facts.push(`<span>${info && isNullSec(info.sec) ? 'NPC null-sec' : 'Empire space'}: <b>${esc(idName(sov.faction))}</b></span>`);
   if (fw) facts.push(`<span>Occupied by ${sideHtml(`f:${fw.occupier}`)} · ${esc(fw.status)}${fw.contest ? ` ${pct(fw.contest)}` : ''}</span>`);
   for (const s of structs) facts.push(`<span>${s.type} ADM <b>${s.adm?.toFixed(1) ?? '—'}</b>${s.vulnStart ? ` · vulnerable ${hhmm(s.vulnStart)}–${hhmm(s.vulnEnd)} EVE` : ''}</span>`);
   if (camp) facts.push(`<span style="color:var(--violet)">${esc(camp.label)} campaign: attackers ${pct(camp.attackers)}${camp.upcoming ? ` (starts ${until(camp.start)})` : ''}</span>`);
@@ -451,6 +462,7 @@ function bind() {
   bindSetting('colorBy', 'colorBy');
   bindSetting('window', 'window', { parse: Number, after: () => { compute(); loadFights(); if (ui.focus?.kind === 'side') loadSide(ui.focus.key); } });
   bindSetting('regions', 'regions', { parse: Number, after: () => loadFights() });
+  bindSetting('space', 'space', { after: () => { compute(); loadFights(); } });
   bindSetting('mapLayout', 'mapLayout', { after: () => map.setLayout(settings.mapLayout) });
   for (const [id, key] of [['lOwner', 'lOwner'], ['lKills', 'lKills'], ['lCampaigns', 'lCampaigns'], ['lFights', 'lFights'], ['mutual', 'mutual'], ['alliOnly', 'alliOnly']]) bindSetting(id, key);
 
