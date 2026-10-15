@@ -42,8 +42,9 @@
   </header>
 
   <section class="controls" aria-label="Settings">
-    <label title="Sovereignty: the alliance holding each null-sec system, the faction occupying each warzone system, and in NPC null-sec (no sov to claim) the side dominating it, drawn faint. Dominance: the alliance or corporation scoring most of the kills in a system on zKillboard, wherever it is; faint where it's contested.">Colour by
+    <label title="Sovereignty: the alliance holding each null-sec system, the faction occupying each warzone system, and in NPC null-sec (no sov to claim) the side dominating it, drawn faint. Dominance: the alliance or corporation scoring most of the kills in a system on zKillboard, wherever it is; faint where it's contested. Control: who holds each low- and null-sec system in practice, from a week of killmails (EVE Ref archives, zKillboard's live feed and its per-system top lists) plus the sov holder's claim; needs this app's own server.">Colour by
       <select id="colorBy">
+        <option value="control">Control (sov + 7 days of killmails)</option>
         <option value="sov">Sovereignty, FW &amp; NPC-null control</option>
         <option value="dom">Dominance (who's killing there)</option>
       </select>
@@ -122,6 +123,28 @@
         </div>
         <ul id="campList" class="wf-list"></ul>
         <p class="hint">Entosis timers from ESI. The bar is the attackers' score; they take the structure at 100%.</p>
+      </section>
+
+      <section class="panel" id="controlPanel" aria-labelledby="ctlTitle">
+        <div class="table-head">
+          <h2 id="ctlTitle">Control <span id="ctlCount" class="count"></span></h2>
+        </div>
+        <p id="ctlStatus" class="hint wf-ctl-status" aria-live="polite"></p>
+        <div class="table-wrap wf-scroll">
+          <table class="routes wf-table">
+            <thead><tr>
+              <th class="l">Side</th>
+              <th title="Low- and null-sec systems it controls: half or more of the control score there">Holds</th>
+              <th title="Systems where it leads without half the score">Contested</th>
+              <th title="Its control score over the systems it holds or leads">Score</th>
+              <th title="Null-sec systems it holds sov in">Sov</th>
+            </tr></thead>
+            <tbody id="ctlBody"></tbody>
+          </table>
+        </div>
+        <p class="hint">Crawled by this app's server from a week of killmails, newer days counting more: kills scored (×3), ships lost
+          (×1), mining or ratting ships lost (×2 more), structures lost (×6) and destroyed (×3), each alliance's kills on zKillboard's
+          top list for the system (×0.5), and for the sov holder 4 × the system's ADM.</p>
       </section>
 
       <section class="panel" aria-labelledby="domTitle">

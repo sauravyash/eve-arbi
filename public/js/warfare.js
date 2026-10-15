@@ -22,6 +22,7 @@ import {
   sideId, sideKind, allianceColor, sovIndex, territories, campaignRows, structuresBySystem, fights, efficiency,
   hotRegions, idsToName, dominance, dominanceBySide, fwIndex,
 } from './war-data.js';
+import { controlOf, controlBySide, SIGNALS } from './control.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,10 +36,10 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* quota or disabled */ } },
 };
 const DEFAULTS = {
-  colorBy: 'sov', space: 'null', window: 10800, regions: 6, mapLayout: '3d',
+  colorBy: 'control', space: 'null', window: 10800, regions: 6, mapLayout: '3d',
   lOwner: true, lKills: true, lCampaigns: true, lFights: true, mutual: false, alliOnly: false,
 };
-const URL_FIELDS = [['colorBy', ['sov', 'dom']], ['space', ['null', 'lownull', 'all']], ['window', [3600, 10800, 86400]], ['regions', [3, 6, 10, 16]]];
+const URL_FIELDS = [['colorBy', ['control', 'sov', 'dom']], ['space', ['null', 'lownull', 'all']], ['window', [3600, 10800, 86400]], ['regions', [3, 6, 10, 16]]];
 const settings = { ...DEFAULTS, ...LS.get('war.settings', {}) };
 readUrl(settings, DEFAULTS, URL_FIELDS);
 const save = () => { LS.set('war.settings', settings); writeUrl(settings, DEFAULTS, URL_FIELDS); };
@@ -48,7 +49,9 @@ const raw = { sov: [], campaigns: [], structures: [], kills: [], fw: [] };
 const killmails = new Map();   // killmail_id → zKillboard killmail
 const asked = new Set();       // zKillboard paths already loaded (per window)
 const names = new Map();       // id → name
-const ui = { coreAt: null, coreError: null, fightsBusy: 0, fightsDone: 0, fightsTodo: 0, fightsError: null, picked: null, focus: null };
+// The server's control crawl (GET /api/control): null until loaded, false when there's no server for it.
+let control = null;
+const ui = { controlError: null, coreAt: null, coreError: null, fightsBusy: 0, fightsDone: 0, fightsTodo: 0, fightsError: null, picked: null, focus: null };
 let d = null;   // derived: compute()
 
 // Whether a system is in the Space picked: null-sec, low and null, or anywhere (J-space too).
@@ -79,6 +82,31 @@ async function loadCore() {
   compute();
   render();
   resolveNames();
+}
+
+async function loadControl() {
+  try {
+    const r = await fetch('/api/control');
+    if (r.status === 404) { control = false; ui.controlError = 'needs this app\'s own server (npm start)'; }
+    else if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    else {
+      control = await r.json();
+      for (const [id, [name]] of Object.entries(control.names || {})) if (name && !names.has(Number(id))) names.set(Number(id), name);
+      ui.controlError = null;
+    }
+  } catch (e) { ui.controlError = e.message; }
+  if (control === false && settings.colorBy === 'control') settings.colorBy = 'sov';
+  syncControlOption();
+  compute();
+  render();
+  resolveNames();
+}
+
+function syncControlOption() {
+  const opt = $('colorBy').querySelector('option[value=control]');
+  opt.disabled = control === false;
+  opt.textContent = control === false ? 'Control (needs the local server)' : `Control (sov + ${control?.windowDays || 7} days of killmails)`;
+  $('colorBy').value = settings.colorBy;
 }
 
 // One zKillboard list; its killmails join the pool. Paths are relative to /api/zkill/.
@@ -132,7 +160,8 @@ async function nameBatch(ids) {
 let naming = null;
 async function resolveNames() {
   if (naming) return naming.then(resolveNames);
-  const todo = idsToName({ sov: d?.sov, campaigns: raw.campaigns, fightSides: d?.fights.sides }).filter(id => !names.has(id));
+  const controlIds = (d?.controlSides || []).map(r => sideId(r.side));
+  const todo = [...new Set([...idsToName({ sov: d?.sov, campaigns: raw.campaigns, fightSides: d?.fights.sides }), ...controlIds])].filter(id => !names.has(id));
   if (!todo.length) return;
   naming = (async () => { for (let i = 0; i < todo.length; i += 500) await nameBatch(todo.slice(i, i + 500)).catch(() => {}); })();
   await naming;
@@ -160,6 +189,20 @@ function compute() {
   d.campBySys = new Map(d.camps.map(c => [c.systemId, c]));
   d.terrBy = new Map(d.terr.map(t => [t.allianceId, t]));
   d.domBy = new Map(d.domSides.map(r => [r.side, r]));
+  // Control: the crawl's sides per system, plus the sov holder's claim at the system's ADM.
+  d.control = new Map();
+  if (control && graph) {
+    for (let i = 0; i < graph.n; i++) {
+      const sid = graph.id[i];
+      if (graph.sec[i] >= 0.45 || !inSpace(sid)) continue;
+      const s = sov.get(sid);
+      const adm = Math.max(0, ...(d.structs.get(sid) || []).map(x => x.adm || 0)) || null;
+      const c = controlOf(control.systems?.[sid], { alliance: s?.alliance, adm });
+      if (c) d.control.set(sid, c);
+    }
+  }
+  d.controlSides = controlBySide(d.control);
+  d.controlBy = new Map(d.controlSides.map(r => [r.side, r]));
   if (ui.focus) setFocus(ui.focus.kind, ui.focus.key, { fit: false });
 }
 
@@ -184,6 +227,12 @@ function sideHtml(key, { link = true } = {}) {
 // What colours a system on the map, per Colour by.
 function owner(sid) {
   if (!d) return null;
+  if (settings.colorBy === 'control') {
+    const c = d.control.get(sid);
+    if (c) return { key: c.side, color: colorOf(c.side), strength: c.contested ? 0.3 : Math.max(0.35, c.confidence * 1.4) };
+    const fw = d.fw.get(sid);
+    return fw ? { key: `f:${fw.occupier}`, color: colorOf(`f:${fw.occupier}`), strength: 0.3 } : null;
+  }
   if (settings.colorBy === 'dom') {
     const x = d.dom.get(sid);
     return x ? { key: x.side, color: colorOf(x.side), strength: x.contested ? 0.3 : 1 } : null;
@@ -207,6 +256,7 @@ function setFocus(kind, key, { fit = true } = {}) {
   let label = '';
   if (kind === 'side') {
     if (key.startsWith('a:')) for (const s of d.terrBy.get(sideId(key))?.systemIds || []) systems.add(s);
+    for (const s of d.controlBy.get(key)?.held || []) systems.add(s);
     for (const s of d.fights.sides.get(key)?.systems.keys() || []) systems.add(s);
     if (key.startsWith('f:')) for (const [s, fw] of d.fw) if (fw.occupier === sideId(key)) systems.add(s);
     label = sideHtml(key, { link: false });
@@ -252,12 +302,13 @@ function render() {
   if (!d) return;
   renderFocus();
   renderCampaigns();
+  renderControl();
   renderDominance();
   renderAlliances();
   renderConflicts();
   renderDetail();
-  $('legendOwner').textContent = settings.colorBy === 'dom'
-    ? 'Dominant side (faint where contested)' : 'Sov holder or FW occupier; faint: contested, or NPC null-sec held by kills';
+  $('legendOwner').textContent = settings.colorBy === 'control' ? 'Controlling side (fainter: less certain or contested)'
+    : settings.colorBy === 'dom' ? 'Dominant side (faint where contested)' : 'Sov holder or FW occupier; faint: contested, or NPC null-sec held by kills';
   map.setWar({
     owner, kills: d.kills, campaigns: d.campBySys, fights: d.fights.systems, focus: ui.focus?.systems || null, picked: ui.picked,
     layers: { owner: settings.lOwner, kills: settings.lKills, campaigns: settings.lCampaigns, fights: settings.lFights },
@@ -299,6 +350,34 @@ function renderCampaigns() {
       <span class="score" title="Attackers ${pct(c.attackers)}, defenders ${pct(c.defenders)}"><i style="width:${Math.round(c.attackers * 100)}%"></i></span>
     </button></li>`;
   }).join('') : `<li class="empty">${ui.coreAt ? 'No sov campaigns right now.' : 'Loading…'}</li>`;
+}
+
+function controlStatus() {
+  if (control === false) return `Control map unavailable: ${ui.controlError}.`;
+  if (!control) return ui.controlError ? `Control map: ${ui.controlError}` : 'Loading the control map…';
+  const archived = control.days.filter(x => x.source === 'archive');
+  const liveDays = control.days.filter(x => x.source === 'live');
+  const kills = control.days.reduce((t, x) => t + x.kills, 0);
+  const parts = [
+    `${kills.toLocaleString()} low/null-sec killmails: ${archived.length}/${control.windowDays} days from EVE Ref` +
+      (control.archiving ? ` (fetching ${control.archiving})` : ''),
+    `${liveDays.reduce((t, x) => t + x.kills, 0)} live from R2Z2${control.live.at ? `, last ${ago(control.live.at)}` : ''}`,
+    `zKillboard top lists for ${control.zkill.crawled.toLocaleString()} of ${control.zkill.total.toLocaleString()} systems`,
+  ];
+  const errs = [control.archiveError && `EVE Ref ${control.archiveError}`, control.live.error && `R2Z2 ${control.live.error}`, control.zkill.error && `zKillboard ${control.zkill.error}`].filter(Boolean);
+  return `${parts.join(' · ')}.${errs.length ? ` Last errors: ${errs.join('; ')}.` : ''}`;
+}
+
+function renderControl() {
+  $('ctlStatus').textContent = controlStatus();
+  const rows = d.controlSides.filter(r => !settings.alliOnly || r.side.startsWith('a:')).slice(0, 80);
+  $('ctlCount').textContent = rows.length ? `${d.controlSides.reduce((t, r) => t + r.held.length, 0)} systems held` : '';
+  $('ctlBody').innerHTML = rows.length ? rows.map(r => {
+    const sov = r.side.startsWith('a:') ? d.terrBy.get(sideId(r.side))?.systems : null;
+    return `<tr data-side="${r.side}" class="${ui.focus?.key === r.side ? 'on' : ''}">
+      <td class="l">${sideHtml(r.side, { link: false })}</td>
+      <td>${r.held.length || ''}</td><td class="dim">${r.contested.length || ''}</td><td>${Math.round(r.score)}</td><td class="dim">${sov || ''}</td></tr>`;
+  }).join('') : `<tr><td class="l dim" colspan="5">${control === false ? 'Needs this app\'s own server.' : 'Waiting for the first crawl…'}</td></tr>`;
 }
 
 function renderDominance() {
@@ -352,6 +431,7 @@ function sideDetail(key) {
   const s = d.fights.sides.get(key);
   const t = key.startsWith('a:') ? d.terrBy.get(sideId(key)) : null;
   const dm = d.domBy.get(key);
+  const ctl = d.controlBy.get(key);
   const eff = s ? efficiency(s.iskKilled, s.iskLost) : null;
   const enemies = d.fights.conflicts.filter(c => c.a === key || c.b === key).slice(0, 8);
   const kind = sideKind(key), id = sideId(key);
@@ -360,7 +440,8 @@ function sideDetail(key) {
     <h3>${sideHtml(key, { link: false })}</h3>
     <div class="stats">
       ${t ? stat(t.systems, 'sov systems') : ''}
-      ${stat(dm?.held.length || 0, 'systems dominated')}
+      ${control ? stat(ctl?.held.length || 0, 'systems controlled') : ''}
+      ${stat(dm?.held.length || 0, `dominated, last ${WINDOW_LABEL[settings.window]}`)}
       ${stat(s?.kills || 0, 'kills', 'good')}${stat(s?.losses || 0, 'losses', 'bad')}
       ${stat(formatIsk(s?.iskKilled || 0), 'ISK destroyed')}${stat(formatIsk(s?.iskLost || 0), 'ISK lost')}
       ${stat(pct(eff), 'ISK efficiency', eff == null ? '' : eff >= 0.5 ? 'good' : 'bad')}
@@ -394,7 +475,8 @@ function systemDetail(sid) {
       ${stat(k?.ship || 0, 'ship kills/h')}${stat(k?.pod || 0, 'pod kills/h')}${stat(k?.npc || 0, 'NPC kills/h')}
       ${stat(f?.kills || 0, `PvP kills, ${WINDOW_LABEL[settings.window]}`)}${stat(formatIsk(f?.isk || 0), 'ISK destroyed')}
     </div>
-    ${dm ? `<div class="facts"><span>Dominance: ${dm.contested ? '<b>contested</b>' : `<b>${pct(dm.share)}</b> of kills by the leader`}</span></div>
+    ${controlHtml(sid)}
+    ${dm ? `<div class="facts"><span>Dominance, last ${WINDOW_LABEL[settings.window]}: ${dm.contested ? '<b>contested</b>' : `<b>${pct(dm.share)}</b> of kills by the leader`}</span></div>
       <ul>${dm.contenders.slice(0, 6).map(([s, n]) => `<li>${sideHtml(s)}<span class="n">${plural(n, 'kill')}</span></li>`).join('')}</ul>`
       : '<div class="facts"><span>No player kills loaded here.</span></div>'}
     <div class="links">
@@ -405,10 +487,24 @@ function systemDetail(sid) {
   </div>`;
 }
 
+const SIGNAL_LABEL = { k: 'kills', l: 'losses', r: 'resident losses', s: 'structures lost', x: 'structures killed', z: 'on zKill top list' };
+
+function controlHtml(sid) {
+  if (!control) return '';
+  const c = d.control.get(sid);
+  if (!c) return `<div class="facts"><span>Control (${control.windowDays} days): no killmails or sov here.</span></div>`;
+  const sovKey = d.sov.get(sid)?.alliance ? `a:${d.sov.get(sid).alliance}` : null;
+  const why = (s) => (s.sovOnly ? 'sov claim only'
+    : [...(s.counts || []).map((v, i) => (v >= 0.05 ? `${v} ${SIGNAL_LABEL[SIGNALS[i]]}` : '')), s.side === sovKey ? 'sov' : ''].filter(Boolean).join(' · '));
+  return `<div class="facts"><span>Control (${control.windowDays} days): ${c.contested ? '<b>contested</b>' : `<b>${pct(c.share)}</b> of the score`}, ${c.evidence >= 1 ? 'plenty of' : c.evidence >= 0.4 ? 'some' : 'little'} evidence</span></div>
+    <ul>${c.sides.slice(0, 5).map(s => `<li>${sideHtml(s.side)}<span class="why">${esc(why(s))}</span><span class="n">${Math.round(s.score)}</span></li>`).join('')}</ul>`;
+}
+
 function tooltip(sid) {
   const info = graph && systemInfo(graph, sid);
   if (!info || !d) return '';
   const sov = d.sov.get(sid), fw = d.fw.get(sid), dm = d.dom.get(sid), k = d.kills.get(sid), camp = d.campBySys.get(sid), f = d.fights.systems.get(sid);
+  const ctl = d.control.get(sid);
   const war = [];
   if (k && (k.ship || k.pod)) war.push(`<span class="k">${k.ship} ships, ${k.pod} pods killed in the last hour</span>`);
   if (f) war.push(`<span class="f">${plural(f.kills, 'PvP kill')} · ${formatIsk(f.isk)} ISK (${WINDOW_LABEL[settings.window]})</span>`);
@@ -417,6 +513,7 @@ function tooltip(sid) {
     <div class="reg">${esc(info.region)}</div>
     ${sov?.alliance ? `<div class="holder">Sov&nbsp;${sideHtml(`a:${sov.alliance}`, { link: false })}</div>` : ''}
     ${fw ? `<div class="holder">FW&nbsp;${sideHtml(`f:${fw.occupier}`, { link: false })}&nbsp;· ${esc(fw.status)}</div>` : ''}
+    ${ctl ? `<div class="holder">${ctl.contested ? 'Control contested, led by' : 'Controlled by'}&nbsp;${sideHtml(ctl.side, { link: false })}&nbsp;${pct(ctl.share)}</div>` : ''}
     ${dm ? `<div class="holder">${dm.contested ? 'Contested, led by' : 'Dominated by'}&nbsp;${sideHtml(dm.side, { link: false })}&nbsp;${pct(dm.share)}</div>` : ''}
     ${war.length ? `<div class="war">${war.join('<br>')}</div>` : ''}`;
 }
@@ -425,13 +522,14 @@ function fillFind() {
   const opts = new Set();
   for (const t of d?.terr || []) opts.add(idName(t.allianceId));
   for (const k of d?.fights.sides.keys() || []) opts.add(sideName(k));
+  for (const r of d?.controlSides || []) opts.add(sideName(r.side));
   $('findList').innerHTML = [...opts].filter(n => !n.startsWith('#')).sort().map(n => `<option value="${esc(n)}">`).join('');
 }
 
 function find(text) {
   const q = text.trim().toLowerCase();
   if (!q || !d) return;
-  for (const k of [...d.terr.map(t => `a:${t.allianceId}`), ...d.fights.sides.keys()]) {
+  for (const k of [...d.terr.map(t => `a:${t.allianceId}`), ...d.fights.sides.keys(), ...d.controlSides.map(r => r.side)]) {
     if (sideName(k).toLowerCase() === q) return focusSide(k);
   }
   if (graph) {
@@ -460,6 +558,7 @@ function bindSetting(id, key, { parse = (v) => v, after } = {}) {
 
 function bind() {
   bindSetting('colorBy', 'colorBy');
+  syncControlOption();
   bindSetting('window', 'window', { parse: Number, after: () => { compute(); loadFights(); if (ui.focus?.kind === 'side') loadSide(ui.focus.key); } });
   bindSetting('regions', 'regions', { parse: Number, after: () => loadFights() });
   bindSetting('space', 'space', { after: () => { compute(); loadFights(); } });
@@ -504,10 +603,13 @@ function init() {
       map.setUniverse(u);
       $('mapMsg').hidden = true;
       me.reapply();
+      loadControl();
       return loadCore().then(loadFights);
     })
     .catch(e => { $('mapMsg').textContent = `Star map data unavailable (${e.message}). Run “npm run build:map”.`; });
   render();
+  // The control crawl keeps going on the server while the page is open; its snapshot changes every minute or so.
+  setInterval(() => { if (document.visibilityState === 'visible' && control !== false) loadControl(); }, 2 * 60_000);
   // ESI's kill counts and sov change hourly at most; zKillboard is cached for an hour.
   setInterval(() => { if (document.visibilityState === 'visible') { asked.clear(); loadCore().then(loadFights); } }, 20 * 60_000);
 }

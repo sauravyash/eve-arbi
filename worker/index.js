@@ -66,6 +66,8 @@ export default {
         return new Response(r.body, { status: r.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
       }
       if (/^\/api\/(scan|uscan|cscan)(\/result)?$/.test(p) && env.SCAN_ORIGIN) return await scanServer(request, env, p + url.search);
+      // The control map is crawled by the scan server (control-crawler.js); without one the page falls back to its own zKillboard scan.
+      if (p === '/api/control') return env.SCAN_ORIGIN ? await scanServer(request, env, p) : json(404, { error: 'The control map needs a scan server' });
       if (/^\/api\/(scan|uscan|cscan)(\/|$)/.test(p)) return json(404, { error: 'Scans run in your browser on this site' });
       if (p.startsWith('/api/')) return json(404, { error: 'Not found' });
       return env.ASSETS.fetch(request);

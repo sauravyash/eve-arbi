@@ -110,7 +110,7 @@ export function structuresBySystem(structures) {
 }
 
 // Only players count as sides in a fight: an attacker with no character is an NPC or a structure's guns.
-const playerSides = (attackers) => {
+export const playerSides = (attackers) => {
   const out = new Set();
   for (const a of attackers || []) if (a.character_id) { const s = sideOf(a); if (s) out.add(s); }
   return out;

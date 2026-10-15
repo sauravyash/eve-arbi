@@ -534,6 +534,10 @@ The maths is in `public/js/route-plan.js` and `public/js/clones.js` (tested in `
 
 A star map of who holds space and who is fighting over it, from public data only.
 
+- **Colour by → Control** (the default) paints every low- and null-sec system by who holds it in
+  practice, from the [control crawl](#control-crawl) below plus the sov holder's claim. Colours are
+  fainter where the evidence is thin or the system is contested. The *Control* panel ranks sides by
+  systems held, and a system's details show each side's score and what it's made of.
 - **Colour by → Sovereignty, FW & NPC-null control** paints each null-sec system in its sov holder's
   colour (ESI `/sovereignty/map/`) and each low-sec warzone system in its occupying faction's
   (`/fw/systems/`, faint while contested). NPC null-sec (Curse, Venal, Stain…) has no sov to claim,
@@ -560,6 +564,37 @@ player kills in the last hour in that space (*Regions to scan*, one request each
 killmails), plus anything you click; killmails outside the space are kept but not counted. Its killmails carry the attackers and
 victim, so no per-killmail ESI calls are needed; answers are cached for an hour. Coverage grows with
 more regions and the 24-hour window, but a quiet system with no kills has no dominance to show.
+
+### Control crawl
+
+`npm start` runs a crawler (`control-crawler.js`) that works out who controls each low- and null-sec
+system from a week of killmails. It starts when the Warfare page asks for `/api/control` and keeps going
+for 30 minutes after the page was last open (`CONTROL_ALWAYS=1` keeps it running). Three sources:
+
+| Source | What it adds | How |
+|---|---|---|
+| [EVE Ref killmail archives](https://data.everef.net/killmails/) | Every killmail of each finished day, all of New Eden (~14,000 a day) | One ~2 MB `.tar.bz2` per day for the last `CONTROL_DAYS` days (default 7), fetched once and tallied in a worker thread; kept in `.cache/control/days/` |
+| zKillboard R2Z2 (`r2z2.zkillboard.com`) | Killmails as they happen, for the hours EVE Ref hasn't published yet | One file per killmail, polled every few seconds once caught up; a day's live tally is replaced by its archive when that's out |
+| zKillboard stats (`/api/stats/solarSystemID/{id}/`) | Each system's top alliances on zKillboard, plus their names and tickers | One system a second at most, busiest systems first, each refreshed every 12 hours |
+
+For each system and side (alliance, else corporation), the score adds up, newer days counting more
+(half as much every 3 days):
+
+| Signal | Weight | Why |
+|---|---|---|
+| Kills scored there | 3 | Force projected into the system |
+| Ships lost there | 1 | Present, even when losing |
+| Mining hulls lost, or ships killed by NPCs alone | +2 | Living there: mining, ratting, hauling |
+| Their structures destroyed there | 6 | They had built in the system |
+| Structures they destroyed there | 3 | Sieging someone's space |
+| Kills on zKillboard's top list for the system | 0.5 | Its own recent window: mostly the same kills again, so it adds coverage more than weight |
+| Sov holder | 4 × ADM | The claim, weighted by how much the space is used |
+
+The side with the highest score controls the system; with less than half of the total, it's
+contested. `bunzip2` and `untar` in `archive.js` read the archives without dependencies; the
+scoring is `public/js/control.js`. On Cloudflare, `/api/control` goes to your
+[scan server](#scans-on-your-own-server) when `SCAN_ORIGIN` is set; without one the page offers the
+other colour modes only.
 
 ## Hosting on Cloudflare
 
