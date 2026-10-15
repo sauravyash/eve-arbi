@@ -22,6 +22,7 @@ view's query string.
 | Contracts | `item-contracts.html`, `courier.html`, `lp-stores.html`, `corp-buyback.html` |
 | Mining | `mining.html` |
 | Route planner | `route-planner.html` |
+| Warfare | `warfare.html` |
 
 The old single-page URLs (`/market.html?tab=…`, `/contracts.html?tab=…` and `/?tab=…` for Hub arbitrage)
 redirect to the matching page (`public/js/nav.js`).
@@ -528,6 +529,33 @@ location* on (sign-in menu), that's your character's system.
   kept in this browser.
 
 The maths is in `public/js/route-plan.js` and `public/js/clones.js` (tested in `test/route-plan.test.js` and `test/clones.test.js`).
+
+## Warfare (`/warfare.html`)
+
+A star map of who holds space and who is fighting over it, from public data only.
+
+- **Colour by → Sovereignty & FW occupancy** paints each null-sec system in its sov holder's colour
+  (ESI `/sovereignty/map/`) and each low-sec warzone system in its occupying faction's (`/fw/systems/`,
+  faint while contested). One colour per alliance, the same on every visit.
+- **Colour by → Dominance** paints every system, sov or not, by the side scoring most of the player
+  kills there on zKillboard: a side *holds* a system with at least 2 kills and half of all kills
+  scored there, and *leads* it (drawn faint) when it's contested. *System dominance* ranks the sides
+  by systems held. This is how to see who really controls NPC null, low-sec and contested sov space.
+- **Overlays**: the last hour's ship and pod kills (ESI, red), zKillboard fights (amber rings) and
+  sov campaigns (violet diamonds with the attackers' score; ESI `/sovereignty/campaigns/`).
+- **Conflicts** lists every pair of sides that met: kills and ISK destroyed each way, where, and when.
+  A side is a pilot's alliance, or corporation if it has none. NPC kills and kills within one side
+  are left out, and a kill counts once per pair of sides on it.
+- **Sov holders** lists each alliance's systems, last-hour kills in their space, average ADM of their
+  sov structures (`/sovereignty/structures/`) and campaigns against them.
+- Click an alliance, corporation or conflict to highlight its systems; an alliance or corporation also
+  loads its own killmails for the window and shows its enemies and ISK efficiency. Click a system for
+  its holder, structures, vulnerability window, campaign and who dominates it, and to load its kills.
+
+zKillboard is asked about the regions with the most player kills in the last hour (*Regions to scan*,
+one request each, up to 200 killmails), plus anything you click. Its killmails carry the attackers and
+victim, so no per-killmail ESI calls are needed; answers are cached for an hour. Coverage grows with
+more regions and the 24-hour window, but a quiet system with no kills has no dominance to show.
 
 ## Hosting on Cloudflare
 

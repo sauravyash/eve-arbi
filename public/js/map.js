@@ -22,7 +22,7 @@ const PALETTES = {
   dark: {
     bg: '#05080c', gate: [110, 135, 160], gateAlpha: [0.12, 0.35], sec: SEC_COLORS, plain: '#7f93a8',
     dotAlpha: [0.55, 0.8], dotScale: 1, region: 'rgba(160, 180, 200, ALPHA)', name: 'rgba(170, 186, 204, 0.75)', hover: '#fff',
-    teal: '#2dd4bf', tealGlow: 'rgba(45,212,191,0.35)', edge: '#9fb3c8', amber: '#e0a74a',
+    teal: '#2dd4bf', tealGlow: 'rgba(45,212,191,0.35)', edge: '#9fb3c8', amber: '#e0a74a', red: '#f0716b',
     violet: '#a78bfa', violetGlow: 'rgba(167,139,250,0.35)', onViolet: '#140d2b', tripText: '#e9e3ff',
     halo: 'rgba(5,8,12,0.92)', hubFill: '#0b1117', hubRing: '#dbe4ee', hubText: '#eef3f8',
     pill: 'rgba(11,15,20,0.92)', pillStrong: 'rgba(6,37,34,0.95)', glow: 14,
@@ -30,7 +30,7 @@ const PALETTES = {
   light: {
     bg: '#eaeff4', gate: [96, 116, 140], gateAlpha: [0.18, 0.42], sec: SEC_COLORS_LIGHT, plain: '#7d8b9c',
     dotAlpha: [0.8, 1], dotScale: 1.3, region: 'rgba(70, 88, 110, ALPHA)', name: 'rgba(52, 66, 84, 0.85)', hover: '#17212c',
-    teal: '#0b7d72', tealGlow: 'rgba(11,125,114,0.22)', edge: '#6a8098', amber: '#a86400',
+    teal: '#0b7d72', tealGlow: 'rgba(11,125,114,0.22)', edge: '#6a8098', amber: '#a86400', red: '#cc3a33',
     violet: '#7045d6', violetGlow: 'rgba(112,69,214,0.22)', onViolet: '#ffffff', tripText: '#3b1f8f',
     halo: 'rgba(234,239,244,0.95)', hubFill: '#ffffff', hubRing: '#17212c', hubText: '#17212c',
     pill: 'rgba(255,255,255,0.95)', pillStrong: 'rgba(226,244,240,0.97)', glow: 8,

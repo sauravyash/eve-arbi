@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Warfare · EVE</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12' fill='none' stroke='%232dd4bf' stroke-width='3'/></svg>">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="warfare.css">
+</head>
+<body data-page="warfare">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3 28.4,12 23.6,26.5 8.4,26.5 3.6,12"/></svg>
+      <div>
+        <h1>Warfare</h1>
+        <p class="sub">Who holds null-sec, who actually dominates each system, whose space is under attack, and who is shooting whom</p>
+      </div>
+    </div>
+    <div id="me" class="me" aria-label="EVE character"></div>
+    <nav class="pages" aria-label="Tools">
+      <a href="index.html">Home</a>
+      <a href="best-items.html">Hub arbitrage</a>
+      <a href="universe-scan.html">Market watch</a>
+      <a href="item-contracts.html">Contracts</a>
+      <a href="mining.html">Mining</a>
+      <a href="route-planner.html">Routes</a>
+      <a href="warfare.html" aria-current="page">Warfare</a>
+    </nav>
+    <button id="themeBtn" class="theme-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
+    <div class="refresh">
+      <span id="status" class="status" role="status" aria-live="polite">Loading star map…</span>
+      <button id="refreshBtn" class="btn primary" type="button" title="Reload sovereignty, kills and fights">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <section class="controls" aria-label="Settings">
+    <label title="Sovereignty: the alliance holding each null-sec system, and the faction occupying each warzone system. Dominance: the alliance or corporation scoring most of the kills in a system on zKillboard, wherever it is; faint where it's contested.">Colour by
+      <select id="colorBy">
+        <option value="sov">Sovereignty &amp; FW occupancy</option>
+        <option value="dom">Dominance (who's killing there)</option>
+      </select>
+    </label>
+    <label title="How far back zKillboard fights go">Fights from the last
+      <select id="window">
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="86400">24 hours</option>
+      </select>
+    </label>
+    <label title="zKillboard is asked about the regions with the most player kills in the last hour (ESI). Each region is one request, at most 200 killmails.">Regions to scan
+      <select id="regions">
+        <option value="3">Top 3</option>
+        <option value="6">Top 6</option>
+        <option value="10">Top 10</option>
+        <option value="16">Top 16</option>
+      </select>
+    </label>
+    <label>Find
+      <input id="find" type="text" list="findList" placeholder="Alliance, corporation or system" spellcheck="false" autocomplete="off">
+      <datalist id="findList"></datalist>
+    </label>
+    <div class="checks">
+      <label class="inline check" title="Colour systems by their owner (see Colour by)"><input id="lOwner" type="checkbox"> Territory</label>
+      <label class="inline check" title="Ship and pod kills in the last hour (ESI, updated hourly)"><input id="lKills" type="checkbox"> Kills/h</label>
+      <label class="inline check" title="Entosis campaigns against TCUs, IHubs and stations"><input id="lCampaigns" type="checkbox"> Sov campaigns</label>
+      <label class="inline check" title="Systems with player-vs-player killmails on zKillboard"><input id="lFights" type="checkbox"> Fights</label>
+    </div>
+  </section>
+
+  <main class="layout wf-layout">
+    <section class="panel graph-panel" aria-label="Star map">
+      <div class="graph-head">
+        <div id="focusInfo" class="wf-focus" aria-live="polite"></div>
+        <div class="map-tools">
+          <label class="inline">Layout
+            <select id="mapLayout">
+              <option value="3d">Top-down</option>
+              <option value="2d">In-game 2D map</option>
+            </select>
+          </label>
+          <div class="btn-group" role="group" aria-label="Map zoom">
+            <button id="mapZoomOut" class="btn small" type="button" aria-label="Zoom out">−</button>
+            <button id="mapZoomIn" class="btn small" type="button" aria-label="Zoom in">+</button>
+            <button id="mapFitFocus" class="btn small" type="button">Focus</button>
+            <button id="mapFitAll" class="btn small" type="button">All</button>
+          </div>
+        </div>
+      </div>
+      <div id="mapView" class="map-view">
+        <canvas id="mapCanvas" aria-label="Star map of New Eden by sovereignty. Drag to pan, scroll to zoom, click a system for its details."></canvas>
+        <div id="mapTip" class="map-tip" hidden></div>
+        <div id="mapMsg" class="map-msg">Loading star map…</div>
+      </div>
+      <ul class="legend">
+        <li><i class="dot-sov"></i><span id="legendOwner">Sov holder or FW occupier (one colour each)</span></li>
+        <li><i class="dot-kill"></i>Kills in the last hour</li>
+        <li><i class="ring-fight"></i>Fights on zKillboard</li>
+        <li><i class="dia-camp"></i>Sov campaign, attackers' score</li>
+      </ul>
+      <div id="detail" class="wf-detail" aria-live="polite"></div>
+    </section>
+
+    <aside class="side">
+      <section class="panel" aria-labelledby="campTitle">
+        <div class="table-head">
+          <h2 id="campTitle">Sov campaigns <span id="campCount" class="count"></span></h2>
+        </div>
+        <ul id="campList" class="wf-list"></ul>
+        <p class="hint">Entosis timers from ESI. The bar is the attackers' score; they take the structure at 100%.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="domTitle">
+        <div class="table-head">
+          <h2 id="domTitle">System dominance <span id="domCount" class="count"></span></h2>
+        </div>
+        <div class="table-wrap wf-scroll">
+          <table class="routes wf-table">
+            <thead><tr>
+              <th class="l">Side</th>
+              <th title="Systems where it scores at least half the kills (and 2 or more)">Holds</th>
+              <th title="Contested systems where it scores the most kills">Leads</th>
+              <th title="Kills it scored in those systems">Kills</th>
+              <th title="Null-sec systems it holds sov in">Sov</th>
+            </tr></thead>
+            <tbody id="domBody"></tbody>
+          </table>
+        </div>
+        <p class="hint">From the zKillboard fights below: who is doing the killing in each system, sov or not. A side holds a system
+          with at least 2 kills and half of all kills scored there. Scan more regions or a longer window to cover more space.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="allTitle">
+        <div class="table-head">
+          <h2 id="allTitle">Sov holders <span id="allCount" class="count"></span></h2>
+        </div>
+        <div class="table-wrap wf-scroll">
+          <table class="routes wf-table">
+            <thead><tr>
+              <th class="l">Alliance</th>
+              <th title="Systems held">Sys</th>
+              <th title="Ship kills in their space in the last hour">Kills/h</th>
+              <th title="Average Activity Defense Multiplier of their sov structures (1–6): higher is harder to attack">ADM</th>
+              <th title="Campaigns against them now">Under attack</th>
+            </tr></thead>
+            <tbody id="allBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </aside>
+
+    <section class="panel table-panel" aria-labelledby="fightTitle">
+      <div class="table-head">
+        <h2 id="fightTitle">Conflicts <span id="fightCount" class="count"></span></h2>
+        <label class="inline check" title="Only pairs where both sides scored a kill"><input id="mutual" type="checkbox"> Both sides killing</label>
+        <label class="inline check" title="Leave out corporations without an alliance"><input id="alliOnly" type="checkbox"> Alliances only</label>
+        <span id="fightStatus" class="scan-status" role="status" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="routes wf-table">
+          <thead><tr>
+            <th class="l">Side A</th><th>Kills</th><th>ISK</th><th class="l wf-bar-h">Share of ISK destroyed</th><th>ISK</th><th>Kills</th><th class="l">Side B</th>
+            <th class="l">Where</th><th>Last</th>
+          </tr></thead>
+          <tbody id="fightBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">Killmails from <a href="https://zkillboard.com" target="_blank" rel="noopener">zKillboard</a> for the hottest regions,
+        plus any alliance or system you look at. A side is a pilot's alliance, or corporation if it has none; NPC kills and kills
+        within one side are left out, and a kill counts once for each pair of sides on it. zKillboard's answers are cached for an hour.</p>
+    </section>
+  </main>
+
+  <script type="module" src="js/warfare.js"></script>
+</body>
+</html>
