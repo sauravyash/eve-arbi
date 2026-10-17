@@ -1,5 +1,5 @@
 // The "Wormhole shortcuts" panel (route-planner.html#wormholes): every shortcut shortcuts.js knows,
-// its sources (your jumps, EVE Scout, Wanderer, ones added by hand) and a switch per connection.
+// its sources (your jumps, EVE Scout, Wanderer, pasted bookmarks, ones added by hand) and a switch per connection.
 // The settings are shared with every page; each page's Wormholes switch links here.
 
 import { whSummary } from './wormholes.js';
@@ -60,13 +60,31 @@ export function mountWormholePanel(sc, { secTag = () => '', signedIn = () => fal
     sc.addManual(a, b, type);
     $('whFrom').value = ''; $('whTo').value = ''; $('whType').value = '';
   });
+  $('whBmAdd').addEventListener('click', async () => {
+    const text = $('whBmText').value;
+    if (!text.trim()) return;
+    $('whBmMsg').textContent = 'Looking up systems…';
+    try {
+      const r = await sc.importBookmarks(text);
+      if (!r.rows) { $('whBmMsg').textContent = 'No bookmarks found: paste rows copied from the Locations window (they are tab-separated).'; return; }
+      const s = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+      $('whBmMsg').textContent = `${s(r.rows, 'bookmark')} read: ${s(r.added, 'new shortcut')}${r.updated ? `, ${r.updated} updated` : ''}`
+        + `${r.expired ? `, ${r.expired} already expired` : ''}${r.noDest ? `, ${r.noDest} with no system to go to (safes, "> LOWSEC", …)` : ''}`
+        + `${r.unknown.length ? `; systems not found: ${r.unknown.join(', ')}` : ''}.`;
+      $('whBmText').value = '';
+    } catch (e) { $('whBmMsg').textContent = `Couldn't look up the systems: ${e.message}`; }
+  });
+  $('whBmClear').addEventListener('click', () => {
+    const n = sc.bookmarkCount();
+    if (n && confirm(`Forget all ${n} shortcuts from pasted bookmarks?`)) sc.removeBookmark(null);
+  });
   $('whBody').addEventListener('change', (e) => {
     const key = e.target.dataset.use;
     if (key) sc.setUse(key, e.target.checked, Number(e.target.dataset.at));
   });
   $('whBody').addEventListener('click', (e) => {
-    const key = e.target.closest('[data-del]')?.dataset.del;
-    if (key) sc.removeManual(key);
+    const del = e.target.closest('[data-del]')?.dataset;
+    if (del?.del) (del.src === 'bookmark' ? sc.removeBookmark : sc.removeManual)(del.del);
   });
 
   return function render() {
@@ -76,6 +94,8 @@ export function mountWormholePanel(sc, { secTag = () => '', signedIn = () => fal
     $('whOn').checked = w.on;
     $('whScout').checked = w.scout;
     const used = links.filter(l => l.use).length;
+    const bm = sc.bookmarkCount();
+    $('whBmCount').textContent = bm ? `· ${bm} live` : '';
     $('whCount').textContent = !w.on ? '· off' : links.length ? `· ${used} in use on every page` : '';
     const feed = (name, label) => {
       const f = sc.feeds[name];
@@ -89,11 +109,11 @@ export function mountWormholePanel(sc, { secTag = () => '', signedIn = () => fal
       const what = l.kind === 'jump' ? '<span class="badge stale" title="No stargate joins these systems: a wormhole, a jump bridge or a cyno. Untick it if you can\'t fly it again.">no gate</span>' : '';
       return `<tr class="static${l.use && (w.on || l.src === 'bridge') ? '' : ' off'}">
         <td class="l">${esc(sc.sysName(l.a))} ${secTag(l.a)} ↔ ${esc(sc.sysName(l.b))} ${secTag(l.b)}${what}</td>
-        <td class="l">${SOURCE_LABEL[l.src] || l.src}${l.note ? ` <small class="muted"${info ? ` title="${esc(whSummary(info))} (ellatha.com wormhole database)"` : ''}>${esc(l.note)}</small>` : ''}</td>
+        <td class="l"${l.by ? ` title="Bookmarked by ${esc(l.by)}"` : ''}>${SOURCE_LABEL[l.src] || l.src}${l.note ? ` <small class="muted"${info ? ` title="${esc(whSummary(info))} (ellatha.com wormhole database)"` : ''}>${esc(l.note)}</small>` : ''}</td>
         <td>${ago(l.at)}</td>
         <td>${l.src === 'wanderer' ? '<span class="muted" title="Wanderer drops a connection when it collapses">mapped</span>' : l.src === 'bridge' ? '<span class="muted">permanent</span>' : left(expires)}</td>
         <td><input type="checkbox" data-use="${l.key}" data-at="${l.at}"${l.use ? ' checked' : ''} aria-label="Use this connection"></td>
-        <td>${l.src === 'manual' ? `<button class="btn small ghost" type="button" data-del="${l.key}">Remove</button>`
+        <td>${l.src === 'manual' || l.src === 'bookmark' ? `<button class="btn small ghost" type="button" data-del="${l.key}" data-src="${l.src}">Remove</button>`
           : l.src === 'bridge' ? '<a class="muted" href="#bridges" title="Jump bridges are managed in the Jump bridges panel">Manage</a>' : ''}</td>
       </tr>`;
     }).join('') || `<tr class="empty"><td colspan="6" class="l muted">${!w.trail ? 'No shortcuts.'

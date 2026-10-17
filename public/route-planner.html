@@ -264,6 +264,15 @@
             <input id="whWToken" type="password" autocomplete="off" spellcheck="false"></label>
         </fieldset>
       </div>
+      <details class="rp-paste" id="whBmImport">
+        <summary>Import wormhole bookmarks <span id="whBmCount" class="count"></span></summary>
+        <textarea id="whBmText" rows="4" spellcheck="false" placeholder="In game: People &amp; Places → Locations, open the folder, select the bookmarks (Ctrl+A), Ctrl+C, paste here.&#10;Labels like &quot;MKE-480 > Gelhan&quot; or &quot;HOB-904 Keikaken LARGE EOL&quot; become shortcuts from the bookmark's system to the one named."></textarea>
+        <div class="rp-actions">
+          <button id="whBmAdd" class="btn small" type="button">Import</button>
+          <button id="whBmClear" class="btn small ghost" type="button">Remove all bookmarks</button>
+          <span id="whBmMsg" class="hint" role="status" aria-live="polite"></span>
+        </div>
+      </details>
       <div class="table-wrap">
         <table class="routes rp-wh">
           <thead><tr><th class="l">Connection</th><th class="l">Found by</th><th>Seen</th><th>Expires</th><th>Use</th><th></th></tr></thead>
@@ -274,7 +283,7 @@
         while you're signed in with <i>Record my wormhole jumps</i> on (character menu), every system change is recorded from then on.
         Two readings in a row in systems that no stargate joins mean you took a wormhole (or a jump bridge or cyno), and that pair becomes a
         shortcut here, for every character you sign in with on this browser. Group mappers know far more: link a <a href="https://wanderer.ltd" target="_blank" rel="noopener">Wanderer</a>
-        map with its API token and all its connections count too. Shortcuts apply to jump totals on every page (untick <i>Use on every page</i> to
+        map with its API token and all its connections count too, or paste a shared bookmark folder (ESI can't read bookmarks): each hole in it lasts until its bookmark expires. Shortcuts apply to jump totals on every page (untick <i>Use on every page</i> to
         turn them off). Jumps through wormhole space count one per hole, and never count as high-sec. Order ranges still follow stargates, as in game.</p>
     </section>
   </main>

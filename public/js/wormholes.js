@@ -151,6 +151,75 @@ export function parseWanderer(json, now = Date.now()) {
   return out;
 }
 
+// Words in a bookmark label that describe the hole, not where it goes.
+const BM_FLAGS = { small: 'small', medium: 'medium', med: 'medium', large: 'large', xl: 'xlarge', xlarge: 'xlarge', eol: 'EOL', crit: 'crit', reduced: 'reduced' };
+const EVE_TIME = /^(\d{4})\.(\d\d)\.(\d\d) (\d\d):(\d\d)$/;
+const eveTime = (s) => { const m = EVE_TIME.exec(String(s || '').trim()); return m ? Date.UTC(m[1], m[2] - 1, m[3], m[4], m[5]) : null; };
+
+/**
+ * Rows copied from the game's Locations window (People & Places → Locations: select rows, Ctrl+C):
+ * label, type, jumps, system, constellation, region, created, expires, creator, tab-separated, all
+ * times EVE time (UTC). Folder names come along as lines without tabs and are skipped.
+ * A wormhole bookmark's label names where the hole goes: "MKE-480 > Gelhan", "HOB-904 Keikaken LARGE EOL",
+ * "UNKNOWN SIG > J152825 (Toward Misaba)". `dest` lists the names it could be, best first (what follows
+ * the signature or ">", minus notes in brackets and size/EOL words); [] when the label has no
+ * destination (a safe spot, "WH C5").
+ * @returns {{label, sig, dest: string[], flags: string[], system, created, expires, by}[]}
+ */
+export function parseBookmarks(text) {
+  const out = [];
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const cols = line.split('\t');
+    if (cols.length < 8) continue;
+    const label = cols[0].replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&').trim();
+    const system = cols[3].trim();
+    if (!label || !system) continue;
+    const m = /^([A-Z]{3}-\d{3})\b\s*(.*)$/i.exec(label);
+    const sig = m ? m[1].toUpperCase() : null;
+    let rest = m ? m[2] : label;
+    const arrow = /^(?:.*?)>\s*(.*)$/.exec(rest);
+    if (arrow) rest = arrow[1];
+    else if (!sig) rest = '';                              // no signature, no ">": not a hole
+    const flags = [], words = [];
+    for (const w of rest.replace(/\([^)]*\)/g, ' ').split(/\s+/).filter(Boolean)) {
+      const f = BM_FLAGS[w.toLowerCase()];
+      if (f) { if (!flags.includes(f)) flags.push(f); } else if (!flags.length) words.push(w);
+    }
+    const dest = [];
+    const glued = /^(J\d{6})/i.exec(words[0] || '');      // "J222104Toward Misaba"
+    if (glued) dest.push(glued[1].toUpperCase());
+    else for (let n = Math.min(3, words.length); n >= 1; n--) dest.push(words.slice(0, n).join(' '));
+    // "AY-24l": a lower-case L typed for the capital I in a null-sec name.
+    for (const d of [...dest]) if (/l/.test(d) && /\d/.test(d)) dest.push(d.replace(/l/g, 'I'));
+    out.push({ label, sig, dest, flags, system, created: eveTime(cols[6]), expires: eveTime(cols[7]), by: (cols[8] || '').trim() || null });
+  }
+  return out;
+}
+
+/**
+ * Bookmark rows (parseBookmarks) → shortcuts, one per pair, newest first. `idOf(name)` gives a
+ * system ID or null. A bookmark expires when it says it does, else `hours` after it was made; ones
+ * already expired are left out.
+ * @returns {{links: {a, b, at, expiresAt, kind: 'wormhole', src: 'bookmark', note, by}[], noDest: number, unknown: string[], expired: number}}
+ */
+export function bookmarkLinks(rows, idOf, { now = Date.now(), hours = 16 } = {}) {
+  const byPair = new Map(), unknown = new Set();
+  let noDest = 0, expired = 0;
+  for (const r of rows || []) {
+    if (!r.dest.length) { noDest++; continue; }
+    const a = idOf(r.system), b = r.dest.map(idOf).find(Boolean);
+    if (!a) unknown.add(r.system);
+    if (!b) { noDest++; continue; }
+    if (!a || a === b) continue;
+    const at = r.created ?? now, expiresAt = r.expires ?? at + hours * 3_600_000;
+    if (expiresAt <= now) { expired++; continue; }
+    const k = pairKey(a, b), cur = byPair.get(k);
+    if (cur && cur.at >= at) continue;
+    byPair.set(k, { a, b, at, expiresAt, kind: 'wormhole', src: 'bookmark', note: [r.sig, ...r.flags].filter(Boolean).join(' · '), by: r.by });
+  }
+  return { links: [...byPair.values()].sort((x, y) => y.at - x.at), noDest, unknown: [...unknown], expired };
+}
+
 /**
  * Where to ask a Wanderer instance for a map's connections (the proxy in server.js/worker only
  * calls these): the current API path, then the older one. Only public https hosts are allowed, so
