@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseList, parseDetail, shortLeads } from '../scripts/build-wormholes.js';
-import { whCode, whInfo, whSummary, parseWanderer, parseBookmarks, bookmarkLinks } from '../public/js/wormholes.js';
+import { whCode, whInfo, whSummary, parseWanderer, parseBookmarks, bookmarkLinks, cleanBookmarkLinks, BOOKMARK_MAX_HOURS, MAX_BOOKMARK_LINKS } from '../public/js/wormholes.js';
 
 test('parseList reads code, destination and lifetime from the ellatha list page', () => {
   const html = `<tr bgcolor="#F8FBFF"><td><a href="wormholelist.asp?order=name"><b>Name</b></a></td><td>Type</td><td>Max</td></tr>
@@ -98,4 +98,32 @@ test('bookmarkLinks pairs bookmarks into shortcuts, newest per pair, skipping ex
   assert.equal(got.links[0].src, 'bookmark');
   assert.deepEqual([got.noDest, got.unknown, got.expired], [2, ['Nowhere'], 1]);
   assert.equal(bookmarkLinks([row({ system: 'J100001', dest: ['Gelhan'], sig: 'ABC-123', flags: ['large'] })], idOf, { now }).links[0].note, 'ABC-123 · large');
+});
+
+test('bookmarkLinks trusts a bookmark for at most 24 h after it was made, however long it is set to last', () => {
+  const idOf = (n) => ({ a: 30000001, b: 30000002 })[n] ?? null;
+  const made = Date.UTC(2026, 9, 16, 20, 0);
+  const row = (expires) => ({ sig: null, flags: [], system: 'a', dest: ['b'], created: made, expires, by: null });
+  const at = (expires, now = made + 3_600_000) => bookmarkLinks([row(expires)], idOf, { now }).links[0]?.expiresAt;
+  assert.equal(at(made + 48 * 3_600_000), made + 24 * 3_600_000);   // a 48 h bookmark
+  assert.equal(at(made + 4 * 3_600_000), made + 4 * 3_600_000);     // EOL: its own 4 h
+  assert.equal(at(made + 48 * 3_600_000, made + 25 * 3_600_000), undefined);   // past 24 h: dropped
+  assert.equal(BOOKMARK_MAX_HOURS, 24);
+});
+
+test('cleanBookmarkLinks deletes expired and malformed links and keeps the newest per pair', () => {
+  const now = Date.UTC(2026, 9, 17, 12, 0), H = 3_600_000;
+  const l = (o) => ({ a: 30000001, b: 30000002, at: now - H, expiresAt: now + H, note: 'ABC-123', by: 'P', ...o });
+  const out = cleanBookmarkLinks([
+    l({}),
+    l({ a: 30000002, b: 30000001, at: now - 2 * H }),           // same pair, older
+    l({ a: 30000003, expiresAt: now - 1 }),                      // expired
+    l({ a: 30000004, at: now - 30 * H, expiresAt: now + H }),    // made over 24 h ago
+    l({ a: 'x' }), l({ b: 30000001 }), null,
+    l({ a: 30000005, note: 'n'.repeat(200), by: undefined }),
+  ], now);
+  assert.deepEqual(out.map(x => [x.a, x.b]), [[30000001, 30000002], [30000005, 30000002]]);
+  assert.deepEqual([out[0].src, out[0].kind, out[0].by, out[1].note.length, out[1].by], ['bookmark', 'wormhole', 'P', 80, null]);
+  assert.equal(cleanBookmarkLinks(Array.from({ length: 600 }, (_, i) => l({ a: 31000000 + i })), now).length, MAX_BOOKMARK_LINKS);
+  assert.deepEqual(cleanBookmarkLinks('nope', now), []);
 });

@@ -14,6 +14,7 @@ import { createUniverseScanner, hubView } from './public/js/scan/universe-scanne
 import { createContractScanner } from './public/js/scan/contract-scanner.js';
 import { createSso } from './sso.js';
 import { cleanItems } from './public/js/watchlist.js';
+import { cleanBookmarkLinks } from './public/js/wormholes.js';
 import { wandererConnections } from './wanderer.js';
 import { loadCache, saveCache, saveCacheSync } from './proxy-store.js';
 import { createDemandStore, parseRegions } from './public/js/demand-store.js';
@@ -348,32 +349,43 @@ const hasScanSecret = (req) => {
   return got.length === want.length && timingSafeEqual(got, want);
 };
 
-// Watchlists of signed-in characters (public/js/watchlist.js): .cache/watchlists.json,
-// {characterId: {hub: [...], market: [...]}}. Signed-out pages keep theirs in localStorage.
+// Lists saved to signed-in characters: the watchlists (public/js/watchlist.js) and pasted wormhole
+// bookmarks (public/js/shortcuts.js; expired ones are deleted whenever the list is read or saved).
+// .cache/watchlists.json, {characterId: {hub: [...], market: [...], bookmarks: [...]}}.
+// Signed-out pages keep theirs in the browser.
 const WATCHLISTS_FILE = path.join(APP_DIR, '.cache', 'watchlists.json');
+const SAVED_LISTS = { hub: cleanItems, market: cleanItems, bookmarks: cleanBookmarkLinks };
 let watchlistWrite = Promise.resolve();
 
 async function watchlistApi(req, name, json) {
   const st = await sso.status();
   if (!st.loggedIn) return json(401, { error: 'Not signed in' });
+  const clean = SAVED_LISTS[name];
+  const save = (items) => {
+    // Writes queue up so two saves in a row can't interleave; one failing doesn't block the next.
+    const write = watchlistWrite.then(async () => {
+      const cur = await readFile(WATCHLISTS_FILE, 'utf8').then(JSON.parse, () => ({}));
+      (cur[st.characterId] ||= {})[name] = items;
+      await mkdir(path.dirname(WATCHLISTS_FILE), { recursive: true });
+      await writeFile(WATCHLISTS_FILE, JSON.stringify(cur));
+    });
+    watchlistWrite = write.catch(() => {});
+    return write;
+  };
   const all = await readFile(WATCHLISTS_FILE, 'utf8').then(JSON.parse, () => ({}));
   const mine = all[st.characterId]?.[name];
-  if (req.method === 'GET') return json(200, { items: mine ?? [], saved: mine !== undefined });
+  if (req.method === 'GET') {
+    const items = clean(mine);
+    if (mine !== undefined && JSON.stringify(items) !== JSON.stringify(mine)) await save(items);
+    return json(200, { items, saved: mine !== undefined });
+  }
   if (req.method !== 'PUT') return json(405, { error: 'Method not allowed' });
   if (req.headers['x-eve-arbi'] !== '1') return json(403, { error: 'Forbidden' }); // no cross-site writes
   let body = '';
-  for await (const c of req) { body += c; if (body.length > 64 * 1024) return json(413, { error: 'Too large' }); }
+  for await (const c of req) { body += c; if (body.length > 256 * 1024) return json(413, { error: 'Too large' }); }
   let items;
-  try { items = cleanItems(JSON.parse(body || '{}').items); } catch { return json(400, { error: 'Bad JSON' }); }
-  // Writes queue up so two saves in a row can't interleave; one failing doesn't block the next.
-  const write = watchlistWrite.then(async () => {
-    const cur = await readFile(WATCHLISTS_FILE, 'utf8').then(JSON.parse, () => ({}));
-    (cur[st.characterId] ||= {})[name] = items;
-    await mkdir(path.dirname(WATCHLISTS_FILE), { recursive: true });
-    await writeFile(WATCHLISTS_FILE, JSON.stringify(cur));
-  });
-  watchlistWrite = write.catch(() => {});
-  await write;
+  try { items = clean(JSON.parse(body || '{}').items); } catch { return json(400, { error: 'Bad JSON' }); }
+  await save(items);
   return json(200, { items, saved: true });
 }
 
@@ -395,8 +407,8 @@ async function ssoApi(req, res, u) {
       return res.end();
     }
     if (u.pathname === '/api/me' && req.method === 'GET') return json(200, await sso.status());
-    const wl = u.pathname.match(/^\/api\/me\/watchlists\/(hub|market)$/);
-    if (wl) return await watchlistApi(req, wl[1], json);
+    const wl = u.pathname.match(/^\/api\/me\/(?:watchlists\/(hub|market)|(bookmarks))$/);
+    if (wl) return await watchlistApi(req, wl[1] || wl[2], json);
     if (req.method === 'GET') {
       if (u.pathname === '/api/me/location') return json(200, await sso.location());
       if (u.pathname === '/api/me/online') return json(200, await sso.online());

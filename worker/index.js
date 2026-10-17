@@ -19,6 +19,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { createSso } from '../sso.js';
 import { compactItems } from '../public/js/contract-value.js';
 import { cleanItems } from '../public/js/watchlist.js';
+import { cleanBookmarkLinks } from '../public/js/wormholes.js';
 import { wandererConnections } from '../wanderer.js';
 import { createDemandStore, parseRegions } from '../public/js/demand-store.js';
 
@@ -387,14 +388,14 @@ async function account(request, env, url) {
     const r = await run('status');
     return r.error ? json(r.status, { error: r.error }) : json(200, r.value);
   }
-  const wl = p.match(/^\/api\/me\/watchlists\/(hub|market)$/);
+  const wl = p.match(/^\/api\/me\/(?:watchlists\/(hub|market)|(bookmarks))$/);
   if (wl) {
-    if (!env.USERS_DB) return json(404, { error: 'Saved watchlists are not configured' });
+    if (!env.USERS_DB) return json(404, { error: 'Saving to your character is not configured' });
     if (!sid) return json(401, { error: 'Not signed in' });
     const st = await run('status');
     if (st.error) return json(st.status, { error: st.error });
     if (!st.value.loggedIn) return json(401, { error: 'Not signed in' });
-    return watchlists(request, env, st.value.characterId, wl[1]);
+    return savedList(request, env, st.value.characterId, wl[1] || wl[2]);
   }
   if (p === '/api/me/logout' && request.method === 'POST') {
     // A custom header can't be sent cross-site without a CORS preflight, which we never grant.
@@ -417,25 +418,34 @@ async function account(request, env, url) {
   return json(404, { error: 'Not found' });
 }
 
-// Watchlists of signed-in characters (public/js/watchlist.js), one row per character and list,
-// so they follow the character to any browser. Signed-out pages keep theirs in localStorage.
+// Lists saved to signed-in characters, one row per character and list, so they follow the
+// character to any browser: the watchlists (public/js/watchlist.js) and pasted wormhole bookmarks
+// (public/js/shortcuts.js; expired ones are deleted whenever the list is read or saved).
+// Signed-out pages keep theirs in the browser.
+const SAVED_LISTS = { hub: cleanItems, market: cleanItems, bookmarks: cleanBookmarkLinks };
 let watchSchema = null;
-async function watchlists(request, env, characterId, name) {
+async function savedList(request, env, characterId, name) {
+  const clean = SAVED_LISTS[name];
   const db = env.USERS_DB;
   watchSchema ||= db.exec('CREATE TABLE IF NOT EXISTS watchlists (character_id INTEGER NOT NULL, name TEXT NOT NULL, items TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY (character_id, name))')
     .catch(e => { watchSchema = null; throw e; });
   await watchSchema;
   if (request.method === 'GET') {
     const row = await db.prepare('SELECT items FROM watchlists WHERE character_id = ? AND name = ?').bind(characterId, name).first();
-    return json(200, { items: row ? JSON.parse(row.items) : [], saved: !!row });
+    const items = row ? clean(JSON.parse(row.items)) : [];
+    if (row && JSON.stringify(items) !== row.items) {
+      await db.prepare('UPDATE watchlists SET items = ?, updated = ? WHERE character_id = ? AND name = ?')
+        .bind(JSON.stringify(items), Date.now(), characterId, name).run();
+    }
+    return json(200, { items, saved: !!row });
   }
   if (request.method !== 'PUT') return json(405, { error: 'Method not allowed' });
   // A custom header can't be sent cross-site without a CORS preflight, which we never grant.
   if (request.headers.get('x-eve-arbi') !== '1') return json(403, { error: 'Forbidden' });
   const text = await request.text();
-  if (text.length > 64 * 1024) return json(413, { error: 'Too large' });
+  if (text.length > 256 * 1024) return json(413, { error: 'Too large' });
   let items;
-  try { items = cleanItems(JSON.parse(text || '{}').items); } catch { return json(400, { error: 'Bad JSON' }); }
+  try { items = clean(JSON.parse(text || '{}').items); } catch { return json(400, { error: 'Bad JSON' }); }
   await db.prepare('INSERT INTO watchlists (character_id, name, items, updated) VALUES (?, ?, ?, ?) '
     + 'ON CONFLICT (character_id, name) DO UPDATE SET items = excluded.items, updated = excluded.updated')
     .bind(characterId, name, JSON.stringify(items), Date.now()).run();

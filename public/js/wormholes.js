@@ -196,10 +196,14 @@ export function parseBookmarks(text) {
   return out;
 }
 
+// The longest a bookmarked hole is trusted for: nearly every wormhole type dies within 24 h, and
+// groups often set bookmarks to expire after 48 h.
+export const BOOKMARK_MAX_HOURS = 24;
+
 /**
  * Bookmark rows (parseBookmarks) → shortcuts, one per pair, newest first. `idOf(name)` gives a
- * system ID or null. A bookmark expires when it says it does, else `hours` after it was made; ones
- * already expired are left out.
+ * system ID or null. A bookmark lasts until it says it expires, else `hours` after it was made, and
+ * never more than BOOKMARK_MAX_HOURS after it was made; ones already expired are left out.
  * @returns {{links: {a, b, at, expiresAt, kind: 'wormhole', src: 'bookmark', note, by}[], noDest: number, unknown: string[], expired: number}}
  */
 export function bookmarkLinks(rows, idOf, { now = Date.now(), hours = 16 } = {}) {
@@ -211,13 +215,33 @@ export function bookmarkLinks(rows, idOf, { now = Date.now(), hours = 16 } = {})
     if (!a) unknown.add(r.system);
     if (!b) { noDest++; continue; }
     if (!a || a === b) continue;
-    const at = r.created ?? now, expiresAt = r.expires ?? at + hours * 3_600_000;
+    const at = r.created ?? now, expiresAt = Math.min(r.expires ?? at + hours * HOUR, at + BOOKMARK_MAX_HOURS * HOUR);
     if (expiresAt <= now) { expired++; continue; }
     const k = pairKey(a, b), cur = byPair.get(k);
     if (cur && cur.at >= at) continue;
     byPair.set(k, { a, b, at, expiresAt, kind: 'wormhole', src: 'bookmark', note: [r.sig, ...r.flags].filter(Boolean).join(' · '), by: r.by });
   }
   return { links: [...byPair.values()].sort((x, y) => y.at - x.at), noDest, unknown: [...unknown], expired };
+}
+
+export const MAX_BOOKMARK_LINKS = 500;
+
+/**
+ * Bookmark shortcuts from anywhere (a request body, storage) made safe to keep: valid pairs only,
+ * expired ones deleted, the newest per pair, at most MAX_BOOKMARK_LINKS, newest first.
+ */
+export function cleanBookmarkLinks(list, now = Date.now()) {
+  const byPair = new Map();
+  for (const l of Array.isArray(list) ? list : []) {
+    const a = Number(l?.a), b = Number(l?.b), at = Number(l?.at);
+    if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || a <= 0 || b <= 0 || a === b || !Number.isFinite(at)) continue;
+    const expiresAt = Math.min(Number(l.expiresAt), at + BOOKMARK_MAX_HOURS * HOUR);
+    if (!(expiresAt > now)) continue;
+    const k = pairKey(a, b), cur = byPair.get(k);
+    if (cur && cur.at >= at) continue;
+    byPair.set(k, { a, b, at, expiresAt, kind: 'wormhole', src: 'bookmark', note: String(l.note ?? '').slice(0, 80), by: l.by ? String(l.by).slice(0, 60) : null });
+  }
+  return [...byPair.values()].sort((x, y) => y.at - x.at).slice(0, MAX_BOOKMARK_LINKS);
 }
 
 /**

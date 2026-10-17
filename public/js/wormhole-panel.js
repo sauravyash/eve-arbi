@@ -95,7 +95,7 @@ export function mountWormholePanel(sc, { secTag = () => '', signedIn = () => fal
     $('whScout').checked = w.scout;
     const used = links.filter(l => l.use).length;
     const bm = sc.bookmarkCount();
-    $('whBmCount').textContent = bm ? `· ${bm} live` : '';
+    $('whBmCount').textContent = bm ? `· ${bm} live, ${sc.bookmarksOnAccount() ? 'saved to your character' : 'in this browser'}` : '';
     $('whCount').textContent = !w.on ? '· off' : links.length ? `· ${used} in use on every page` : '';
     const feed = (name, label) => {
       const f = sc.feeds[name];
