@@ -7,6 +7,9 @@
 //   wanderer  — a Wanderer mapper's connections, with its map API token (through /api/wanderer, since
 //               Wanderer sends no CORS headers)
 //   manual    — pairs you add on the Routes page, optionally with the hole's type
+//   bookmark  — wormhole bookmarks pasted from the game's Locations window (a shared folder, say);
+//               each lasts until its bookmark expires (at most 24 h), then is deleted. Signed in,
+//               they're saved to your character (/api/me/bookmarks) and follow you to any browser.
 //   bridge    — jump bridges (Ansiblex) you add on the Route planner page. They don't expire, and they
 //               have their own switch (settings.bridges): they count even with wormholes switched off.
 //
@@ -17,16 +20,16 @@
 // reaches the others through the storage event. Pages build order-range geometry (ranges.js)
 // from the gate graph, and jumps from travelGraph().
 
-import { trailLinks, parseEveScout, parseWanderer, withLinks, isJSpace, whInfo, whCode } from './wormholes.js';
+import { trailLinks, parseEveScout, parseWanderer, parseBookmarks, bookmarkLinks, cleanBookmarkLinks, withLinks, isJSpace, whInfo, whCode } from './wormholes.js';
 import { readAllTrails, TRAIL_PREFIX } from './me.js';
 
 const HOUR = 3_600_000;
 const EVE_SCOUT = 'https://api.eve-scout.com/v2/public/signatures';
 const SCOUT_TTL = 5 * 60_000, WANDERER_TTL = 2 * 60_000;
-const KEYS = { settings: 'wh.settings', links: 'wh.links', off: 'wh.off', names: 'wh.sysNames', bridges: 'wh.bridges' };
+const KEYS = { settings: 'wh.settings', links: 'wh.links', off: 'wh.off', names: 'wh.sysNames', bridges: 'wh.bridges', bookmarks: 'wh.bookmarks' };
 
 export const WH_DEFAULTS = { on: true, bridges: true, trail: true, scout: false, hours: 16, wanderer: { on: false, url: 'https://wanderer.ltd', map: '', token: '' } };
-export const SOURCE_LABEL = { trail: 'Your jump', evescout: 'EVE Scout', wanderer: 'Wanderer', manual: 'Added by you', bridge: 'Jump bridge' };
+export const SOURCE_LABEL = { trail: 'Your jump', evescout: 'EVE Scout', wanderer: 'Wanderer', manual: 'Added by you', bookmark: 'Bookmark', bridge: 'Jump bridge' };
 export const pairKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 
 const LS = {
@@ -62,6 +65,8 @@ export function createShortcuts({ onChange = () => {} } = {}) {
   let manual = LS.get(KEYS.links, []);
   let off = LS.get(KEYS.off, {});
   let bridges = LS.get(KEYS.bridges, []);   // [{a, b, at, note?}]
+  let bookmarks = LS.get(KEYS.bookmarks, []);   // bookmarkLinks' links
+  let bmAccount = false;   // saved to the signed-in character, not just this browser
   const names = new Map(LS.get(KEYS.names, []));
   const feeds = {
     evescout: { links: [], at: 0, error: null, loading: null },
@@ -70,6 +75,34 @@ export function createShortcuts({ onChange = () => {} } = {}) {
   let base = null, memo = null, whTypes = null;
   const changed = () => { memo = null; onChange(); };
   fetch('wormhole-types.json').then(r => (r.ok ? r.json() : null)).then(t => { whTypes = t; if (t) changed(); }).catch(() => {});
+
+  // --- pasted bookmarks: this browser, and your character when signed in ----------
+  function saveBookmarks() {
+    bookmarks = cleanBookmarkLinks(bookmarks);   // deletes expired ones
+    LS.set(KEYS.bookmarks, bookmarks);
+    if (bmAccount) {
+      fetch('/api/me/bookmarks', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Eve-Arbi': '1' }, body: JSON.stringify({ items: bookmarks }) })
+        .catch(() => {});
+    }
+  }
+  async function loadBookmarks() {
+    let body;
+    try {
+      const res = await fetch('/api/me/bookmarks');
+      if (!res.ok) { bmAccount = false; return; }
+      body = await res.json();
+    } catch { return; }   // offline: keep this browser's
+    bmAccount = true;
+    // First sign-in: a character that has never saved any takes this browser's.
+    if (!body.saved && bookmarks.length) saveBookmarks();
+    else { bookmarks = cleanBookmarkLinks(body.items); LS.set(KEYS.bookmarks, bookmarks); }
+    changed();
+  }
+  // Expired ones from last time go now, before the server answers.
+  const stored = Array.isArray(bookmarks) ? bookmarks.length : 0;
+  bookmarks = cleanBookmarkLinks(bookmarks);
+  if (bookmarks.length !== stored) LS.set(KEYS.bookmarks, bookmarks);
+  loadBookmarks();
 
   // --- sources -------------------------------------------------------------
   async function loadFeed(name, force, fetcher, ttl, ident = '') {
@@ -115,6 +148,8 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     };
     if (settings.trail) for (const t of readAllTrails()) trailLinks(t.hops, base, { since }).forEach(add);
     manual.filter(l => !(l.expiresAt <= now)).forEach(add);
+    if (bookmarks.some(l => l.expiresAt <= now)) saveBookmarks();
+    bookmarks.forEach(add);
     if (settings.scout) feeds.evescout.links.filter(l => !(l.expiresAt <= now)).forEach(add);
     if (settings.wanderer.on) feeds.wanderer.links.forEach(add);
     if (settings.bridges) bridges.forEach(b => add({ ...b, expiresAt: null, kind: 'bridge', src: 'bridge' }));
@@ -159,6 +194,34 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     return hit.id;
   }
 
+  /**
+   * Many systems typed by name at once (known space locally, the rest in one ESI call).
+   * @returns {Promise<Map<string, number>>} lower-case name → system ID, for the names found
+   */
+  async function systemsByName(list) {
+    const out = new Map(), ask = new Set();
+    if (!base) return out;
+    const local = new Map();
+    for (let i = 0; i < base.n; i++) local.set(base.name[i].toLowerCase(), base.id[i]);
+    for (const [id, n] of names) local.set(n.toLowerCase(), id);
+    for (const raw of list) {
+      const n = String(raw || '').trim(), q = n.toLowerCase();
+      if (!q) continue;
+      if (local.has(q)) out.set(q, local.get(q)); else ask.add(n);
+    }
+    const want = [...ask];
+    for (let i = 0; i < want.length; i += 500) {
+      const res = await fetch('/api/esi/universe/ids/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(want.slice(i, i + 500)) });
+      if (!res.ok) throw new Error(`ESI name lookup: HTTP ${res.status}`);
+      for (const hit of (await res.json()).systems || []) {
+        out.set(hit.name.toLowerCase(), hit.id);
+        if (!base.indexOf.has(hit.id)) names.set(hit.id, hit.name);
+      }
+    }
+    if (want.length) LS.set(KEYS.names, [...names].slice(-500));
+    return out;
+  }
+
   // Another tab recorded a jump or changed a setting.
   window.addEventListener('storage', (e) => {
     if (!e.key) return;
@@ -166,6 +229,7 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     else if (e.key === KEYS.links) { manual = LS.get(KEYS.links, []); changed(); }
     else if (e.key === KEYS.off) { off = LS.get(KEYS.off, {}); changed(); }
     else if (e.key === KEYS.bridges) { bridges = LS.get(KEYS.bridges, []); changed(); }
+    else if (e.key === KEYS.bookmarks) { bookmarks = LS.get(KEYS.bookmarks, []); changed(); }
     else if (e.key.startsWith(TRAIL_PREFIX)) changed();
   });
 
@@ -243,6 +307,39 @@ export function createShortcuts({ onChange = () => {} } = {}) {
     removeBridge(key) {
       bridges = key == null ? [] : bridges.filter(b => pairKey(b.a, b.b) !== key);
       LS.set(KEYS.bridges, bridges);
+      changed();
+    },
+    /**
+     * Wormhole bookmarks pasted from the game (parseBookmarks). They join the ones from earlier
+     * pastes; a pair seen again takes the newer bookmark. Throws when the name lookup fails.
+     * @returns {Promise<{rows, added, updated, noDest, unknown, expired}>}
+     */
+    async importBookmarks(text) {
+      const rows = parseBookmarks(text), now = Date.now();
+      const ids = await systemsByName(rows.flatMap(r => [r.system, ...r.dest]));
+      const got = bookmarkLinks(rows, (n) => ids.get(String(n).toLowerCase()) ?? null, { now, hours: settings.hours });
+      const have = new Map(cleanBookmarkLinks(bookmarks, now).map(l => [pairKey(l.a, l.b), l]));
+      let added = 0, updated = 0;
+      for (const l of got.links) {
+        const key = pairKey(l.a, l.b), cur = have.get(key);
+        if (cur && cur.at >= l.at) continue;
+        if (cur) updated++; else added++;
+        have.set(key, l);
+        delete off[key];
+      }
+      bookmarks = [...have.values()];
+      saveBookmarks(); LS.set(KEYS.off, off);
+      changed();
+      return { rows: rows.length, added, updated, noDest: got.noDest, unknown: got.unknown, expired: got.expired, account: bmAccount };
+    },
+    /** How many pasted bookmarks are still live. */
+    bookmarkCount: () => bookmarks.filter(l => !(l.expiresAt <= Date.now())).length,
+    /** Whether pasted bookmarks are saved to the signed-in character (else this browser only). */
+    bookmarksOnAccount: () => bmAccount,
+    /** Forgets one pasted bookmark's shortcut, or all of them (key null). */
+    removeBookmark(key) {
+      bookmarks = key == null ? [] : bookmarks.filter(l => pairKey(l.a, l.b) !== key);
+      saveBookmarks();
       changed();
     },
     removeManual(key) {

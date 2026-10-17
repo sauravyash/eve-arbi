@@ -8,6 +8,7 @@
     "start": "node server.js",
     "build:map": "node scripts/build-universe.js",
     "build:wormholes": "node scripts/build-wormholes.js",
+    "build:statics": "node scripts/build-wh-statics.js",
     "test": "node --test",
     "cf:dev": "npx wrangler dev",
     "cf:deploy": "npx wrangler deploy"
