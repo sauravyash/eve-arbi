@@ -1,0 +1,82 @@
+/* Warfare (warfare.html): sov map, campaigns, sov holders and the conflicts table. */
+
+.wf-layout .side { gap: 16px; }
+.wf-layout h2 { margin: 0 0 10px; font-size: 14px; }
+.wf-layout .table-head h2 { margin: 0; }
+
+.wf-focus { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; min-height: 26px; flex-wrap: wrap; }
+.wf-focus b { color: var(--text); }
+
+/* Alliance swatch */
+.sw-a { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); flex: none; }
+.side-name { color: inherit; text-decoration: none; display: inline-flex; align-items: center; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.side-name span { overflow: hidden; text-overflow: ellipsis; }
+.side-name small { color: var(--faint); margin-left: 4px; font-size: 10.5px; }
+
+/* Legend marks */
+.legend .dot-sov { display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+  background: conic-gradient(#e0a74a 0 25%, #7dd3fc 0 50%, #a78bfa 0 75%, #86efac 0); opacity: .85; }
+.legend .dot-kill { display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: color-mix(in srgb, var(--red) 35%, transparent); border: 1px solid var(--red); }
+.legend .ring-fight { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--amber); }
+.legend .dia-camp { display: inline-block; width: 8px; height: 8px; border: 2px solid var(--violet); transform: rotate(45deg); margin: 0 2px; }
+
+/* Lists */
+.wf-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wf-list li.empty { color: var(--faint); font-size: 12.5px; padding: 6px 2px; }
+.wf-camp {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2); cursor: pointer; text-align: left; width: 100%;
+  font: inherit; color: inherit;
+}
+.wf-camp:hover, .wf-camp:focus-visible { border-color: var(--line-2); outline: none; background: var(--teal-wash); }
+.wf-camp .what { font-weight: 600; font-size: 13px; }
+.wf-camp .what small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+.wf-camp .when { font: 11.5px var(--mono); color: var(--muted); text-align: right; }
+.wf-camp .who { grid-column: 1 / -1; font-size: 12px; color: var(--muted); display: flex; align-items: center; }
+.wf-camp .upcoming { color: var(--amber); }
+
+.score { grid-column: 1 / -1; position: relative; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.score i { position: absolute; inset: 0 auto 0 0; background: var(--violet); border-radius: 3px; }
+
+/* Tables */
+.wf-scroll { max-height: 420px; overflow-y: auto; }
+.wf-table tbody tr:hover td { background: var(--teal-wash); }
+.wf-table tr.on td { background: var(--teal-soft); }
+.wf-table td.win { color: var(--teal); }
+.wf-table td.lose { color: var(--muted); }
+.wf-table td.dim { color: var(--faint); }
+.wf-table .tag { font: 600 10px var(--mono); color: var(--amber); margin-left: 4px; }
+.wf-bar-h { min-width: 140px; }
+.wf-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); min-width: 120px; }
+.wf-bar i { display: block; height: 100%; background: var(--c); }
+
+/* System / alliance detail under the map */
+.wf-detail { margin-top: 10px; font-size: 13px; }
+.wf-detail:empty { display: none; }
+.wf-detail .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg-2); }
+.wf-detail h3 { margin: 0 0 6px; font-size: 14px; color: var(--text); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wf-detail h3 .sec { font: 600 12px var(--mono); }
+.wf-detail h3 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.wf-detail .facts { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); margin-bottom: 6px; }
+.wf-detail .facts b { color: var(--text); font-weight: 600; }
+.wf-detail .stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 8px; }
+.wf-detail .st { display: flex; flex-direction: column; min-width: 80px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.wf-detail .st b { font: 600 15px var(--mono); color: var(--text); }
+.wf-detail .st span { font-size: 11px; color: var(--faint); }
+.wf-detail .st.good b { color: var(--teal); }
+.wf-detail .st.bad b { color: var(--red); }
+.wf-detail ul { margin: 4px 0 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.wf-detail li { display: flex; align-items: center; gap: 8px; }
+.wf-detail li .n { font: 12px var(--mono); color: var(--muted); margin-left: auto; }
+.wf-detail .links { margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+.wf-detail button.linkish { background: none; border: 0; padding: 0; color: var(--teal); cursor: pointer; font: inherit; }
+.wf-detail button.linkish:hover { text-decoration: underline; }
+
+.wf-ctl-status { margin: 0 0 8px; }
+.wf-detail .why { color: var(--faint); font: 11.5px var(--mono); }
+.map-tip .holder { display: flex; align-items: center; margin-top: 3px; }
+.map-tip .war { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--line); font: 11px var(--mono); }
+.map-tip .war .k { color: var(--red); }
+.map-tip .war .f { color: var(--amber); }
+.map-tip .war .c { color: var(--violet); }
+a.side-name:hover span { text-decoration: underline; }

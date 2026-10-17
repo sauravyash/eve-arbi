@@ -22,6 +22,7 @@ view's query string.
 | Contracts | `item-contracts.html`, `courier.html`, `lp-stores.html`, `corp-buyback.html` |
 | Mining | `mining.html` |
 | Route planner | `route-planner.html` |
+| Warfare | `warfare.html` |
 
 The old single-page URLs (`/market.html?tab=…`, `/contracts.html?tab=…` and `/?tab=…` for Hub arbitrage)
 redirect to the matching page (`public/js/nav.js`).
@@ -528,6 +529,72 @@ location* on (sign-in menu), that's your character's system.
   kept in this browser.
 
 The maths is in `public/js/route-plan.js` and `public/js/clones.js` (tested in `test/route-plan.test.js` and `test/clones.test.js`).
+
+## Warfare (`/warfare.html`)
+
+A star map of who holds space and who is fighting over it, from public data only.
+
+- **Colour by → Control** (the default) paints every low- and null-sec system by who holds it in
+  practice, from the [control crawl](#control-crawl) below plus the sov holder's claim. Colours are
+  fainter where the evidence is thin or the system is contested. The *Control* panel ranks sides by
+  systems held, and a system's details show each side's score and what it's made of.
+- **Colour by → Sovereignty, FW & NPC-null control** paints each null-sec system in its sov holder's
+  colour (ESI `/sovereignty/map/`) and each low-sec warzone system in its occupying faction's
+  (`/fw/systems/`, faint while contested). NPC null-sec (Curse, Venal, Stain…) has no sov to claim,
+  so its systems take the colour of the side dominating them (below), drawn faint. One colour per
+  alliance, the same on every visit.
+- **Colour by → Dominance** paints every system, sov or not, by the side scoring most of the player
+  kills there on zKillboard: a side *holds* a system with at least 2 kills and half of all kills
+  scored there, and *leads* it (drawn faint) when it's contested. *System dominance* ranks the sides
+  by systems held. This is how to see who really controls NPC null, low-sec and contested sov space.
+- **Overlays**: the last hour's ship and pod kills (ESI, red), zKillboard fights (amber rings) and
+  sov campaigns (violet diamonds with the attackers' score; ESI `/sovereignty/campaigns/`).
+- **Conflicts** lists every pair of sides that met: kills and ISK destroyed each way, where, and when.
+  A side is a pilot's alliance, or corporation if it has none. NPC kills and kills within one side
+  are left out, and a kill counts once per pair of sides on it.
+- **Sov holders** lists each alliance's systems, last-hour kills in their space, average ADM of their
+  sov structures (`/sovereignty/structures/`) and campaigns against them.
+- Click an alliance, corporation or conflict to highlight its systems; an alliance or corporation also
+  loads its own killmails for the window and shows its enemies and ISK efficiency. Click a system for
+  its holder, structures, vulnerability window, campaign and who dominates it, and to load its kills.
+
+**Space** (null-sec by default; low and null; or everywhere) picks which systems' fights count, for
+the conflicts, dominance and the region scan. zKillboard is asked about the regions with the most
+player kills in the last hour in that space (*Regions to scan*, one request each, up to 200
+killmails), plus anything you click; killmails outside the space are kept but not counted. Its killmails carry the attackers and
+victim, so no per-killmail ESI calls are needed; answers are cached for an hour. Coverage grows with
+more regions and the 24-hour window, but a quiet system with no kills has no dominance to show.
+
+### Control crawl
+
+`npm start` runs a crawler (`control-crawler.js`) that works out who controls each low- and null-sec
+system from a week of killmails. It starts when the Warfare page asks for `/api/control` and keeps going
+for 30 minutes after the page was last open (`CONTROL_ALWAYS=1` keeps it running). Three sources:
+
+| Source | What it adds | How |
+|---|---|---|
+| [EVE Ref killmail archives](https://data.everef.net/killmails/) | Every killmail of each finished day, all of New Eden (~14,000 a day) | One ~2 MB `.tar.bz2` per day for the last `CONTROL_DAYS` days (default 7), fetched once and tallied in a worker thread; kept in `.cache/control/days/` |
+| zKillboard R2Z2 (`r2z2.zkillboard.com`) | Killmails as they happen, for the hours EVE Ref hasn't published yet | One file per killmail, polled every few seconds once caught up; a day's live tally is replaced by its archive when that's out |
+| zKillboard stats (`/api/stats/solarSystemID/{id}/`) | Each system's top alliances on zKillboard, plus their names and tickers | One system a second at most, busiest systems first, each refreshed every 12 hours |
+
+For each system and side (alliance, else corporation), the score adds up, newer days counting more
+(half as much every 3 days):
+
+| Signal | Weight | Why |
+|---|---|---|
+| Kills scored there | 3 | Force projected into the system |
+| Ships lost there | 1 | Present, even when losing |
+| Mining hulls lost, or ships killed by NPCs alone | +2 | Living there: mining, ratting, hauling |
+| Their structures destroyed there | 6 | They had built in the system |
+| Structures they destroyed there | 3 | Sieging someone's space |
+| Kills on zKillboard's top list for the system | 0.5 | Its own recent window: mostly the same kills again, so it adds coverage more than weight |
+| Sov holder | 4 × ADM | The claim, weighted by how much the space is used |
+
+The side with the highest score controls the system; with less than half of the total, it's
+contested. `bunzip2` and `untar` in `archive.js` read the archives without dependencies; the
+scoring is `public/js/control.js`. On Cloudflare, `/api/control` goes to your
+[scan server](#scans-on-your-own-server) when `SCAN_ORIGIN` is set; without one the page offers the
+other colour modes only.
 
 ## Hosting on Cloudflare
 

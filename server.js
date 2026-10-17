@@ -17,6 +17,7 @@ import { cleanItems } from './public/js/watchlist.js';
 import { wandererConnections } from './wanderer.js';
 import { loadCache, saveCache, saveCacheSync } from './proxy-store.js';
 import { createDemandStore, parseRegions } from './public/js/demand-store.js';
+import { createControlCrawler } from './control-crawler.js';
 
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -46,6 +47,9 @@ const UPSTREAMS = {
   // downFor: after a connection failure or 5xx gateway error, answer from the cache (or fail fast)
   // for this long instead of making every request wait out another timeout.
   mokaam: { base: 'https://mokaam.dk/API/market/', maxConcurrent: 1, minInterval: 1_000, minTtl: 3600_000, downFor: 10 * 60_000 },
+  // The control crawler's own sources (control-crawler.js); not reachable through the page proxy.
+  everef: { base: 'https://data.everef.net/', maxConcurrent: 1 },
+  r2z2: { base: 'https://r2z2.zkillboard.com/', maxConcurrent: 1, minInterval: 200 },
 };
 const DOWN_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530]);
 // The only non-GET calls allowed: ESI name ↔ ID resolution (public, unauthenticated).
@@ -70,6 +74,7 @@ function cacheChanged() {
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     if (dirty) try { saveCacheSync(PROXY_CACHE_FILE, cache); } catch (e) { console.warn(`Proxy cache not saved: ${e.message}`); }
+    try { controlCrawler.saveSync(); } catch (e) { console.warn(`Control crawl not saved: ${e.message}`); }
     process.exit(0);
   });
 }
@@ -265,6 +270,23 @@ const demandStore = createDemandStore({
   },
 });
 
+// Who controls each low/null-sec system, from EVE Ref archives, R2Z2 and zKillboard stats (control-crawler.js).
+const controlCrawler = createControlCrawler({
+  fetchUpstream, data, dir: path.join(CACHE_DIR, 'control'),
+  days: Math.min(30, Math.max(1, Number(process.env.CONTROL_DAYS) || 7)), always: process.env.CONTROL_ALWAYS === '1',
+});
+
+async function controlApi(req, res) {
+  if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
+  try {
+    const body = Buffer.from(JSON.stringify(await controlCrawler.snapshot()));
+    const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+    send(res, 200, gz ? gzipSync(body) : body, { 'Content-Type': 'application/json', ...(gz && { 'Content-Encoding': 'gzip' }) });
+  } catch (e) {
+    send(res, 502, JSON.stringify({ error: e.message }), { 'Content-Type': 'application/json' });
+  }
+}
+
 async function demandApi(req, res, typeId, params) {
   if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
   try {
@@ -425,6 +447,7 @@ http.createServer(async (req, res) => {
       }
     }
     else if (demandMatch) await demandApi(req, res, Number(demandMatch[1]), u.searchParams);
+    else if (u.pathname === '/api/control') await controlApi(req, res);
     else if (scanMatch) await scanApi(req, res, scanMatch[2] || '', u.searchParams, scanners[scanMatch[1]]);
     else if (m) await proxy(req, res, m[1], m[2] + u.search);
     else await serveStatic(req, res, u.pathname);
